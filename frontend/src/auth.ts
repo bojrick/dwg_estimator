@@ -123,11 +123,15 @@ export async function fetchUserProfile(): Promise<UserProfile | null> {
   if (!session?.access_token) return null;
   try {
     const res = await authFetch('/api/auth/me');
+    if (res.status === 401) {
+      saveSession(null);
+      return null;
+    }
     if (res.ok) {
       const data = await res.json();
       const updatedUser: UserProfile = {
         id: data.id,
-        email: data.email,
+        email: data.email || session.user?.email || '',
         default_unit: data.default_unit || 'm',
       };
       saveSession({ ...session, user: updatedUser });

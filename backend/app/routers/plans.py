@@ -292,7 +292,8 @@ def get_auth_profile(
 ):
     user = session.get(User, user_id)
     if not user:
-        # Might be a Supabase user or deleted user
+        if not is_supabase_enabled():
+            raise HTTPException(status_code=401, detail="User account not found, please sign in again")
         return {"id": user_id, "email": "", "default_unit": "m"}
     return {
         "id": user.id,

@@ -99,6 +99,7 @@ interface OpenCadViewerProps {
   onGeneratePdf: () => Promise<void>;
   onUploadDwg: (file: File) => Promise<void>;
   onSavePlan?: () => void;
+  onOpenAuth?: (mode: 'signin' | 'signup') => void;
   onUpdateMetadata?: (patch: { name?: string; sheets?: any[] }) => Promise<void>;
   isGuest?: boolean;
 }
@@ -124,6 +125,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   onGeneratePdf,
   onUploadDwg,
   onSavePlan,
+  onOpenAuth,
   onUpdateMetadata,
   isGuest = false,
 }) => {
@@ -1203,13 +1205,31 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
 
         {/* Right Actions: Sheet View Selector + Save (Guest) + Share + Download */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {onOpenAuth && (
+            <>
+              <button
+                onClick={() => onOpenAuth('signin')}
+                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 transition"
+              >
+                Sign In
+              </button>
+              {!isGuest && (
+                <button
+                  onClick={() => onOpenAuth('signup')}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow transition"
+                >
+                  Sign Up
+                </button>
+              )}
+            </>
+          )}
           {isGuest && onSavePlan && (
             <button
               onClick={onSavePlan}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow transition animate-pulse"
             >
               <Upload className="w-3.5 h-3.5" />
-              <span>Save Plan</span>
+              <span>{onOpenAuth ? 'Sign Up & Save' : 'Save Plan'}</span>
             </button>
           )}
 

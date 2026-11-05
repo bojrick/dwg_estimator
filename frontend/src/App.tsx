@@ -286,8 +286,11 @@ export function App() {
       if (sess && active) {
         setAuthSession(sess);
         fetchUserProfile().then((prof) => {
-          if (prof && active) {
+          if (!active) return;
+          if (prof) {
             setAuthSession((s) => (s ? { ...s, user: prof } : null));
+          } else if (!getStoredSession()) {
+            setAuthSession(null);
           }
         });
       }
@@ -544,6 +547,41 @@ export function App() {
     } finally {
       setUploading(false);
       setUploadProgress(null);
+    }
+  };
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cfg = authConfig || { enabled: true, type: 'foss' };
+    setAuthBusy(true);
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      if (authMode === 'signin') {
+        const sess = await signInWithEmail(cfg, authEmail.trim(), authPassword);
+        setAuthSession(sess);
+        setAuthPassword('');
+        setShowAuthModal(false);
+        await fetchVaultPlans();
+        showToast('Signed in to PlanVault!');
+      } else {
+        const { session } = await signUpWithEmail(
+          cfg,
+          authEmail.trim(),
+          authPassword
+        );
+        if (session) {
+          setAuthSession(session);
+          setAuthPassword('');
+          setShowAuthModal(false);
+          await fetchVaultPlans();
+          showToast('Account created & signed in!');
+        }
+      }
+    } catch (err: any) {
+      setAuthError(err.message || 'Authentication failed');
+    } finally {
+      setAuthBusy(false);
     }
   };
 
@@ -838,6 +876,103 @@ export function App() {
   }
   const projectGroupKeys = Object.keys(groupedByProject).sort();
 
+  const authModal = showAuthModal && (
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5 shadow-2xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center shrink-0">
+              <Lock className="w-4 h-4 text-blue-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-extrabold text-white">
+                {authMode === 'signin' ? 'Sign In to PlanVault' : 'Create Free Account'}
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                {authMode === 'signin'
+                  ? 'Access and sync your private vault'
+                  : 'Save DWG plans & customize your measurement units'}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowAuthModal(false)}
+            className="p-1 rounded-lg text-slate-400 hover:text-white"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleAuthSubmit} className="space-y-3.5">
+          <div>
+            <label className="block text-xs font-bold text-slate-300 mb-1">Email</label>
+            <input
+              type="email"
+              required
+              value={authEmail}
+              onChange={(e) => setAuthEmail(e.target.value)}
+              placeholder="you@example.com"
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-300 mb-1">Password</label>
+            <input
+              type="password"
+              required
+              minLength={6}
+              value={authPassword}
+              onChange={(e) => setAuthPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          {authError && (
+            <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-200">
+              {authError}
+            </div>
+          )}
+
+          {authNotice && (
+            <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-xs text-emerald-200">
+              {authNotice}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={authBusy}
+            className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-bold text-white shadow-lg transition"
+          >
+            {authBusy
+              ? 'Please wait...'
+              : authMode === 'signin'
+              ? 'Sign In'
+              : 'Create Account & Save'}
+          </button>
+        </form>
+
+        <div className="text-center pt-2 border-t border-slate-800">
+          <button
+            type="button"
+            onClick={() => {
+              setAuthMode((m) => (m === 'signin' ? 'signup' : 'signin'));
+              setAuthError(null);
+              setAuthNotice(null);
+            }}
+            className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
+          >
+            {authMode === 'signin'
+              ? "Don't have an account? Sign up"
+              : 'Already have an account? Sign in'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
   // If a Plan is open in the viewer, show full-screen mobile-first Viewer
   if (activePlanPayload) {
     const p = activePlanPayload.plan;
@@ -857,6 +992,16 @@ export function App() {
           initialMeasure={viewerInitialMeasure}
           isGuest={activePlanPayload.isGuest}
           onSavePlan={handleSaveGuestPlan}
+          onOpenAuth={
+            !authSession
+              ? (mode) => {
+                  setAuthMode(mode);
+                  setAuthError(null);
+                  setAuthNotice(null);
+                  setShowAuthModal(true);
+                }
+              : undefined
+          }
           onBack={() => {
             if (window.location.search.includes('share=')) {
               window.history.replaceState({}, '', '/');
@@ -1001,6 +1146,7 @@ export function App() {
             }
           }}
         />
+        {authModal}
       </div>
     );
   }
@@ -1062,10 +1208,10 @@ export function App() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {authSession?.user?.email ? (
+          {authSession ? (
             <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs">
               <span className="text-slate-300 font-mono truncate max-w-[110px] sm:max-w-[160px]">
-                {authSession.user.email}
+                {authSession.user?.email || 'Account'}
               </span>
               <button
                 onClick={() => setShowProfileModal(true)}
@@ -1575,7 +1721,7 @@ export function App() {
       )}
 
       {/* Mobile Sticky Bottom Upload Bar */}
-      {(!authConfig?.enabled || authSession) && (
+      {authSession && (
         <div className="sm:hidden fixed bottom-0 inset-x-0 p-3 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 z-30">
           <button
             onClick={() => {
@@ -1909,102 +2055,7 @@ export function App() {
       )}
 
       {/* Floating Auth Modal for Sign In / Sign Up */}
-      {showAuthModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center shrink-0">
-                  <Lock className="w-4 h-4 text-blue-400" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-extrabold text-white">
-                    {authMode === 'signin' ? 'Sign In to PlanVault' : 'Create Free Account'}
-                  </h3>
-                  <p className="text-[11px] text-slate-400">
-                    {authMode === 'signin'
-                      ? 'Access and sync your private vault'
-                      : 'Save DWG plans & customize your measurement units'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowAuthModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAuthSubmit} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Email</label>
-                <input
-                  type="email"
-                  required
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Password</label>
-                <input
-                  type="password"
-                  required
-                  minLength={6}
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              {authError && (
-                <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-200">
-                  {authError}
-                </div>
-              )}
-
-              {authNotice && (
-                <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-xs text-emerald-200">
-                  {authNotice}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={authBusy}
-                className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-bold text-white shadow-lg transition"
-              >
-                {authBusy
-                  ? 'Please wait...'
-                  : authMode === 'signin'
-                  ? 'Sign In'
-                  : 'Create Account & Save'}
-              </button>
-            </form>
-
-            <div className="text-center pt-2 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMode((m) => (m === 'signin' ? 'signup' : 'signin'));
-                  setAuthError(null);
-                  setAuthNotice(null);
-                }}
-                className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
-              >
-                {authMode === 'signin'
-                  ? "Don't have an account? Sign up"
-                  : 'Already have an account? Sign in'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {authModal}
 
       {/* User Preferences & Unit Customization Modal */}
       {showProfileModal && (
