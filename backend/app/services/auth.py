@@ -8,10 +8,18 @@ import time
 from typing import Any, Dict, Optional, Tuple
 import urllib.error
 import urllib.request
+from dotenv import load_dotenv
 from fastapi import Header, HTTPException
+from pathlib import Path
+
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+load_dotenv()
 
 # Secret key for signing FOSS native tokens (defaults to local random / env)
-NATIVE_JWT_SECRET = os.getenv("AUTH_SECRET_KEY") or os.getenv("SUPABASE_JWT_SECRET") or "planvault-secret-foss-auth-key-32b"
+def get_native_jwt_secret() -> str:
+    return os.getenv("AUTH_SECRET_KEY") or os.getenv("SUPABASE_JWT_SECRET") or "planvault-secret-foss-auth-key-32b"
+
+NATIVE_JWT_SECRET = get_native_jwt_secret()
 # Cache verified tokens: {sha256(token): (expires_at, user_dict)}
 _TOKEN_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 
@@ -49,7 +57,8 @@ def create_access_token(user_id: str, email: str, expires_in_seconds: int = 30 *
     encoded_header = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
     encoded_payload = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
     signing_input = f"{encoded_header}.{encoded_payload}".encode("ascii")
-    signature = hmac.new(NATIVE_JWT_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest()
+    secret = get_native_jwt_secret()
+    signature = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
     encoded_signature = _b64url_encode(signature)
     return f"{encoded_header}.{encoded_payload}.{encoded_signature}"
 
@@ -60,7 +69,8 @@ def verify_native_token(token: str) -> Optional[Dict[str, Any]]:
         if len(parts) != 3:
             return None
         signing_input = f"{parts[0]}.{parts[1]}".encode("ascii")
-        expected_sig = hmac.new(NATIVE_JWT_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest()
+        secret = get_native_jwt_secret()
+        expected_sig = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
         if not hmac.compare_digest(expected_sig, _b64url_decode(parts[2])):
             return None
         payload = json.loads(_b64url_decode(parts[1]).decode("utf-8"))

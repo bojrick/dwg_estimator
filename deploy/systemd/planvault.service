@@ -11,6 +11,7 @@ WorkingDirectory=/opt/dwg_estimator/backend
 # Environment & Dependencies
 Environment="PATH=/opt/dwg_estimator/backend/.venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
+Environment="HOME=/tmp"
 EnvironmentFile=/opt/dwg_estimator/backend/.env
 
 # 4 Gunicorn workers with Uvicorn worker class for high concurrent async throughput

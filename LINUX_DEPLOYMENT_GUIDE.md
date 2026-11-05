@@ -59,11 +59,11 @@ cd /opt/dwg_estimator
 
 # 2. Run the automated setup script
 # Usage: sudo bash deploy/scripts/setup_vps.sh <your-domain> <your-email>
-sudo bash deploy/scripts/setup_vps.sh plans.yourdomain.com admin@yourdomain.com
+sudo bash deploy/scripts/setup_vps.sh plans.suvasam.group plans@suvasam.group
 ```
 
 ### What the automated script handles:
-- Installs `nginx`, `certbot`, `libredwg-tools`, `python3-venv`, `nodejs` (v20 LTS), and build tools.
+- Installs `nginx`, `certbot`, `python3-venv`, `nodejs` (v20 LTS), and build tools, and builds `LibreDWG` (`dwg2dxf`) from source.
 - Configures **UFW firewall** (opens SSH `22`, HTTP `80`, HTTPS `443`, blocks direct FastAPI port `8000`).
 - Creates a dedicated non-root system user `planvault` with proper directory permissions.
 - Generates a cryptographically strong 64-character hex `AUTH_SECRET_KEY` in `backend/.env`.
@@ -80,23 +80,44 @@ If you prefer full control over each component, follow these steps:
 
 ### Step 1: Update System Packages & Install LibreDWG
 
+Ubuntu 24.04+ does not provide a pre-built `libredwg` deb package in default repositories. Install dependencies and build LibreDWG from source:
+
 ```bash
 sudo apt-get update -y
 sudo apt-get install -y --no-install-recommends \
     nginx \
     certbot \
     python3-certbot-nginx \
-    libredwg-tools \
     python3-venv \
     python3-pip \
     build-essential \
+    gcc \
+    python3-dev \
+    autoconf \
+    libtool \
+    swig \
+    texinfo \
     curl \
     git \
     ufw
 
+# Build and install LibreDWG from source (if dwg2dxf is not yet installed):
+if ! command -v dwg2dxf >/dev/null 2>&1; then
+    curl -fsSL https://ftp.gnu.org/gnu/libredwg/libredwg-0.14.tar.xz | tar -xJ /tmp/libredwg --strip-components=1 2>/dev/null || \
+      git clone --depth 1 --recurse-submodules https://git.savannah.gnu.org/git/libredwg.git /tmp/libredwg
+    cd /tmp/libredwg
+    [ -f configure ] || sh autogen.sh
+    ./configure --enable-shared --disable-static --disable-bindings
+    make -j"$(nproc)"
+    sudo make install
+    sudo ldconfig
+    cd - && rm -rf /tmp/libredwg
+fi
+
 # Verify LibreDWG conversion tool is present:
 which dwg2dxf
-# Output should be: /usr/bin/dwg2dxf
+dwg2dxf --version
+# Output should show: /usr/local/bin/dwg2dxf and version 0.14
 ```
 
 ### Step 2: Install Node.js 20 LTS
@@ -296,7 +317,7 @@ An uploaded DWG/DXF or PDF exceeds the configured limit.
 
 ### 3. DWG File Upload fails with `dwg2dxf not found`
 The LibreDWG binary is missing from system PATH.
-- Verify installation: `sudo apt-get install -y libredwg-tools`
+- Verify installation: `which dwg2dxf && dwg2dxf --version` (or rebuild from source via Step 1)
 - Test conversion manually: `dwg2dxf -h`
 
 ### 4. `504 Gateway Timeout` on huge drawings

@@ -14,7 +14,7 @@ fi
 
 DOMAIN="${1:-}"
 EMAIL="${2:-}"
-INSTALL_DIR="${3:-/opt/dwg_estimator}"
+INSTALL_DIR="${3:-/home/ubuntu/dwg_estimator}"
 
 if [ -z "$DOMAIN" ] || [ -z "$EMAIL" ]; then
     echo "Usage: sudo bash $0 <domain> <certbot_email> [install_dir]"
@@ -36,18 +36,50 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     nginx \
     certbot \
     python3-certbot-nginx \
-    libredwg-tools \
     python3-venv \
     python3-pip \
     build-essential \
+    gcc \
+    python3-dev \
+    autoconf \
+    libtool \
+    swig \
+    texinfo \
     curl \
     git \
     ufw \
     ca-certificates
 
+# Build and install LibreDWG from source if dwg2dxf is not already present
+if ! command -v dwg2dxf >/dev/null 2>&1; then
+    echo ">> LibreDWG 'dwg2dxf' not found. Building and installing from source..."
+    LIBREDWG_TMP=$(mktemp -d)
+    if curl -fsSL https://ftp.gnu.org/gnu/libredwg/libredwg-0.14.tar.xz | tar -xJ -C "$LIBREDWG_TMP" --strip-components=1 2>/dev/null; then
+        (
+            cd "$LIBREDWG_TMP"
+            ./configure --enable-shared --disable-static --disable-bindings
+            make -j"$(nproc)"
+            make install
+            ldconfig
+        )
+    else
+        git clone --depth 1 --recurse-submodules https://git.savannah.gnu.org/git/libredwg.git "$LIBREDWG_TMP" || \
+            git clone --depth 1 --recurse-submodules https://github.com/LibreDWG/libredwg.git "$LIBREDWG_TMP"
+        (
+            cd "$LIBREDWG_TMP"
+            sh autogen.sh
+            ./configure --enable-shared --disable-static
+            make -j"$(nproc)"
+            make install
+            ldconfig
+        )
+    fi
+    rm -rf "$LIBREDWG_TMP"
+fi
+
 # Verify LibreDWG binary is in PATH
 if ! command -v dwg2dxf >/dev/null 2>&1; then
-    echo "ERROR: LibreDWG 'dwg2dxf' binary not found after package installation."
+    echo "ERROR: LibreDWG 'dwg2dxf' binary not found after source build."
     exit 1
 fi
 echo "✓ LibreDWG dwg2dxf found at: $(command -v dwg2dxf)"
@@ -121,9 +153,13 @@ if [ ! -f ".env" ]; then
     sed -i "s|replace-with-a-secure-random-64-character-hex-secret-key|$RANDOM_SECRET|" .env
     sed -i "s|yourdomain.com|$DOMAIN|g" .env
     sed -i "s|/opt/dwg_estimator|$INSTALL_DIR|g" .env
+    sed -i "s|/home/ubuntu/dwg_estimator|$INSTALL_DIR|g" .env
     chmod 600 .env
     chown planvault:www-data .env
     echo "✓ Generated random AUTH_SECRET_KEY in backend/.env"
+else
+    # Ensure storage paths match current install directory
+    sed -i "s|/opt/dwg_estimator|$INSTALL_DIR|g" .env
 fi
 
 # ------------------------------------------------------------------------------
@@ -136,10 +172,19 @@ npm run build
 chown -R www-data:www-data "$INSTALL_DIR/frontend/dist"
 
 # ------------------------------------------------------------------------------
-# 7. Systemd Service Installation
+# Step 7: Systemd Service Installation
 # ------------------------------------------------------------------------------
 echo ">> [7/8] Installing and starting Systemd service..."
-sed "s|/opt/dwg_estimator|$INSTALL_DIR|g" \
+PROTECT_HOME="true"
+if [[ "$INSTALL_DIR" == /home/* ]]; then
+    PROTECT_HOME="false"
+    PARENT_HOME=$(dirname "$INSTALL_DIR")
+    chmod o+x "$PARENT_HOME"
+fi
+
+sed -e "s|/opt/dwg_estimator|$INSTALL_DIR|g" \
+    -e "s|/home/ubuntu/dwg_estimator|$INSTALL_DIR|g" \
+    -e "s|ProtectHome=true|ProtectHome=$PROTECT_HOME|g" \
     "$INSTALL_DIR/deploy/systemd/planvault.service" > /etc/systemd/system/planvault.service
 
 systemctl daemon-reload
@@ -164,6 +209,7 @@ cp "$INSTALL_DIR/deploy/nginx/security-headers.conf" /etc/nginx/snippets/planvau
 # Step 8A: Bootstrap HTTP to allow ACME challenge
 sed -e "s|YOUR_DOMAIN|$DOMAIN|g" \
     -e "s|/opt/dwg_estimator|$INSTALL_DIR|g" \
+    -e "s|/home/ubuntu/dwg_estimator|$INSTALL_DIR|g" \
     "$INSTALL_DIR/deploy/nginx/planvault-bootstrap-http.conf" > /etc/nginx/sites-available/planvault
 
 # Remove default site if present
@@ -184,7 +230,9 @@ certbot certonly --webroot -w /var/www/certbot \
 # Step 8C: Switch to production hardened SSL configuration
 sed -e "s|YOUR_DOMAIN|$DOMAIN|g" \
     -e "s|/opt/dwg_estimator|$INSTALL_DIR|g" \
+    -e "s|/home/ubuntu/dwg_estimator|$INSTALL_DIR|g" \
     -e "s|/opt/dwg_estimator/deploy/nginx/security-headers.conf|/etc/nginx/snippets/planvault-security-headers.conf|g" \
+    -e "s|/home/ubuntu/dwg_estimator/deploy/nginx/security-headers.conf|/etc/nginx/snippets/planvault-security-headers.conf|g" \
     "$INSTALL_DIR/deploy/nginx/planvault.conf" > /etc/nginx/sites-available/planvault
 
 nginx -t

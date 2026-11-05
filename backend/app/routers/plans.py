@@ -473,16 +473,14 @@ def list_plans(
 ):
     uid = _resolve_uid(user_id)
     if uid:
-        # Claim pre-auth legacy plans for the first user signing in
-        has_any_owned = session.exec(select(Plan).where(Plan.user_id != None)).first() is not None  # noqa: E711
-        if not has_any_owned:
-            unclaimed = session.exec(select(Plan).where(Plan.user_id == None)).all()  # noqa: E711
-            for p in unclaimed:
-                p.user_id = uid
-                session.add(p)
-            if unclaimed:
-                session.commit()
-        stmt = select(Plan).where(Plan.user_id == uid).order_by(Plan.updated_at.desc())
+        # Claim pre-auth legacy plans for the user signing in
+        unclaimed = session.exec(select(Plan).where(Plan.user_id == None)).all()  # noqa: E711
+        for p in unclaimed:
+            p.user_id = uid
+            session.add(p)
+        if unclaimed:
+            session.commit()
+        stmt = select(Plan).where((Plan.user_id == uid) | (Plan.user_id == None)).order_by(Plan.updated_at.desc())
     else:
         stmt = select(Plan).order_by(Plan.updated_at.desc())
 
