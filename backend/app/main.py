@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import json
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
@@ -109,10 +110,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+raw_origins = os.getenv("ALLOWED_ORIGINS", "*").strip()
+cors_origins = [o.strip() for o in raw_origins.split(",") if o.strip()] if raw_origins != "*" else ["*"]
+allow_credentials = cors_origins != ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
