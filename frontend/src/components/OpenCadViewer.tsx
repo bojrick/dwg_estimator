@@ -20,6 +20,8 @@ import {
   X,
   CheckCircle2,
   RefreshCw,
+  Edit2,
+  Check,
 } from 'lucide-react';
 
 export type ViewerTabMode = 'dwg' | 'pdf' | 'split';
@@ -97,6 +99,7 @@ interface OpenCadViewerProps {
   onGeneratePdf: () => Promise<void>;
   onUploadDwg: (file: File) => Promise<void>;
   onSavePlan?: () => void;
+  onUpdateMetadata?: (patch: { name?: string; sheets?: any[] }) => Promise<void>;
   isGuest?: boolean;
 }
 
@@ -121,6 +124,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   onGeneratePdf,
   onUploadDwg,
   onSavePlan,
+  onUpdateMetadata,
   isGuest = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -148,6 +152,13 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   const [hoverAreaShape, setHoverAreaShape] = useState<DetectedAreaShape | null>(null);
   const [cursorWorld, setCursorWorld] = useState<[number, number] | null>(null);
   const [snapPt, setSnapPt] = useState<[number, number] | null>(null);
+
+  // Metadata editing state
+  const [editingPlanTitle, setEditingPlanTitle] = useState(false);
+  const [tempPlanTitle, setTempPlanTitle] = useState(plan.name || '');
+  const [editingSheetMeta, setEditingSheetMeta] = useState(false);
+  const [tempSheetName, setTempSheetName] = useState('');
+  const [tempSheetDesc, setTempSheetDesc] = useState('');
 
   // Pointer & touch gesture tracking
   const dragRef = useRef<{
@@ -1097,9 +1108,57 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                   {plan.discipline}
                 </span>
               )}
-              <h2 className="text-xs sm:text-sm font-bold text-white truncate max-w-[180px] sm:max-w-md">
-                {plan.name}
-              </h2>
+              {editingPlanTitle ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={tempPlanTitle}
+                    onChange={(e) => setTempPlanTitle(e.target.value)}
+                    className="bg-slate-950 border border-blue-500 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none"
+                    autoFocus
+                  />
+                  <button
+                    onClick={async () => {
+                      if (onUpdateMetadata && tempPlanTitle.trim() && tempPlanTitle !== plan.name) {
+                        await onUpdateMetadata({ name: tempPlanTitle.trim() });
+                      }
+                      setEditingPlanTitle(false);
+                    }}
+                    className="p-1 rounded bg-blue-600 hover:bg-blue-500 text-white"
+                    title="Save title"
+                  >
+                    <Check className="w-3 h-3" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setTempPlanTitle(plan.name || '');
+                      setEditingPlanTitle(false);
+                    }}
+                    className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400"
+                    title="Cancel"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1 group">
+                  <h2 className="text-xs sm:text-sm font-bold text-white truncate max-w-[180px] sm:max-w-md">
+                    {plan.name}
+                  </h2>
+                  {onUpdateMetadata && !isGuest && (
+                    <button
+                      onClick={() => {
+                        setTempPlanTitle(plan.name || '');
+                        setEditingPlanTitle(true);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition"
+                      title="Edit plan name"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 truncate mt-0.5">
               <CheckCircle2 className="w-3 h-3 shrink-0" />
@@ -1154,28 +1213,47 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
             </button>
           )}
 
-          {sheets.length > 1 && (
-            <select
-              value={plan.active_sheet_id || 'all'}
-              onChange={async (e) => {
-                const nextId = e.target.value;
-                setBusyAction('Isolating sheet view...');
-                try {
-                  await onSelectSheet(nextId);
-                } finally {
-                  setBusyAction(null);
-                }
-              }}
-              className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-slate-200 max-w-[155px] sm:max-w-[230px] truncate"
-              title="Switch isolated view from multi-sheet DWG"
-            >
-              {sheets.map((s: any) => (
-                <option key={s.id} value={s.id}>
-                  View #{s.index}: {s.name}
-                </option>
-              ))}
-              <option value="all">Show All {sheets.length} Sheets (Uncropped)</option>
-            </select>
+          {sheets.length > 0 && (
+            <div className="flex items-center gap-1">
+              <select
+                value={plan.active_sheet_id || 'all'}
+                onChange={async (e) => {
+                  const nextId = e.target.value;
+                  setBusyAction('Isolating sheet view...');
+                  try {
+                    await onSelectSheet(nextId);
+                  } finally {
+                    setBusyAction(null);
+                  }
+                }}
+                className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-slate-200 max-w-[155px] sm:max-w-[210px] truncate"
+                title="Switch isolated view from multi-sheet DWG"
+              >
+                {sheets.map((s: any) => (
+                  <option key={s.id} value={s.id}>
+                    {s.index ? `View #${s.index}: ` : ''}{s.name}
+                  </option>
+                ))}
+                <option value="all">Show All {sheets.length} Sheets (Uncropped)</option>
+              </select>
+
+              {onUpdateMetadata && !isGuest && plan.active_sheet_id && plan.active_sheet_id !== 'all' && (
+                <button
+                  onClick={() => {
+                    const cur = sheets.find((s: any) => s.id === plan.active_sheet_id);
+                    if (cur) {
+                      setTempSheetName(cur.name || '');
+                      setTempSheetDesc(cur.description || '');
+                      setEditingSheetMeta(true);
+                    }
+                  }}
+                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                  title="Edit current sheet name and description"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           )}
 
           <button
@@ -1659,6 +1737,71 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
           </div>
         )}
       </div>
+
+      {/* Sheet Metadata Edit Modal */}
+      {editingSheetMeta && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-white">Edit Sheet Name & Description</h3>
+              <button
+                onClick={() => setEditingSheetMeta(false)}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">Sheet Name</label>
+              <input
+                type="text"
+                value={tempSheetName}
+                onChange={(e) => setTempSheetName(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                placeholder="e.g. Ground Floor Plan"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Description (What this view represents)
+              </label>
+              <textarea
+                rows={3}
+                value={tempSheetDesc}
+                onChange={(e) => setTempSheetDesc(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-blue-500 resize-none"
+                placeholder="e.g., Working plan showing room boundaries and external columns..."
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditingSheetMeta(false)}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (onUpdateMetadata) {
+                    const nextSheets = sheets.map((s: any) =>
+                      s.id === plan.active_sheet_id
+                        ? { ...s, name: tempSheetName.trim() || s.name, description: tempSheetDesc.trim() }
+                        : s
+                    );
+                    await onUpdateMetadata({ sheets: nextSheets });
+                  }
+                  setEditingSheetMeta(false);
+                }}
+                className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shadow"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

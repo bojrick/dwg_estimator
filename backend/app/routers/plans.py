@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
@@ -31,6 +31,7 @@ from app.services.dxf_parser import (
     infer_discipline,
     infer_project_name,
     match_sheet_for_pdf,
+    merge_dwg_views_to_single_plan,
     render_sheet_to_pdf_bytes,
 )
 from app.services.storage import (
@@ -44,12 +45,20 @@ from app.services.storage import (
 router = APIRouter(prefix="/api", tags=["plans"])
 
 
+class SheetUpdateRequest(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = ""
+    bbox: Optional[Dict[str, float]] = None
+
+
 class UpdatePlanRequest(BaseModel):
     name: Optional[str] = None
     project_name: Optional[str] = None
     discipline: Optional[str] = None
     active_sheet_id: Optional[str] = None
     scale_to_m: Optional[float] = None
+    sheets: Optional[List[Dict[str, Any]]] = None
 
 
 class AuthPayload(BaseModel):
@@ -108,6 +117,8 @@ def _process_dwg_for_plan(
     dwg_filename: str,
     pdf_bytes: Optional[bytes] = None,
     pdf_filename: str = "",
+    custom_sheets: Optional[List[Dict[str, Any]]] = None,
+    preferred_active_sheet_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     work_dir = TMP_WORK_DIR / f"plan_{plan.id}"
     work_dir.mkdir(parents=True, exist_ok=True)
@@ -120,12 +131,23 @@ def _process_dwg_for_plan(
         doc = load_ezdxf_doc(dxf_path)
         full_raw = extract_dxf_raw_entities(dxf_path, doc=doc)
 
-        matched_sheet, reason = match_sheet_for_pdf(
-            sheets=full_raw.get("sheets", []),
-            raw_texts=full_raw.get("texts", []),
-            pdf_bytes=pdf_bytes,
-            pdf_filename=pdf_filename,
-        )
+        sheets_to_use = custom_sheets if custom_sheets is not None else full_raw.get("sheets", [])
+        full_raw["sheets"] = sheets_to_use
+
+        matched_sheet = None
+        reason = ""
+        if preferred_active_sheet_id:
+            matched_sheet = next((s for s in sheets_to_use if s["id"] == preferred_active_sheet_id), None)
+            if matched_sheet:
+                reason = f"User selected sheet: {matched_sheet.get('name', 'Selected view')}"
+
+        if not matched_sheet:
+            matched_sheet, reason = match_sheet_for_pdf(
+                sheets=sheets_to_use,
+                raw_texts=full_raw.get("texts", []),
+                pdf_bytes=pdf_bytes,
+                pdf_filename=pdf_filename,
+            )
         sheet_id = matched_sheet["id"] if matched_sheet else None
         cleaned_raw = clean_raw_data_to_sheet(full_raw, sheet_id)
 
@@ -149,7 +171,7 @@ def _process_dwg_for_plan(
         plan.active_sheet_id = sheet_id or "all"
         plan.active_sheet_name = matched_sheet["name"] if matched_sheet else "Full Drawing View"
         plan.match_reason = reason
-        plan.sheets_json = json.dumps(full_raw.get("sheets", []))
+        plan.sheets_json = json.dumps(sheets_to_use)
         plan.unit_name = cleaned_raw.get("unit_name", "m")
         plan.scale_to_m = float(cleaned_raw.get("scale_to_m", 1.0))
         plan.summary_json = json.dumps(_build_summary(cleaned_raw))
@@ -315,6 +337,106 @@ async def preview_guest_cad(
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+@router.post("/plans/preview-multi")
+async def preview_multi_cad(
+    dwg_files: List[UploadFile] = File(...),
+):
+    valid_files = [f for f in dwg_files if f.filename and Path(f.filename).suffix.lower() in (".dwg", ".dxf")]
+    if not valid_files:
+        raise HTTPException(status_code=400, detail="At least one .dwg or .dxf file is required")
+
+    temp_dir = Path(TMP_WORK_DIR) / f"multi_preview_{datetime.now(timezone.utc).timestamp()}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    out_files = []
+    try:
+        for idx, f in enumerate(valid_files):
+            f_bytes = await f.read()
+            f_name = Path(f.filename).name
+            in_path = temp_dir / f_name
+            in_path.write_bytes(f_bytes)
+            dxf_path, _ = ensure_dxf(in_path, temp_dir)
+            doc = load_ezdxf_doc(dxf_path)
+            raw_data = extract_dxf_raw_entities(dxf_path, doc=doc)
+            cleaned_raw = clean_raw_data_to_sheet(raw_data, None)
+            summary = _build_summary(cleaned_raw)
+            file_id = f"file_{idx}"
+            out_files.append({
+                "file_id": file_id,
+                "filename": f_name,
+                "name": Path(f.filename).stem.replace("_", " ").strip(),
+                "raw_data": cleaned_raw,
+                "summary": summary,
+                "sheets": [
+                    {
+                        **s,
+                        "file_id": file_id,
+                        "source_file": f_name,
+                    }
+                    for s in cleaned_raw.get("sheets", [])
+                ],
+                "unit_name": cleaned_raw.get("unit_name", "m"),
+                "scale_to_m": cleaned_raw.get("scale_to_m", 1.0),
+            })
+        return {"files": out_files}
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@router.post("/plans/merge-preview")
+async def merge_preview_cad(
+    dwg_files: List[UploadFile] = File(...),
+    sheets_json: str = Form(...),
+    active_sheet_id: Optional[str] = Form(None),
+):
+    valid_files = [f for f in dwg_files if f.filename and Path(f.filename).suffix.lower() in (".dwg", ".dxf")]
+    if not valid_files:
+        raise HTTPException(status_code=400, detail="At least one .dwg or .dxf file is required")
+
+    try:
+        selected_sheets = json.loads(sheets_json)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid sheets_json format")
+
+    temp_dir = Path(TMP_WORK_DIR) / f"merge_preview_{datetime.now(timezone.utc).timestamp()}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    files_data = {}
+    try:
+        for idx, f in enumerate(valid_files):
+            f_bytes = await f.read()
+            f_name = Path(f.filename).name
+            in_path = temp_dir / f_name
+            in_path.write_bytes(f_bytes)
+            dxf_path, _ = ensure_dxf(in_path, temp_dir)
+            doc = load_ezdxf_doc(dxf_path)
+            raw_data = extract_dxf_raw_entities(dxf_path, doc=doc)
+            cleaned_raw = clean_raw_data_to_sheet(raw_data, None)
+            file_id = f"file_{idx}"
+            files_data[file_id] = {
+                "file_id": file_id,
+                "filename": f_name,
+                "raw_data": cleaned_raw,
+            }
+            files_data[f_name] = files_data[file_id]
+
+        merged_full = merge_dwg_views_to_single_plan(selected_sheets, files_data)
+        target_sheet_id = active_sheet_id or (merged_full["sheets"][0]["id"] if merged_full.get("sheets") else None)
+        cleaned_raw = clean_raw_data_to_sheet(merged_full, target_sheet_id)
+        summary = _build_summary(cleaned_raw)
+
+        return {
+            "name": "Merged CAD Plan",
+            "raw_data": cleaned_raw,
+            "full_raw_data": merged_full,
+            "summary": summary,
+            "sheets": merged_full.get("sheets", []),
+            "active_sheet_id": target_sheet_id,
+            "unit_name": "m",
+            "scale_to_m": 1.0,
+        }
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
 @router.get("/plans")
 def list_plans(
     session: Session = Depends(get_session),
@@ -346,26 +468,34 @@ def list_plans(
 
 @router.post("/plans")
 async def create_plan(
+    dwg_files: Optional[List[UploadFile]] = File(None),
     dwg_file: Optional[UploadFile] = File(None),
     pdf_file: Optional[UploadFile] = File(None),
     name: Optional[str] = Form(None),
     project_name: Optional[str] = Form(None),
     discipline: Optional[str] = Form(None),
+    sheets_json: Optional[str] = Form(None),
+    active_sheet_id: Optional[str] = Form(None),
     session: Session = Depends(get_session),
     user_id: Optional[str] = Depends(get_current_user_id),
 ):
     uid = _resolve_uid(user_id)
-    if not dwg_file and not pdf_file:
+    collected_dwgs: List[UploadFile] = []
+    if dwg_files:
+        collected_dwgs.extend([f for f in dwg_files if f and f.filename])
+    if dwg_file and dwg_file.filename and dwg_file not in collected_dwgs:
+        collected_dwgs.append(dwg_file)
+
+    if not collected_dwgs and not pdf_file:
         raise HTTPException(status_code=400, detail="Please upload a DWG/DXF file, a PDF file, or both.")
 
-    dwg_bytes: Optional[bytes] = None
     dwg_name = ""
-    if dwg_file and dwg_file.filename:
-        ext = Path(dwg_file.filename).suffix.lower()
+    for f in collected_dwgs:
+        ext = Path(f.filename).suffix.lower()
         if ext not in (".dwg", ".dxf"):
-            raise HTTPException(status_code=400, detail="CAD file must be .dwg or .dxf")
-        dwg_name = Path(dwg_file.filename).name
-        dwg_bytes = await dwg_file.read()
+            raise HTTPException(status_code=400, detail=f"CAD file {f.filename} must be .dwg or .dxf")
+    if collected_dwgs:
+        dwg_name = Path(collected_dwgs[0].filename).name
 
     pdf_bytes: Optional[bytes] = None
     pdf_name = ""
@@ -418,13 +548,97 @@ async def create_plan(
             plan.pdf_filename = pdf_name
             plan.pdf_key = put_object(f"{prefix}/{pdf_name}", pdf_bytes, content_type="application/pdf")
 
-        if dwg_bytes:
+        if len(collected_dwgs) > 1:
+            temp_dir = Path(TMP_WORK_DIR) / f"plan_{plan.id}_merge_{datetime.now(timezone.utc).timestamp()}"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                files_data = {}
+                for idx, f in enumerate(collected_dwgs):
+                    f_bytes = await f.read()
+                    f_name = Path(f.filename).name
+                    f_path = temp_dir / f_name
+                    f_path.write_bytes(f_bytes)
+                    dxf_path, _ = ensure_dxf(f_path, temp_dir)
+                    doc = load_ezdxf_doc(dxf_path)
+                    raw_entities = extract_dxf_raw_entities(dxf_path, doc=doc)
+                    cleaned_entities = clean_raw_data_to_sheet(raw_entities, None)
+                    file_id = f"file_{idx}"
+                    files_data[file_id] = {
+                        "file_id": file_id,
+                        "filename": f_name,
+                        "raw_data": cleaned_entities,
+                        "bytes": f_bytes,
+                    }
+                    files_data[f_name] = files_data[file_id]
+
+                custom_sheets_parsed = []
+                if sheets_json and sheets_json.strip():
+                    try:
+                        custom_sheets_parsed = json.loads(sheets_json)
+                    except Exception:
+                        pass
+                if not custom_sheets_parsed:
+                    for f_id, f_data in files_data.items():
+                        if not f_id.startswith("file_"):
+                            continue
+                        for s in f_data["raw_data"].get("sheets", []):
+                            custom_sheets_parsed.append({
+                                **s,
+                                "source_file": f_data["filename"],
+                                "file_id": f_id,
+                            })
+
+                merged_full_raw = merge_dwg_views_to_single_plan(custom_sheets_parsed, files_data)
+                target_sheet_id = active_sheet_id or (merged_full_raw["sheets"][0]["id"] if merged_full_raw.get("sheets") else None)
+                cleaned_raw = clean_raw_data_to_sheet(merged_full_raw, target_sheet_id)
+
+                primary_name = collected_dwgs[0].filename
+                plan.dwg_filename = f"{len(collected_dwgs)} DWG Files ({primary_name} + {len(collected_dwgs)-1} others)"
+                plan.dwg_key = put_object(f"{prefix}/{primary_name}", files_data["file_0"]["bytes"])
+                for f_id, f_data in files_data.items():
+                    if f_id.startswith("file_"):
+                        put_object(f"{prefix}/sources/{f_data['filename']}", f_data["bytes"])
+
+                plan.full_parsed_json_key = put_object(
+                    f"{prefix}/full_parsed.json",
+                    json.dumps(merged_full_raw).encode("utf-8"),
+                    content_type="application/json",
+                )
+                plan.parsed_json_key = put_object(
+                    f"{prefix}/cleaned_parsed.json",
+                    json.dumps(cleaned_raw).encode("utf-8"),
+                    content_type="application/json",
+                )
+                active_sheet = cleaned_raw.get("active_sheet")
+                plan.active_sheet_id = active_sheet["id"] if active_sheet else "all"
+                plan.active_sheet_name = active_sheet["name"] if active_sheet else "All Merged Sheets"
+                plan.match_reason = f"Merged {len(merged_full_raw.get('sheets', []))} views from {len(collected_dwgs)} DWG files"
+                plan.sheets_json = json.dumps(merged_full_raw.get("sheets", []))
+                plan.unit_name = "m"
+                plan.scale_to_m = 1.0
+                plan.summary_json = json.dumps(_build_summary(cleaned_raw))
+                plan.storage_backend = get_storage_backend_name()
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+        elif len(collected_dwgs) == 1:
+            dwg_f = collected_dwgs[0]
+            dwg_bytes = await dwg_f.read()
+            dwg_name = Path(dwg_f.filename).name
+            custom_sheets_parsed = None
+            if sheets_json and sheets_json.strip():
+                try:
+                    custom_sheets_parsed = json.loads(sheets_json)
+                except Exception:
+                    pass
+
             cleaned_raw = _process_dwg_for_plan(
                 plan=plan,
                 dwg_bytes=dwg_bytes,
                 dwg_filename=dwg_name,
                 pdf_bytes=pdf_bytes,
                 pdf_filename=pdf_name,
+                custom_sheets=custom_sheets_parsed,
+                preferred_active_sheet_id=active_sheet_id,
             )
             if not (name or "").strip() and plan.active_sheet_name and plan.active_sheet_name != "Full Drawing View":
                 plan.name = plan.active_sheet_name
@@ -436,6 +650,7 @@ async def create_plan(
     except Exception as exc:
         session.delete(plan)
         session.commit()
+        raise HTTPException(status_code=400, detail=str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
 
     return {
@@ -619,10 +834,21 @@ def update_plan_view_or_units(
         plan.project_name = req.project_name.strip()
     if req.discipline is not None and req.discipline.strip().lower() in VALID_DISCIPLINES:
         plan.discipline = req.discipline.strip().lower()
+    if req.sheets is not None:
+        plan.sheets_json = json.dumps(req.sheets)
 
     cleaned_raw = None
-    if (req.active_sheet_id is not None or req.scale_to_m is not None) and plan.full_parsed_json_key:
+    if (req.sheets is not None or req.active_sheet_id is not None or req.scale_to_m is not None) and plan.full_parsed_json_key:
         full_raw = json.loads(get_object_bytes(plan.full_parsed_json_key).decode("utf-8"))
+        if req.sheets is not None:
+            full_raw["sheets"] = req.sheets
+            prefix = f"plans/plan_{plan.id}"
+            plan.full_parsed_json_key = put_object(
+                f"{prefix}/full_parsed.json",
+                json.dumps(full_raw).encode("utf-8"),
+                content_type="application/json",
+            )
+
         target_sheet_id = req.active_sheet_id if req.active_sheet_id is not None else plan.active_sheet_id
         target_scale = req.scale_to_m if req.scale_to_m is not None else plan.scale_to_m
 
@@ -640,7 +866,7 @@ def update_plan_view_or_units(
         active_sheet = cleaned_raw.get("active_sheet")
         plan.active_sheet_id = active_sheet["id"] if active_sheet else "all"
         plan.active_sheet_name = active_sheet["name"] if active_sheet else "Full Uncropped Modelspace"
-        if req.active_sheet_id is not None:
+        if req.active_sheet_id is not None or req.sheets is not None:
             plan.cleaned_dxf_key = None
             plan.match_reason = (
                 f"Isolated view: {active_sheet['name']}"

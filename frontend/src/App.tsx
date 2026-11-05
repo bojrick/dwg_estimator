@@ -23,6 +23,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { OpenCadViewer, ViewerTabMode } from './components/OpenCadViewer';
+import { SheetSelectorModal, SheetConfig } from './components/SheetSelectorModal';
 import {
   AuthConfig,
   AuthSession,
@@ -159,7 +160,8 @@ export function App() {
 
   // Upload modal state
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
-  const [uploadDwgFile, setUploadDwgFile] = useState<File | null>(null);
+  const [uploadDwgFiles, setUploadDwgFiles] = useState<File[]>([]);
+  const uploadDwgFile = uploadDwgFiles[0] || null;
   const [uploadPdfFile, setUploadPdfFile] = useState<File | null>(null);
   const [uploadTitle, setUploadTitle] = useState<string>('');
   const [uploadProject, setUploadProject] = useState<string>('');
@@ -168,6 +170,17 @@ export function App() {
   const [uploading, setUploading] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressState | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+
+  // Sheet Window Selector state
+  const [sheetSelectorData, setSheetSelectorData] = useState<{
+    dwgFiles: File[];
+    pdfFile: File | null;
+    project: string;
+    discipline: PlanDiscipline;
+    parsed: any;
+    filesData?: any[];
+    isGuest: boolean;
+  } | null>(null);
 
   // Quick inline PDF attach for existing card
   const cardPdfInputRef = useRef<HTMLInputElement | null>(null);
@@ -290,6 +303,28 @@ export function App() {
     }
   };
 
+  const handleDwgFilesSelected = (files: FileList | File[] | null) => {
+    if (!files) return;
+    const arr = Array.from(files).filter((f) => {
+      const ext = f.name.toLowerCase();
+      return ext.endsWith('.dwg') || ext.endsWith('.dxf');
+    });
+    if (arr.length === 0) return;
+    setUploadDwgFiles((prev) => {
+      const existingNames = new Set(prev.map((p) => p.name));
+      const newOnes = arr.filter((f) => !existingNames.has(f.name));
+      const combined = [...prev, ...newOnes];
+      if (combined.length > 0 && !uploadTitle) {
+        handleFilePicked(combined[0], uploadPdfFile);
+      }
+      return combined;
+    });
+  };
+
+  const removeDwgFile = (fileName: string) => {
+    setUploadDwgFiles((prev) => prev.filter((f) => f.name !== fileName));
+  };
+
   const runUploadWithProgress = (
     url: string,
     form: FormData,
@@ -403,32 +438,91 @@ export function App() {
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uploadDwgFile && !uploadPdfFile) {
-      setUploadError('Please select a DWG/DXF file, a PDF file, or both.');
+    if (uploadDwgFiles.length === 0 && !uploadPdfFile) {
+      setUploadError('Please select one or more DWG/DXF files, a PDF file, or both.');
       return;
     }
+
+    // If DWG files are uploaded, inspect CAD drawings so user can configure & merge sheet views
+    if (uploadDwgFiles.length > 0) {
+      setUploading(true);
+      setUploadError(null);
+      try {
+        if (uploadDwgFiles.length > 1) {
+          const form = new FormData();
+          uploadDwgFiles.forEach((f) => form.append('dwg_files', f));
+          const res = await fetch(apiUrl('/api/plans/preview-multi'), {
+            method: 'POST',
+            body: form,
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to inspect CAD files');
+          }
+          const parsed = await res.json();
+          const first = parsed.files?.[0];
+          setSheetSelectorData({
+            dwgFiles: uploadDwgFiles,
+            pdfFile: uploadPdfFile,
+            project: uploadProject.trim(),
+            discipline: uploadDiscipline,
+            parsed: first,
+            filesData: parsed.files,
+            isGuest: false,
+          });
+          setShowUploadModal(false);
+        } else {
+          const form = new FormData();
+          form.append('dwg_file', uploadDwgFiles[0]);
+          const res = await fetch(apiUrl('/api/plans/preview-guest'), {
+            method: 'POST',
+            body: form,
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to inspect CAD file');
+          }
+          const parsed = await res.json();
+          setSheetSelectorData({
+            dwgFiles: uploadDwgFiles,
+            pdfFile: uploadPdfFile,
+            project: uploadProject.trim(),
+            discipline: uploadDiscipline,
+            parsed,
+            isGuest: false,
+          });
+          setShowUploadModal(false);
+        }
+      } catch (err: any) {
+        setUploadError(err.message || 'Failed to inspect CAD files');
+      } finally {
+        setUploading(false);
+        setUploadProgress(null);
+      }
+      return;
+    }
+
+    // PDF only upload
     setUploading(true);
     setUploadError(null);
     try {
       const form = new FormData();
-      if (uploadDwgFile) form.append('dwg_file', uploadDwgFile);
       if (uploadPdfFile) form.append('pdf_file', uploadPdfFile);
       if (uploadTitle.trim()) form.append('name', uploadTitle.trim());
       if (uploadProject.trim()) form.append('project_name', uploadProject.trim());
       form.append('discipline', uploadDiscipline);
 
-      const data = await runUploadWithProgress('/api/plans', form, uploadDwgFile);
+      const data = await runUploadWithProgress('/api/plans', form, null);
       setShowUploadModal(false);
-      setUploadDwgFile(null);
       setUploadPdfFile(null);
       setUploadTitle('');
       setUploadProject('');
       setDisciplineAutoDetected(false);
       await fetchVaultPlans();
-      setViewerInitialTab(data.plan.has_dwg ? 'dwg' : 'pdf');
+      setViewerInitialTab('pdf');
       setViewerInitialMeasure(false);
       setActivePlanPayload(data);
-      showToast('Plan uploaded & DWG cleaned to match view!');
+      showToast('Plan uploaded!');
     } catch (err: any) {
       setUploadError(err.message || 'Failed to upload plan');
     } finally {
@@ -437,77 +531,184 @@ export function App() {
     }
   };
 
-  const handleAuthSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!authConfig) return;
-    setAuthBusy(true);
-    setAuthError(null);
-    setAuthNotice(null);
-    try {
-      if (authMode === 'signin') {
-        const sess = await signInWithEmail(authConfig, authEmail.trim(), authPassword);
-        setAuthSession(sess);
-        setAuthPassword('');
-        setShowAuthModal(false);
-        await fetchVaultPlans();
-        showToast('Signed in to PlanVault!');
-      } else {
-        const { session } = await signUpWithEmail(
-          authConfig,
-          authEmail.trim(),
-          authPassword
-        );
-        if (session) {
-          setAuthSession(session);
-          setAuthPassword('');
-          setShowAuthModal(false);
-          await fetchVaultPlans();
-          showToast('Account created & signed in!');
-        }
-      }
-    } catch (err: any) {
-      setAuthError(err.message || 'Authentication failed');
-    } finally {
-      setAuthBusy(false);
-    }
-  };
+  const handleSheetSelectorConfirm = async ({
+    planTitle: confirmedTitle,
+    sheets: configuredSheets,
+    activeSheetId,
+  }: {
+    planTitle: string;
+    sheets: SheetConfig[];
+    activeSheetId: string;
+  }) => {
+    if (!sheetSelectorData) return;
+    const { dwgFiles, pdfFile, project, discipline, isGuest } = sheetSelectorData;
+    setSheetSelectorData(null);
 
-  const handleGuestCadPreview = async (file: File) => {
-    setUploading(true);
-    setUploadError(null);
-    try {
-      const form = new FormData();
-      form.append('dwg_file', file);
-      const res = await fetch(apiUrl('/api/plans/preview-guest'), {
-        method: 'POST',
-        body: form,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || 'Failed to parse CAD file');
+    if (isGuest) {
+      if (dwgFiles.length > 1) {
+        setUploading(true);
+        try {
+          const form = new FormData();
+          dwgFiles.forEach((f) => form.append('dwg_files', f));
+          form.append('sheets_json', JSON.stringify(configuredSheets));
+          form.append('active_sheet_id', activeSheetId);
+          const res = await fetch(apiUrl('/api/plans/merge-preview'), {
+            method: 'POST',
+            body: form,
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || 'Failed to merge views');
+          }
+          const merged = await res.json();
+          setGuestDwgFile(dwgFiles[0]);
+          setActivePlanPayload({
+            plan: {
+              id: 0,
+              name: confirmedTitle,
+              project_name: 'Guest Inspection',
+              discipline: 'architectural',
+              has_dwg: true,
+              has_pdf: false,
+              active_sheet_id: activeSheetId,
+              active_sheet_name: configuredSheets.find((s) => s.id === activeSheetId)?.name || 'Selected View',
+              unit_name: merged.unit_name || 'm',
+              scale_to_m: merged.scale_to_m || 1.0,
+              sheets: merged.sheets || configuredSheets,
+              summary: merged.summary,
+            },
+            raw: merged.raw_data,
+            fullRaw: merged.full_raw_data,
+            isGuest: true,
+          });
+          setViewerInitialTab('dwg');
+          showToast('Multi-DWG sheets merged! Sign up to save.');
+        } catch (err: any) {
+          showToast(err.message || 'Failed to merge plans');
+        } finally {
+          setUploading(false);
+        }
+        return;
       }
-      const data = await res.json();
-      setGuestDwgFile(file);
+
+      setGuestDwgFile(dwgFiles[0]);
       setActivePlanPayload({
         plan: {
           id: 0,
-          name: data.name,
+          name: confirmedTitle,
           project_name: 'Guest Inspection',
           discipline: 'architectural',
           has_dwg: true,
           has_pdf: false,
-          unit_name: data.unit_name,
-          scale_to_m: data.scale_to_m,
-          sheets: data.sheets,
-          summary: data.summary,
+          active_sheet_id: activeSheetId,
+          active_sheet_name: configuredSheets.find((s) => s.id === activeSheetId)?.name || 'Selected View',
+          unit_name: sheetSelectorData.parsed.unit_name,
+          scale_to_m: sheetSelectorData.parsed.scale_to_m,
+          sheets: configuredSheets,
+          summary: sheetSelectorData.parsed.summary,
         },
-        raw: data.raw_data,
+        raw: sheetSelectorData.parsed.raw_data,
         isGuest: true,
       });
       setViewerInitialTab('dwg');
-      showToast('CAD plan loaded for inspection! Sign up to save.');
+      showToast('CAD plan sheets configured! Sign up to save.');
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const form = new FormData();
+      if (dwgFiles.length > 1) {
+        dwgFiles.forEach((f) => form.append('dwg_files', f));
+      } else if (dwgFiles.length === 1) {
+        form.append('dwg_file', dwgFiles[0]);
+      }
+      if (pdfFile) form.append('pdf_file', pdfFile);
+      form.append('name', confirmedTitle);
+      if (project) form.append('project_name', project);
+      form.append('discipline', discipline);
+      form.append('sheets_json', JSON.stringify(configuredSheets));
+      form.append('active_sheet_id', activeSheetId);
+
+      const data = await runUploadWithProgress('/api/plans', form, dwgFiles[0] || null);
+      setUploadDwgFiles([]);
+      setUploadPdfFile(null);
+      setUploadTitle('');
+      setUploadProject('');
+      setDisciplineAutoDetected(false);
+      await fetchVaultPlans();
+      setViewerInitialTab(data.plan.has_dwg ? 'dwg' : 'pdf');
+      setViewerInitialMeasure(false);
+      setActivePlanPayload(data);
+      showToast(dwgFiles.length > 1 ? 'Multi-DWG plan merged and saved!' : 'Plan created with your customized sheets & views!');
     } catch (err: any) {
-      showToast(err.message || 'Error parsing CAD file');
+      showToast(err.message || 'Failed to save plan');
+    } finally {
+      setUploading(false);
+      setUploadProgress(null);
+    }
+  };
+
+  const handleGuestCadPreview = async (files: File | File[] | FileList) => {
+    const fileList = Array.isArray(files)
+      ? files
+      : 'length' in files
+      ? Array.from(files)
+      : [files];
+    const valid = fileList.filter((f) => {
+      const ext = f.name.toLowerCase();
+      return ext.endsWith('.dwg') || ext.endsWith('.dxf');
+    });
+    if (valid.length === 0) return;
+
+    setUploading(true);
+    setUploadError(null);
+    try {
+      if (valid.length > 1) {
+        const form = new FormData();
+        valid.forEach((f) => form.append('dwg_files', f));
+        const res = await fetch(apiUrl('/api/plans/preview-multi'), {
+          method: 'POST',
+          body: form,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || 'Failed to parse CAD files');
+        }
+        const parsed = await res.json();
+        const first = parsed.files?.[0];
+        setSheetSelectorData({
+          dwgFiles: valid,
+          pdfFile: null,
+          project: 'Guest Inspection',
+          discipline: 'architectural',
+          parsed: first,
+          filesData: parsed.files,
+          isGuest: true,
+        });
+      } else {
+        const form = new FormData();
+        form.append('dwg_file', valid[0]);
+        const res = await fetch(apiUrl('/api/plans/preview-guest'), {
+          method: 'POST',
+          body: form,
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || 'Failed to parse CAD file');
+        }
+        const data = await res.json();
+        setSheetSelectorData({
+          dwgFiles: valid,
+          pdfFile: null,
+          project: 'Guest Inspection',
+          discipline: 'architectural',
+          parsed: data,
+          isGuest: true,
+        });
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error parsing CAD files');
     } finally {
       setUploading(false);
     }
@@ -529,6 +730,12 @@ export function App() {
       form.append('name', activePlanPayload?.plan?.name || 'My Plan');
       form.append('project_name', 'My Project');
       form.append('discipline', 'architectural');
+      if (activePlanPayload?.plan?.sheets) {
+        form.append('sheets_json', JSON.stringify(activePlanPayload.plan.sheets));
+      }
+      if (activePlanPayload?.plan?.active_sheet_id) {
+        form.append('active_sheet_id', activePlanPayload.plan.active_sheet_id);
+      }
 
       const data = await runUploadWithProgress('/api/plans', form, guestDwgFile);
       setGuestDwgFile(null);
@@ -688,7 +895,40 @@ export function App() {
           }}
           onShare={handleSharePlan}
           onSelectSheet={async (sheetId) => {
-            if (activePlanPayload.isGuest) return;
+            if (activePlanPayload.isGuest) {
+              const sheets = p.sheets || [];
+              const targetSheet = sheets.find((s: any) => s.id === sheetId);
+              if (targetSheet && activePlanPayload.fullRaw) {
+                const b = targetSheet.bbox;
+                const inBox = (x: number, y: number) =>
+                  x >= b.min_x - 0.5 && x <= b.max_x + 0.5 && y >= b.min_y - 0.5 && y <= b.max_y + 0.5;
+                const fRaw = activePlanPayload.fullRaw;
+                const croppedLines = (fRaw.lines || []).filter((ln: any) => inBox(ln.start[0], ln.start[1]) && inBox(ln.end[0], ln.end[1]));
+                const croppedPolys = (fRaw.polylines || []).filter((pl: any) => pl.points && pl.points.every((pt: any) => inBox(pt[0], pt[1])));
+                const croppedArcs = (fRaw.arcs_circles || []).filter((ac: any) => inBox(ac.center[0], ac.center[1]));
+                const croppedTexts = (fRaw.texts || []).filter((t: any) => inBox(t.x, t.y));
+                const croppedHatches = (fRaw.hatches || []).filter((h: any) => h.points && inBox(h.points[0][0], h.points[0][1]));
+                setActivePlanPayload((prev: any) => ({
+                  ...prev,
+                  plan: {
+                    ...prev.plan,
+                    active_sheet_id: sheetId,
+                    active_sheet_name: targetSheet.name,
+                  },
+                  raw: {
+                    ...fRaw,
+                    bbox_raw: b,
+                    lines: croppedLines,
+                    polylines: croppedPolys,
+                    arcs_circles: croppedArcs,
+                    texts: croppedTexts,
+                    hatches: croppedHatches,
+                  },
+                }));
+                showToast(`Isolated view: ${targetSheet.name}`);
+              }
+              return;
+            }
             const res = await authFetch(`/api/plans/${p.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
@@ -767,6 +1007,28 @@ export function App() {
               showToast('DWG uploaded & cleaned to match PDF!');
             } finally {
               setUploadProgress(null);
+            }
+          }}
+          onUpdateMetadata={async (patch) => {
+            if (activePlanPayload.isGuest) {
+              setActivePlanPayload((prev) => {
+                if (!prev) return null;
+                const nextPlan = { ...prev.plan, ...patch };
+                return { ...prev, plan: nextPlan };
+              });
+              showToast('Updated plan details');
+              return;
+            }
+            const res = await authFetch(`/api/plans/${p.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(patch),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              setActivePlanPayload(data);
+              await fetchVaultPlans();
+              showToast('Plan metadata saved!');
             }
           }}
         />
@@ -934,16 +1196,18 @@ export function App() {
               <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:scale-105 transition mb-3">
                 <Upload className="w-6 h-6" />
               </div>
-              <span className="text-sm font-bold text-white">Tap to choose a DWG or DXF</span>
-              <span className="text-xs text-slate-400 mt-1">Free instant preview • No account required</span>
+              <span className="text-sm font-bold text-white">Tap to choose DWG or DXF files</span>
+              <span className="text-xs text-slate-400 mt-1">Free instant preview • Upload one or multiple drawings</span>
               <input
                 type="file"
                 accept=".dwg,.dxf"
+                multiple
                 className="hidden"
                 disabled={uploading}
                 onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleGuestCadPreview(file);
+                  if (e.target.files && e.target.files.length > 0) {
+                    handleGuestCadPreview(e.target.files);
+                  }
                 }}
               />
             </label>
@@ -1438,36 +1702,66 @@ export function App() {
             <form onSubmit={handleUploadSubmit} className="space-y-3.5">
               {/* 1. DWG / DXF Input */}
               <div>
-                <label className="block text-xs font-bold text-slate-200 mb-1.5">
-                  1. CAD Drawing File (.DWG or .DXF)
-                </label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-slate-200">
+                    1. CAD Drawing File(s) (.DWG or .DXF)
+                  </label>
+                  {uploadDwgFiles.length > 1 && (
+                    <span className="text-[10px] font-semibold text-blue-400">
+                      {uploadDwgFiles.length} files selected — will merge into 1 plan
+                    </span>
+                  )}
+                </div>
                 <label className="flex items-center justify-between gap-2 p-3 rounded-xl bg-slate-950 border border-dashed border-slate-700 hover:border-blue-500 cursor-pointer transition">
                   <div className="flex items-center gap-2.5 min-w-0">
                     <FileCode2 className="w-5 h-5 text-blue-400 shrink-0" />
                     <div className="min-w-0">
                       <div className="text-xs font-semibold text-white truncate">
-                        {uploadDwgFile ? uploadDwgFile.name : 'Choose .DWG or .DXF file'}
+                        {uploadDwgFiles.length === 0
+                          ? 'Choose one or multiple .DWG / .DXF files'
+                          : `${uploadDwgFiles.length} CAD file${uploadDwgFiles.length > 1 ? 's' : ''} selected`}
                       </div>
                       <div className="text-[10px] text-slate-400">
-                        Auto-detects project & plan type from filename
+                        {uploadDwgFiles.length > 1
+                          ? 'All selected drawings will be merged into a single multi-sheet plan'
+                          : 'Select multiple DWGs to merge all floor plans into one master sheet list'}
                       </div>
                     </div>
                   </div>
                   <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-[11px] font-bold text-slate-200 shrink-0">
-                    Browse
+                    {uploadDwgFiles.length > 0 ? '+ Add More' : 'Browse'}
                   </span>
                   <input
                     type="file"
                     accept=".dwg,.dxf"
+                    multiple
                     disabled={uploading}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] || null;
-                      setUploadDwgFile(f);
-                      handleFilePicked(f, uploadPdfFile);
-                    }}
+                    onChange={(e) => handleDwgFilesSelected(e.target.files)}
                     className="hidden"
                   />
                 </label>
+
+                {/* File chips list if multiple files selected */}
+                {uploadDwgFiles.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {uploadDwgFiles.map((file) => (
+                      <span
+                        key={file.name}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-800 text-xs font-medium text-slate-200 border border-slate-700"
+                      >
+                        <span className="truncate max-w-[200px]">{file.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeDwgFile(file.name)}
+                          className="text-slate-400 hover:text-rose-400 p-0.5"
+                          title="Remove file"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* 2. Associated PDF Input */}
@@ -1814,6 +2108,19 @@ export function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Sheet Window Selector & Configuration Modal */}
+      {sheetSelectorData && (
+        <SheetSelectorModal
+          planTitle={uploadTitle.trim() || sheetSelectorData.parsed?.name || ''}
+          dwgFilename={sheetSelectorData.dwgFiles.map((f) => f.name).join(', ')}
+          rawData={sheetSelectorData.parsed?.raw_data}
+          initialSheets={sheetSelectorData.parsed?.sheets}
+          filesData={sheetSelectorData.filesData}
+          onConfirm={handleSheetSelectorConfirm}
+          onCancel={() => setSheetSelectorData(null)}
+        />
       )}
     </div>
   );

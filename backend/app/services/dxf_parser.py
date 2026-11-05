@@ -936,13 +936,16 @@ def clean_raw_data_to_sheet(
     full_raw: Dict[str, Any],
     sheet_id: Optional[str],
     override_scale_to_m: Optional[float] = None,
+    custom_sheet: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
-    Crops and cleans parsed DWG entities so only the target sheet view (matching the PDF) is shown,
+    Crops and cleans parsed DWG entities so only the target sheet view (matching the PDF or custom window) is shown,
     discarding all other plans, elevations, sections, and stray modelspace entities outside the sheet.
     """
     sheets = full_raw.get("sheets", [])
-    target_sheet = next((s for s in sheets if s["id"] == sheet_id), None) if sheet_id and sheet_id != "all" else None
+    target_sheet = custom_sheet
+    if not target_sheet and sheet_id and sheet_id != "all":
+        target_sheet = next((s for s in sheets if s["id"] == sheet_id), None)
 
     scale_to_m = override_scale_to_m if override_scale_to_m is not None else full_raw.get("scale_to_m", 1.0)
     unit_name = next((n for s, n in SCALE_M_TO_UNIT_NAME if abs(s - scale_to_m) < 1e-5), full_raw.get("unit_name", "m"))
@@ -1163,3 +1166,210 @@ def render_sheet_to_pdf_bytes(cleaned_raw: Dict[str, Any], title: str) -> bytes:
         f"trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{xref_pos}\n%%EOF\n".encode("latin-1")
     )
     return bytes(out)
+
+
+def merge_dwg_views_to_single_plan(
+    selected_sheets: List[Dict[str, Any]],
+    files_data: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    """
+    Merges selected sheet views from one or multiple DWG/DXF files into a single unified plan modelspace.
+    Each sheet view is isolated, normalized to meters, and laid out side-by-side with clean spacing
+    so the user can view individual sheets or zoom out to see all floors in one unified plan.
+    """
+    if not selected_sheets:
+        first_file = next(iter(files_data.values()), {}) if files_data else {}
+        return dict(first_file.get("raw_data", {}))
+
+    new_lines: List[Dict[str, Any]] = []
+    new_polylines: List[Dict[str, Any]] = []
+    new_arcs_circles: List[Dict[str, Any]] = []
+    new_texts: List[Dict[str, Any]] = []
+    new_hatches: List[Dict[str, Any]] = []
+    new_inserts: List[Dict[str, Any]] = []
+    merged_sheets: List[Dict[str, Any]] = []
+
+    current_cursor_x = 0.0
+
+    # Index files by both file_id and filename for resilient lookup
+    file_lookup: Dict[str, Dict[str, Any]] = {}
+    for k, v in files_data.items():
+        file_lookup[k] = v
+        fn = v.get("filename")
+        if fn:
+            file_lookup[fn] = v
+
+    for idx, s in enumerate(selected_sheets):
+        file_key = s.get("file_id") or s.get("source_file") or s.get("filename")
+        file_info = file_lookup.get(file_key)
+        if not file_info:
+            file_info = next(iter(files_data.values()), {})
+
+        source_raw = file_info.get("raw_data", {})
+        scale_to_m = float(source_raw.get("scale_to_m", 1.0) or 1.0)
+
+        # Crop entities to this sheet's boundary in its native coordinates
+        has_matching_sheet = any(x.get("id") == s.get("id") for x in source_raw.get("sheets", []))
+        cropped = clean_raw_data_to_sheet(
+            source_raw,
+            sheet_id=s.get("id"),
+            custom_sheet=s if (s.get("is_custom_window") or not has_matching_sheet) else None,
+        )
+
+        b = s.get("bbox") or cropped.get("bbox_raw") or {"min_x": 0, "min_y": 0, "max_x": 50, "max_y": 50, "width": 50, "height": 50}
+        orig_min_x = float(b["min_x"])
+        orig_min_y = float(b["min_y"])
+        orig_max_x = float(b["max_x"])
+        orig_max_y = float(b["max_y"])
+
+        # Convert to meters
+        scaled_min_x = orig_min_x * scale_to_m
+        scaled_min_y = orig_min_y * scale_to_m
+        scaled_max_x = orig_max_x * scale_to_m
+        scaled_max_y = orig_max_y * scale_to_m
+        w = max(0.5, abs(scaled_max_x - scaled_min_x))
+        h = max(0.5, abs(scaled_max_y - scaled_min_y))
+
+        # Position at current cursor on baseline y = 0
+        target_min_x = current_cursor_x
+        target_max_x = current_cursor_x + w
+        target_min_y = 0.0
+        target_max_y = h
+        dx = target_min_x - scaled_min_x
+        dy = target_min_y - scaled_min_y
+
+        for ln in cropped.get("lines", []):
+            new_lines.append({
+                "layer": ln.get("layer", "0"),
+                "color": ln.get("color", "#f1f5f9"),
+                "start": [ln["start"][0] * scale_to_m + dx, ln["start"][1] * scale_to_m + dy],
+                "end": [ln["end"][0] * scale_to_m + dx, ln["end"][1] * scale_to_m + dy],
+            })
+
+        for pl in cropped.get("polylines", []):
+            new_pts = [[pt[0] * scale_to_m + dx, pt[1] * scale_to_m + dy] for pt in pl.get("points", [])]
+            new_polylines.append({
+                "layer": pl.get("layer", "0"),
+                "color": pl.get("color", "#f1f5f9"),
+                "closed": pl.get("closed", False),
+                "points": new_pts,
+            })
+
+        for ac in cropped.get("arcs_circles", []):
+            new_arcs_circles.append({
+                "layer": ac.get("layer", "0"),
+                "color": ac.get("color", "#f1f5f9"),
+                "type": ac.get("type", "CIRCLE"),
+                "center": [ac["center"][0] * scale_to_m + dx, ac["center"][1] * scale_to_m + dy],
+                "radius": ac["radius"] * scale_to_m,
+                "start_angle": ac.get("start_angle", 0),
+                "end_angle": ac.get("end_angle", 360),
+            })
+
+        for t in cropped.get("texts", []):
+            new_texts.append({
+                "layer": t.get("layer", "0"),
+                "color": t.get("color", "#f1f5f9"),
+                "text": t.get("text", ""),
+                "x": t["x"] * scale_to_m + dx,
+                "y": t["y"] * scale_to_m + dy,
+                "height": (t.get("height", 0.25) or 0.25) * scale_to_m,
+                "rotation": t.get("rotation", 0),
+            })
+
+        for hatch in cropped.get("hatches", []):
+            new_h_pts = [[pt[0] * scale_to_m + dx, pt[1] * scale_to_m + dy] for pt in hatch.get("points", [])]
+            new_hatches.append({
+                "layer": hatch.get("layer", "0"),
+                "color": hatch.get("color", "#f1f5f9"),
+                "points": new_h_pts,
+            })
+
+        for ins in cropped.get("inserts", []):
+            new_inserts.append({
+                "layer": ins.get("layer", "0"),
+                "name": ins.get("name", ""),
+                "pos": [ins["pos"][0] * scale_to_m + dx, ins["pos"][1] * scale_to_m + dy],
+            })
+
+        sheet_id = s.get("id") or f"sheet_{idx + 1}"
+        merged_sheets.append({
+            "id": sheet_id,
+            "name": s.get("name") or f"Sheet {idx + 1}",
+            "description": s.get("description", ""),
+            "source_file": file_info.get("filename") or s.get("source_file", ""),
+            "bbox": {
+                "min_x": round(target_min_x, 3),
+                "min_y": round(target_min_y, 3),
+                "max_x": round(target_max_x, 3),
+                "max_y": round(target_max_y, 3),
+                "width": round(w, 3),
+                "height": round(h, 3),
+            },
+            "is_custom_window": s.get("is_custom_window", False),
+        })
+
+        # Advance cursor with handsome margin between floor plans
+        spacing = max(15.0, max(w, h) * 0.12)
+        current_cursor_x = target_max_x + spacing
+
+    # Calculate unified master bounding box
+    max_x = max((s["bbox"]["max_x"] for s in merged_sheets), default=100.0)
+    max_y = max((s["bbox"]["max_y"] for s in merged_sheets), default=100.0)
+    bbox_full = {
+        "min_x": 0.0,
+        "min_y": 0.0,
+        "max_x": round(max_x, 3),
+        "max_y": round(max_y, 3),
+        "width": round(max_x, 3),
+        "height": round(max_y, 3),
+    }
+
+    # Consolidated layers
+    layer_counts: Counter = Counter()
+    for coll in (new_lines, new_polylines, new_arcs_circles, new_texts, new_hatches):
+        for item in coll:
+            layer_counts[item["layer"]] += 1
+
+    layer_colors: Dict[str, str] = {}
+    for f in files_data.values():
+        for lyr in f.get("raw_data", {}).get("layers", []):
+            if lyr.get("name") and lyr.get("color"):
+                layer_colors[lyr["name"]] = lyr["color"]
+
+    merged_layers = []
+    for lyr_name, count in layer_counts.most_common():
+        merged_layers.append({
+            "name": lyr_name,
+            "color": layer_colors.get(lyr_name, "#f1f5f9"),
+            "entity_count": count,
+            "visible": True,
+        })
+
+    total_primitives = (
+        len(new_lines) + len(new_polylines) + len(new_arcs_circles) + len(new_texts) + len(new_hatches)
+    )
+
+    return {
+        "unit_name": "m",
+        "scale_to_m": 1.0,
+        "unit_detection_reason": "Unified meters across merged multi-DWG sheets",
+        "dxf_version": "Merged Plan",
+        "bbox_raw": bbox_full,
+        "bbox_full": bbox_full,
+        "sheets": merged_sheets,
+        "layers": merged_layers,
+        "lines": new_lines,
+        "polylines": new_polylines,
+        "arcs_circles": new_arcs_circles,
+        "inserts": new_inserts,
+        "texts": new_texts,
+        "hatches": new_hatches,
+        "diagnostics": {
+            "total_rendered_primitives": total_primitives,
+            "layers_count": len(merged_layers),
+            "merged_files_count": len(files_data),
+            "merged_sheets_count": len(merged_sheets),
+        },
+    }
+
