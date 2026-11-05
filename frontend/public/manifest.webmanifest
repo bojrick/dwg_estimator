@@ -1,19 +1,17 @@
 {
-  "name": "PlanVault — Cloud DWG & PDF Plan Manager",
+  "name": "PlanVault",
   "short_name": "PlanVault",
-  "description": "Mobile-first Cloud Plan Vault for viewing, cleaning, measuring, and sharing DWG and PDF construction plans.",
+  "description": "View, measure and organize DWG and PDF construction plans.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#0f172a",
-  "orientation": "any",
+  "background_color": "#15171a",
+  "theme_color": "#15171a",
+  "categories": ["productivity", "utilities"],
   "icons": [
-    {
-      "src": "/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }
   ]
 }
-

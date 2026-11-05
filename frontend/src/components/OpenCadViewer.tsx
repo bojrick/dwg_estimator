@@ -13,7 +13,6 @@ import {
   FileCode2,
   Columns,
   Upload,
-  Sparkles,
   Download,
   Eye,
   EyeOff,
@@ -464,18 +463,23 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   );
 
   // Find nearest endpoint / vertex for OSNAP in Measure Mode
+  const snapKindRef = useRef<'end' | 'mid' | 'center'>('end');
   const findNearestSnapPoint = useCallback(
-    (wx: number, wy: number): [number, number] | null => {
+    (wx: number, wy: number, isTouch = false): [number, number] | null => {
       if (!rawData) return null;
-      const tolWorld = 18.0 / Math.max(zoom, 1e-6);
+      // a fingertip is ~40px wide, so touch gets a larger snap radius than a mouse
+      const tolWorld = (isTouch ? 36.0 : 18.0) / Math.max(zoom, 1e-6);
       let bestPt: [number, number] | null = null;
       let bestDist = tolWorld;
 
-      const check = (px: number, py: number) => {
-        const d = Math.hypot(wx - px, wy - py);
+      let bestKind: 'end' | 'mid' | 'center' = 'end';
+      // midpoints/centers must be clearly closer than an endpoint to win, so corners stay easy to hit
+      const check = (px: number, py: number, kind: 'end' | 'mid' | 'center' = 'end') => {
+        const d = Math.hypot(wx - px, wy - py) * (kind === 'end' ? 1 : 1.25);
         if (d < bestDist) {
           bestDist = d;
           bestPt = [px, py];
+          bestKind = kind;
         }
       };
 
@@ -484,14 +488,25 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
           if (!isLayerVisible(ln.layer)) continue;
           check(ln.start[0], ln.start[1]);
           check(ln.end[0], ln.end[1]);
+          check((ln.start[0] + ln.end[0]) / 2, (ln.start[1] + ln.end[1]) / 2, 'mid');
         }
       }
       if (rawData.polylines) {
         for (const pl of rawData.polylines) {
           if (!isLayerVisible(pl.layer)) continue;
-          for (const pt of pl.points) check(pt[0], pt[1]);
+          for (let k = 0; k < pl.points.length; k++) {
+            const pt = pl.points[k];
+            check(pt[0], pt[1]);
+            if (k > 0) check((pt[0] + pl.points[k - 1][0]) / 2, (pt[1] + pl.points[k - 1][1]) / 2, 'mid');
+          }
         }
       }
+      if (rawData.arcs_circles) {
+        for (const ac of rawData.arcs_circles) {
+          if (isLayerVisible(ac.layer)) check(ac.center[0], ac.center[1], 'center');
+        }
+      }
+      snapKindRef.current = bestKind;
       return bestPt;
     },
     [rawData, zoom, isLayerVisible]
@@ -690,7 +705,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
         ctx.font = '700 12px ui-monospace, SFMono-Regular, monospace';
         const tw = ctx.measureText(label).width + 18;
         const boxX = Math.max(8, Math.min(canvasSize.w - tw - 8, sx - tw / 2));
-        const boxY = Math.max(12, Math.min(canvasSize.h - 32, sy - 14));
+        const boxY = Math.max(toolMode === 'measure' ? 96 : 12, Math.min(canvasSize.h - 32, sy - 14));
         ctx.fillStyle = 'rgba(6, 78, 59, 0.95)';
         ctx.fillRect(boxX, boxY, tw, 24);
         ctx.strokeStyle = '#34d399';
@@ -768,7 +783,21 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
           const [snx, sny] = worldToScreen(snapPt[0], snapPt[1]);
           ctx.strokeStyle = '#10b981';
           ctx.lineWidth = 2.2;
-          ctx.strokeRect(snx - 6, sny - 6, 12, 12);
+          ctx.beginPath();
+          if (snapKindRef.current === 'mid') {
+            ctx.moveTo(snx, sny - 8);
+            ctx.lineTo(snx + 8, sny + 6);
+            ctx.lineTo(snx - 8, sny + 6);
+            ctx.closePath();
+          } else if (snapKindRef.current === 'center') {
+            ctx.arc(snx, sny, 6, 0, Math.PI * 2);
+          } else {
+            ctx.rect(snx - 6, sny - 6, 12, 12);
+          }
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(snx, sny, 18, 0, Math.PI * 2);
+          ctx.stroke();
         }
         const livePt = snapPt || cursorWorld;
         const previewPts =
@@ -803,7 +832,21 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
           const [snx, sny] = worldToScreen(snapPt[0], snapPt[1]);
           ctx.strokeStyle = '#10b981';
           ctx.lineWidth = 2.2;
-          ctx.strokeRect(snx - 6, sny - 6, 12, 12);
+          ctx.beginPath();
+          if (snapKindRef.current === 'mid') {
+            ctx.moveTo(snx, sny - 8);
+            ctx.lineTo(snx + 8, sny + 6);
+            ctx.lineTo(snx - 8, sny + 6);
+            ctx.closePath();
+          } else if (snapKindRef.current === 'center') {
+            ctx.arc(snx, sny, 6, 0, Math.PI * 2);
+          } else {
+            ctx.rect(snx - 6, sny - 6, 12, 12);
+          }
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(snx, sny, 18, 0, Math.PI * 2);
+          ctx.stroke();
         }
 
         if (measurePts.length >= 1) {
@@ -864,14 +907,16 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
     formatAreaMeasurement,
   ]);
 
-  const placeMeasurePoint = (wx: number, wy: number) => {
+  const lastTouchRef = useRef(0);
+  const touchT0Ref = useRef(0);
+  const placeMeasurePoint = (wx: number, wy: number, isTouch = false) => {
     if (measureSubMode === 'area-pick') {
       const shape = findClosedAreaAtPoint(wx, wy);
       setSelectedAreaShape(shape);
       setHoverAreaShape(shape);
       return;
     }
-    const snapped = findNearestSnapPoint(wx, wy) || [wx, wy];
+    const snapped = findNearestSnapPoint(wx, wy, isTouch) || [wx, wy];
     setSnapPt(snapped);
     if (measureSubMode === 'area-points') {
       setMeasurePts((prev) => [...prev, snapped]);
@@ -882,6 +927,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
 
   // Mouse handlers
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (Date.now() - lastTouchRef.current < 800) return; // synthesized after a tap
     const rect = e.currentTarget.getBoundingClientRect();
     const sx = e.clientX - rect.left;
     const sy = e.clientY - rect.top;
@@ -928,6 +974,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   };
 
   const handleMouseUp = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (Date.now() - lastTouchRef.current < 800) return;
     if (!dragRef.current.active) return;
     const wasMoved = dragRef.current.moved;
     dragRef.current.active = false;
@@ -954,6 +1001,8 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
 
   // Mobile Touch Gestures (1-finger pan / tap-to-measure + 2-finger pinch zoom)
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    lastTouchRef.current = Date.now();
+    if (e.touches.length === 1) touchT0Ref.current = Date.now();
     const rect = e.currentTarget.getBoundingClientRect();
     if (e.touches.length === 2) {
       const dx = e.touches[0].clientX - e.touches[1].clientX;
@@ -998,7 +1047,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
       const sy = e.touches[0].clientY - rect.top;
       const dx = sx - dragRef.current.startX;
       const dy = sy - dragRef.current.startY;
-      if (Math.hypot(dx, dy) > 6) {
+      if (Math.hypot(dx, dy) > 16) {
         dragRef.current.moved = true;
       }
       if (dragRef.current.moved) {
@@ -1011,14 +1060,15 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   };
 
   const handleTouchEnd = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    lastTouchRef.current = Date.now();
     if (!dragRef.current.active) return;
     const wasMoved = dragRef.current.moved;
     const tapX = dragRef.current.startX;
     const tapY = dragRef.current.startY;
     dragRef.current.active = false;
-    if (!wasMoved && toolMode === 'measure' && e.changedTouches.length === 1) {
+    if (!wasMoved && Date.now() - touchT0Ref.current < 350 && toolMode === 'measure' && e.changedTouches.length === 1) {
       const [wx, wy] = screenToWorld(tapX, tapY);
-      placeMeasurePoint(wx, wy);
+      placeMeasurePoint(wx, wy, true);
     }
   };
 
@@ -1046,7 +1096,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   const layers = rawData?.layers || [];
 
   return (
-    <div className="flex-1 flex flex-col bg-slate-950 overflow-hidden select-none">
+    <div className="flex-1 flex flex-col bg-zinc-950 overflow-hidden">
       {/* Hidden file inputs for attaching/replacing PDF or DWG */}
       <input
         ref={pdfInputRef}
@@ -1083,140 +1133,91 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
         }}
       />
 
-      {/* Top Viewer Header (Mobile-first compact layout) */}
-      <div className="bg-slate-900 border-b border-slate-800 px-3 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          <button
-            onClick={onBack}
-            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition shrink-0"
-            title="Back to Plan Vault"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              {isGuest && (
-                <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold shrink-0">
-                  Guest Preview
-                </span>
-              )}
-              {plan.project_name && (
-                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-blue-300 shrink-0">
-                  {plan.project_name}
-                </span>
-              )}
-              {plan.discipline && (
-                <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold uppercase text-amber-300 shrink-0">
-                  {plan.discipline}
-                </span>
-              )}
-              {editingPlanTitle ? (
-                <div className="flex items-center gap-1">
-                  <input
-                    type="text"
-                    value={tempPlanTitle}
-                    onChange={(e) => setTempPlanTitle(e.target.value)}
-                    className="bg-slate-950 border border-blue-500 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none"
-                    autoFocus
-                  />
-                  <button
-                    onClick={async () => {
-                      if (onUpdateMetadata && tempPlanTitle.trim() && tempPlanTitle !== plan.name) {
-                        await onUpdateMetadata({ name: tempPlanTitle.trim() });
-                      }
-                      setEditingPlanTitle(false);
-                    }}
-                    className="p-1 rounded bg-blue-600 hover:bg-blue-500 text-white"
-                    title="Save title"
-                  >
-                    <Check className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setTempPlanTitle(plan.name || '');
-                      setEditingPlanTitle(false);
-                    }}
-                    className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400"
-                    title="Cancel"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-1 group">
-                  <h2 className="text-xs sm:text-sm font-bold text-white truncate max-w-[180px] sm:max-w-md">
-                    {plan.name}
-                  </h2>
-                  {onUpdateMetadata && !isGuest && (
+      {/* Header: row 1 = back, title, actions; row 2 = view switcher, sheet selector */}
+      <div className="bg-zinc-900 border-b border-zinc-800 px-3 pb-2 pt-[max(8px,env(safe-area-inset-top))] shrink-0 space-y-2">
+        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+            <button
+              onClick={onBack}
+              className="p-2.5 sm:p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition shrink-0"
+              title="Back to Plan Vault"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                {editingPlanTitle ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="text"
+                      value={tempPlanTitle}
+                      onChange={(e) => setTempPlanTitle(e.target.value)}
+                      className="bg-zinc-950 border border-blue-500 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none"
+                      autoFocus
+                    />
+                    <button
+                      onClick={async () => {
+                        if (onUpdateMetadata && tempPlanTitle.trim() && tempPlanTitle !== plan.name) {
+                          await onUpdateMetadata({ name: tempPlanTitle.trim() });
+                        }
+                        setEditingPlanTitle(false);
+                      }}
+                      className="p-1 rounded bg-blue-600 hover:bg-blue-500 text-white"
+                      title="Save title"
+                    >
+                      <Check className="w-3 h-3" />
+                    </button>
                     <button
                       onClick={() => {
                         setTempPlanTitle(plan.name || '');
-                        setEditingPlanTitle(true);
+                        setEditingPlanTitle(false);
                       }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition"
-                      title="Edit plan name"
+                      className="p-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400"
+                      title="Cancel"
                     >
-                      <Edit2 className="w-3 h-3" />
+                      <X className="w-3 h-3" />
                     </button>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 truncate mt-0.5">
-              <CheckCircle2 className="w-3 h-3 shrink-0" />
-              <span className="truncate">{plan.match_reason || 'Cleaned Single-Sheet Plan View'}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 group min-w-0">
+                    <h2 className="text-xs sm:text-sm font-medium text-white truncate min-w-0">
+                      {plan.name}
+                    </h2>
+                    {onUpdateMetadata && !isGuest && (
+                      <button
+                        onClick={() => {
+                          setTempPlanTitle(plan.name || '');
+                          setEditingPlanTitle(true);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition"
+                        title="Edit plan name"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="text-[11px] text-zinc-400 truncate mt-0.5">
+                {[isGuest ? 'Guest preview' : null, plan.project_name, plan.discipline].filter(Boolean).join(' · ')}
+              </div>
             </div>
           </div>
-        </div>
-
-        {/* Center Segmented Switcher: DWG | PDF | Split */}
-        <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shrink-0">
-          <button
-            onClick={() => setViewTab('dwg')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition ${
-              viewTab === 'dwg' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <FileCode2 className="w-3.5 h-3.5" />
-            <span>DWG</span>
-          </button>
-          <button
-            onClick={() => setViewTab('pdf')}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition ${
-              viewTab === 'pdf' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>PDF</span>
-            {!plan.has_pdf && (
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" title="Upload associated PDF" />
-            )}
-          </button>
-          <button
-            onClick={() => setViewTab('split')}
-            className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold transition ${
-              viewTab === 'split' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
-            }`}
-          >
-            <Columns className="w-3.5 h-3.5" />
-            <span>Split</span>
-          </button>
-        </div>
-
-        {/* Right Actions: Sheet View Selector + Save (Guest) + Share + Download */}
-        <div className="flex items-center gap-1.5 shrink-0">
+  
+  
+          <div className="flex items-center gap-1.5 shrink-0">
           {onOpenAuth && (
             <>
               <button
                 onClick={() => onOpenAuth('signin')}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-slate-300 hover:text-white hover:bg-slate-800 transition"
+                className="hidden sm:inline-flex px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
               >
                 Sign In
               </button>
               {!isGuest && (
                 <button
                   onClick={() => onOpenAuth('signup')}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow transition"
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shadow transition"
                 >
                   Sign Up
                 </button>
@@ -1226,18 +1227,117 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
           {isGuest && onSavePlan && (
             <button
               onClick={onSavePlan}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow transition animate-pulse"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shadow transition"
             >
               <Upload className="w-3.5 h-3.5" />
               <span>{onOpenAuth ? 'Sign Up & Save' : 'Save Plan'}</span>
             </button>
           )}
 
+          <button
+            onClick={() => onShare(plan)}
+            className="flex items-center gap-1.5 px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Share</span>
+          </button>
+
+          <div className="relative">
+            <button
+              onClick={() => setShowDownloadMenu((v) => !v)}
+              className="p-2.5 sm:p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition"
+              title="Download or Update Plan Files"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            {showDownloadMenu && (
+              <div className="absolute right-0 mt-1.5 w-52 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1.5 z-40 text-xs space-y-1">
+                {plan.has_dwg && (
+                  <>
+                    <a
+                      href={apiUrl(`/api/plans/${plan.id}/file/dxf?share=${encodeURIComponent(plan.share_token || '')}`)}
+                      download
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-200"
+                    >
+                      <Download className="w-3.5 h-3.5 text-zinc-300" />
+                      Download Cleaned .DXF
+                    </a>
+                    <a
+                      href={apiUrl(`/api/plans/${plan.id}/file/dwg?share=${encodeURIComponent(plan.share_token || '')}`)}
+                      download
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-200"
+                    >
+                      <Download className="w-3.5 h-3.5 text-blue-400" />
+                      Download Original .DWG
+                    </a>
+                  </>
+                )}
+                {plan.has_pdf && (
+                  <a
+                    href={apiUrl(`/api/plans/${plan.id}/file/pdf?share=${encodeURIComponent(plan.share_token || '')}`)}
+                    download={plan.pdf_filename || 'plan.pdf'}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-200"
+                  >
+                    <Download className="w-3.5 h-3.5 text-zinc-400" />
+                    Download Associated .PDF
+                  </a>
+                )}
+                <div className="border-t border-zinc-800 my-1" />
+                <button
+                  onClick={() => {
+                    setShowDownloadMenu(false);
+                    pdfInputRef.current?.click();
+                  }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-left text-zinc-200"
+                >
+                  <Upload className="w-3.5 h-3.5 text-blue-400" />
+                  {plan.has_pdf ? 'Replace Associated PDF' : 'Upload Associated PDF'}
+                </button>
+              </div>
+            )}
+          </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+        {/* Center Segmented Switcher: DWG | PDF | Split */}
+        <div className="flex items-center bg-zinc-950 p-1 rounded-xl border border-zinc-800 shrink-0">
+          <button
+            onClick={() => setViewTab('dwg')}
+            className={`flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium transition ${
+              viewTab === 'dwg' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <FileCode2 className="w-3.5 h-3.5" />
+            <span>DWG</span>
+          </button>
+          <button
+            onClick={() => setViewTab('pdf')}
+            className={`flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium transition ${
+              viewTab === 'pdf' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>PDF</span>
+            {!plan.has_pdf && (
+              <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" title="Upload associated PDF" />
+            )}
+          </button>
+          <button
+            onClick={() => setViewTab('split')}
+            className={`hidden sm:flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium transition ${
+              viewTab === 'split' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <Columns className="w-3.5 h-3.5" />
+            <span>Split</span>
+          </button>
+        </div>
+
           {sheets.length > 0 && (
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-1 flex-1 min-w-0">
               {sheets.length === 1 ? (
                 <span
-                  className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 max-w-[155px] sm:max-w-[210px] truncate"
+                  className="bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-zinc-200 flex-1 min-w-0 sm:flex-none sm:max-w-[210px] truncate"
                   title={sheets[0].name}
                 >
                   {sheets[0].name}
@@ -1254,7 +1354,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                       setBusyAction(null);
                     }
                   }}
-                  className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-slate-200 max-w-[155px] sm:max-w-[210px] truncate"
+                  className="bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-zinc-200 flex-1 min-w-0 sm:flex-none sm:max-w-[210px] truncate"
                   title="Switch isolated view"
                 >
                   <option value="all">All {sheets.length} Selected Views (Merged)</option>
@@ -1276,7 +1376,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                       setEditingSheetMeta(true);
                     }
                   }}
-                  className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition"
+                  className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition"
                   title="Edit current sheet name and description"
                 >
                   <Edit2 className="w-3.5 h-3.5" />
@@ -1285,73 +1385,11 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
             </div>
           )}
 
-          <button
-            onClick={() => onShare(plan)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition"
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Share</span>
-          </button>
-
-          <div className="relative">
-            <button
-              onClick={() => setShowDownloadMenu((v) => !v)}
-              className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 transition"
-              title="Download or Update Plan Files"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-            {showDownloadMenu && (
-              <div className="absolute right-0 mt-1.5 w-52 bg-slate-900 border border-slate-700 rounded-xl shadow-xl p-1.5 z-40 text-xs space-y-1">
-                {plan.has_dwg && (
-                  <>
-                    <a
-                      href={apiUrl(`/api/plans/${plan.id}/file/dxf?share=${encodeURIComponent(plan.share_token || '')}`)}
-                      download
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800 text-slate-200"
-                    >
-                      <Download className="w-3.5 h-3.5 text-emerald-400" />
-                      Download Cleaned .DXF
-                    </a>
-                    <a
-                      href={apiUrl(`/api/plans/${plan.id}/file/dwg?share=${encodeURIComponent(plan.share_token || '')}`)}
-                      download
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800 text-slate-200"
-                    >
-                      <Download className="w-3.5 h-3.5 text-blue-400" />
-                      Download Original .DWG
-                    </a>
-                  </>
-                )}
-                {plan.has_pdf && (
-                  <a
-                    href={apiUrl(`/api/plans/${plan.id}/file/pdf?share=${encodeURIComponent(plan.share_token || '')}`)}
-                    download={plan.pdf_filename || 'plan.pdf'}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800 text-slate-200"
-                  >
-                    <Download className="w-3.5 h-3.5 text-amber-400" />
-                    Download Associated .PDF
-                  </a>
-                )}
-                <div className="border-t border-slate-800 my-1" />
-                <button
-                  onClick={() => {
-                    setShowDownloadMenu(false);
-                    pdfInputRef.current?.click();
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-800 text-left text-slate-200"
-                >
-                  <Upload className="w-3.5 h-3.5 text-blue-400" />
-                  {plan.has_pdf ? 'Replace Associated PDF' : 'Upload Associated PDF'}
-                </button>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 
       {busyAction && (
-        <div className="bg-blue-950/90 border-b border-blue-500/30 px-4 py-1.5 text-xs text-blue-200 flex items-center justify-center gap-2">
+        <div className="bg-zinc-900 border-b border-blue-500/30 px-4 py-1.5 text-xs text-blue-200 flex items-center justify-center gap-2">
           <RefreshCw className="w-3.5 h-3.5 animate-spin" />
           <span>{busyAction}</span>
         </div>
@@ -1363,20 +1401,20 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
         {(viewTab === 'dwg' || viewTab === 'split') && (
           <div
             ref={containerRef}
-            className={`relative overflow-hidden bg-slate-950 ${
-              viewTab === 'split' ? 'flex-1 border-b lg:border-b-0 lg:border-r border-slate-800' : 'flex-1'
+            className={`relative overflow-hidden bg-zinc-950 ${
+              viewTab === 'split' ? 'flex-1 border-b lg:border-b-0 lg:border-r border-zinc-800' : 'flex-1'
             }`}
           >
             {!rawData ? (
               <div className="h-full flex flex-col items-center justify-center p-6 text-center gap-3">
-                <FileCode2 className="w-10 h-10 text-slate-500" />
-                <div className="text-sm font-bold text-white">No DWG File Attached Yet</div>
-                <p className="text-xs text-slate-400 max-w-xs">
+                <FileCode2 className="w-10 h-10 text-zinc-500" />
+                <div className="text-sm font-medium text-white">No DWG File Attached Yet</div>
+                <p className="text-xs text-zinc-400 max-w-xs">
                   Upload the .DWG or .DXF file for this plan to clean up the view and measure distances.
                 </p>
                 <button
                   onClick={() => dwgInputRef.current?.click()}
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-2"
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-2"
                 >
                   <Upload className="w-4 h-4" /> Upload .DWG / .DXF
                 </button>
@@ -1392,21 +1430,21 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                   onTouchStart={handleTouchStart}
                   onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
-                  className={`w-full h-full block touch-none ${
+                  className={`w-full h-full block touch-none select-none ${
                     toolMode === 'measure' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
                   }`}
                 />
 
                 {/* Top Floating Measurement HUD Banner */}
                 {toolMode === 'measure' && (
-                  <div className="absolute top-3 left-1/2 -translate-x-1/2 z-20 w-[94%] max-w-md bg-slate-900/95 backdrop-blur-md border border-emerald-500/50 rounded-2xl px-3.5 py-2.5 shadow-2xl space-y-2">
+                  <div className="absolute top-0 inset-x-0 z-20 bg-zinc-900/95 backdrop-blur-md border-b border-white/10 px-3 py-2 space-y-1.5">
                     {/* Sub-mode switcher: Distance | Area: Pick Closed | Area: Points */}
-                    <div className="grid grid-cols-3 gap-1 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                    <div className="grid grid-cols-3 gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
                       {(
                         [
                           { id: 'distance', label: 'Distance' },
-                          { id: 'area-pick', label: 'Area: Closed' },
-                          { id: 'area-points', label: 'Area: Points' },
+                          { id: 'area-pick', label: 'Room area' },
+                          { id: 'area-points', label: 'Trace area' },
                         ] as { id: MeasureSubMode; label: string }[]
                       ).map((m) => (
                         <button
@@ -1417,10 +1455,10 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                             setSelectedAreaShape(null);
                             setHoverAreaShape(null);
                           }}
-                          className={`py-1 px-2 rounded-lg text-[11px] font-bold transition ${
+                          className={`py-2 px-1 rounded-lg text-[11px] font-medium transition active:scale-95 truncate ${
                             measureSubMode === m.id
-                              ? 'bg-emerald-600 text-white shadow-xs'
-                              : 'text-slate-400 hover:text-slate-200'
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'text-zinc-400 hover:text-zinc-200'
                           }`}
                         >
                           {m.label}
@@ -1432,31 +1470,31 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                       activeMeasureFormatted && measurePts.length === 2 ? (
                         <div className="flex items-center justify-between gap-2">
                           <div>
-                            <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                            <div className="text-[10px] font-medium text-zinc-300">
                               Measured Distance (OSNAP)
                             </div>
-                            <div className="text-base sm:text-lg font-extrabold font-mono text-white">
+                            <div className="text-base sm:text-lg font-semibold font-mono text-white">
                               {activeMeasureFormatted.meters}{' '}
-                              <span className="text-xs font-semibold text-emerald-300">
+                              <span className="text-xs font-semibold text-zinc-300">
                                 ({activeMeasureFormatted.feetInches} | {activeMeasureFormatted.mm})
                               </span>
                             </div>
-                            <div className="text-[11px] font-mono text-slate-400">
+                            <div className="text-[11px] font-mono text-zinc-400">
                               ΔX: {(Math.abs(measurePts[1][0] - measurePts[0][0]) * unitScaleToM).toFixed(3)}m · ΔY:{' '}
                               {(Math.abs(measurePts[1][1] - measurePts[0][1]) * unitScaleToM).toFixed(3)}m
                             </div>
                           </div>
                           <button
                             onClick={() => setMeasurePts([])}
-                            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 shrink-0"
+                            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 shrink-0"
                           >
                             Clear
                           </button>
                         </div>
                       ) : (
-                        <div className="flex items-center justify-between gap-2 text-xs text-emerald-200">
+                        <div className="flex items-center justify-between gap-2 text-xs text-blue-200">
                           <div className="flex items-center gap-2">
-                            <Ruler className="w-4 h-4 text-emerald-400 shrink-0" />
+                            <Ruler className="w-4 h-4 text-zinc-300 shrink-0" />
                             <span>
                               {measurePts.length === 0
                                 ? 'Tap 1st point on DWG to measure distance'
@@ -1466,7 +1504,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                           {measurePts.length > 0 && (
                             <button
                               onClick={() => setMeasurePts([])}
-                              className="text-[11px] underline text-slate-300"
+                              className="text-[11px] underline text-zinc-300"
                             >
                               Reset
                             </button>
@@ -1476,19 +1514,19 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                     ) : activeAreaFormatted ? (
                       <div className="flex items-center justify-between gap-2">
                         <div className="min-w-0">
-                          <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 truncate">
+                          <div className="text-[10px] font-medium text-zinc-300 truncate">
                             {measureSubMode === 'area-pick'
                               ? (selectedAreaShape || hoverAreaShape)?.label || 'Closed Area'
                               : `Polygon Area (${measurePts.length} pts)`}
                           </div>
-                          <div className="text-base sm:text-lg font-extrabold font-mono text-white">
+                          <div className="text-base sm:text-lg font-semibold font-mono text-white">
                             {activeAreaFormatted.sqm}{' '}
-                            <span className="text-xs font-semibold text-emerald-300">
+                            <span className="text-xs font-semibold text-zinc-300">
                               ({activeAreaFormatted.sqft}
                               {unitName === 'mm' ? ` | ${activeAreaFormatted.sqmm}` : ''})
                             </span>
                           </div>
-                          <div className="text-[11px] font-mono text-slate-400">
+                          <div className="text-[11px] font-mono text-zinc-400">
                             Perimeter: {activeAreaFormatted.perim.meters} ({activeAreaFormatted.perim.feetInches})
                           </div>
                         </div>
@@ -1496,7 +1534,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                           {measureSubMode === 'area-points' && measurePts.length > 0 && (
                             <button
                               onClick={() => setMeasurePts((prev) => prev.slice(0, -1))}
-                              className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] font-bold text-slate-200"
+                              className="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[11px] font-medium text-zinc-200"
                             >
                               Undo
                             </button>
@@ -1507,16 +1545,16 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                               setSelectedAreaShape(null);
                               setHoverAreaShape(null);
                             }}
-                            className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200"
+                            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200"
                           >
                             Clear
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <div className="flex items-center justify-between gap-2 text-xs text-emerald-200">
+                      <div className="flex items-center justify-between gap-2 text-xs text-blue-200">
                         <div className="flex items-center gap-2">
-                          <Ruler className="w-4 h-4 text-emerald-400 shrink-0" />
+                          <Ruler className="w-4 h-4 text-zinc-300 shrink-0" />
                           <span>
                             {measureSubMode === 'area-pick'
                               ? 'Tap inside any closed polygon or room to get its area'
@@ -1526,7 +1564,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                         {measurePts.length > 0 && (
                           <button
                             onClick={() => setMeasurePts([])}
-                            className="text-[11px] underline text-slate-300"
+                            className="text-[11px] underline text-zinc-300"
                           >
                             Reset
                           </button>
@@ -1537,24 +1575,24 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                 )}
 
                 {/* Right Zoom Controls */}
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 flex flex-col gap-1.5 z-20">
+                <div className="absolute right-2 bottom-24 flex flex-col gap-1.5 z-20">
                   <button
                     onClick={() => setZoom((z) => z * 1.3)}
-                    className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-700 text-slate-200 hover:bg-slate-800 shadow-lg"
+                    className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
                     title="Zoom In"
                   >
                     <ZoomIn className="w-4 h-4" />
                   </button>
                   <button
                     onClick={() => setZoom((z) => z / 1.3)}
-                    className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-700 text-slate-200 hover:bg-slate-800 shadow-lg"
+                    className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
                     title="Zoom Out"
                   >
                     <ZoomOut className="w-4 h-4" />
                   </button>
                   <button
                     onClick={fitDrawing}
-                    className="p-2.5 rounded-xl bg-slate-900/90 border border-slate-700 text-slate-200 hover:bg-slate-800 shadow-lg"
+                    className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
                     title="Fit Plan to Screen"
                   >
                     <Maximize2 className="w-4 h-4" />
@@ -1562,13 +1600,13 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                 </div>
 
                 {/* Bottom Mobile-First Floating Tool Dock */}
-                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 bg-slate-900/95 backdrop-blur-md border border-slate-700/90 p-1.5 rounded-2xl shadow-2xl max-w-[96vw] overflow-x-auto">
+                <div className="absolute bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/90 p-1 rounded-2xl shadow-2xl max-w-[96vw]">
                   <button
                     onClick={() => setToolMode('pan')}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${
                       toolMode === 'pan'
                         ? 'bg-blue-600 text-white'
-                        : 'text-slate-300 hover:bg-slate-800'
+                        : 'text-zinc-300 hover:bg-zinc-800'
                     }`}
                   >
                     <Hand className="w-3.5 h-3.5" />
@@ -1577,47 +1615,47 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
 
                   <button
                     onClick={() => setToolMode((m) => (m === 'measure' ? 'pan' : 'measure'))}
-                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
+                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${
                       toolMode === 'measure'
-                        ? 'bg-emerald-600 text-white shadow-sm'
-                        : 'bg-emerald-950/60 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-900/60'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-zinc-900 text-zinc-300 border border-blue-500/30 hover:bg-blue-900/60'
                     }`}
                   >
                     <Ruler className="w-3.5 h-3.5" />
                     <span>Measure</span>
                   </button>
 
-                  <div className="h-5 w-px bg-slate-800 mx-0.5 shrink-0" />
+                  <div className="h-5 w-px bg-zinc-800 mx-0.5 shrink-0" />
 
                   {/* Drawing Unit Scale Selector */}
                   <select
                     value={unitScaleToM}
                     onChange={(e) => onChangeUnitScale(Number(e.target.value))}
-                    className="bg-slate-950 border border-slate-700 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-200 shrink-0"
+                    className="bg-zinc-950 border border-zinc-700 rounded-xl px-2 py-2 text-xs font-medium text-zinc-200 shrink-0 max-w-[84px]"
                     title="Calibrate DWG Measurement Units"
                   >
                     {UNIT_OPTIONS.map((u) => (
                       <option key={u.label} value={u.scale}>
-                        Unit: {u.label}
+                        {u.label}
                       </option>
                     ))}
                   </select>
 
                   <button
                     onClick={() => setShowLayersSheet((v) => !v)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition shrink-0 ${
-                      showLayersSheet ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${
+                      showLayersSheet ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-zinc-800'
                     }`}
                   >
                     <Layers className="w-3.5 h-3.5" />
-                    <span>Layers ({layers.length})</span>
+                    <span>Layers</span>
                   </button>
 
                   <button
                     onClick={() =>
                       setColorMode((c) => (c === 'cad' ? 'blueprint' : c === 'blueprint' ? 'mono' : 'cad'))
                     }
-                    className="px-2.5 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:bg-slate-800 uppercase shrink-0"
+                    className="px-2.5 py-2 rounded-xl text-xs font-semibold text-zinc-300 hover:bg-zinc-800 shrink-0"
                     title="Cycle CAD Color Mode"
                   >
                     {colorMode}
@@ -1626,9 +1664,9 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
 
                 {/* Slide-up Layer Drawer */}
                 {showLayersSheet && (
-                  <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-[92%] max-w-sm max-h-72 bg-slate-900/95 backdrop-blur-md border border-slate-700 rounded-2xl shadow-2xl z-30 flex flex-col overflow-hidden">
-                    <div className="px-3.5 py-2.5 border-b border-slate-800 flex items-center justify-between">
-                      <span className="text-xs font-bold text-white">
+                  <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-[92%] max-w-sm max-h-72 bg-zinc-900/95 backdrop-blur-md border border-zinc-700 rounded-2xl shadow-2xl z-30 flex flex-col overflow-hidden">
+                    <div className="px-3.5 py-2.5 border-b border-zinc-800 flex items-center justify-between">
+                      <span className="text-xs font-medium text-white">
                         Cleaned View Layers ({layers.length})
                       </span>
                       <div className="flex items-center gap-2">
@@ -1642,13 +1680,13 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                         )}
                         <button
                           onClick={() => setShowLayersSheet(false)}
-                          className="p-1 text-slate-400 hover:text-white"
+                          className="p-1 text-zinc-400 hover:text-white"
                         >
                           <X className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
-                    <div className="overflow-y-auto divide-y divide-slate-800/60 p-1.5">
+                    <div className="overflow-y-auto divide-y divide-zinc-800/60 p-1.5">
                       {layers.map((lyr: any) => {
                         const visible = !hiddenLayers.has(lyr.name);
                         return (
@@ -1662,23 +1700,23 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                                 return next;
                               });
                             }}
-                            className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between hover:bg-slate-800/60 text-xs"
+                            className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between hover:bg-zinc-800/60 text-xs"
                           >
                             <div className="flex items-center gap-2 truncate">
                               <span
                                 className="w-2.5 h-2.5 rounded-full shrink-0"
                                 style={{ backgroundColor: lyr.color_hex || '#f8fafc' }}
                               />
-                              <span className={`font-mono truncate ${visible ? 'text-slate-100' : 'text-slate-500 line-through'}`}>
+                              <span className={`font-mono truncate ${visible ? 'text-zinc-100' : 'text-zinc-500 line-through'}`}>
                                 {lyr.name}
                               </span>
                             </div>
                             <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-[10px] text-slate-400">{lyr.entity_count}</span>
+                              <span className="text-[10px] text-zinc-400">{lyr.entity_count}</span>
                               {visible ? (
-                                <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                                <Eye className="w-3.5 h-3.5 text-zinc-300" />
                               ) : (
-                                <EyeOff className="w-3.5 h-3.5 text-slate-500" />
+                                <EyeOff className="w-3.5 h-3.5 text-zinc-500" />
                               )}
                             </div>
                           </button>
@@ -1694,18 +1732,18 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
 
         {/* ASSOCIATED PDF VIEWPORT */}
         {(viewTab === 'pdf' || viewTab === 'split') && (
-          <div className="flex-1 flex flex-col bg-slate-900 overflow-hidden">
+          <div className="flex-1 flex flex-col bg-zinc-900 overflow-hidden">
             {plan.has_pdf ? (
               <>
-                <div className="px-3 py-1.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 truncate text-slate-300">
-                    <FileText className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <div className="px-3 py-1.5 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 truncate text-zinc-300">
+                    <FileText className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                     <span className="font-mono truncate">{plan.pdf_filename || 'Associated Plan.pdf'}</span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={() => pdfInputRef.current?.click()}
-                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-semibold text-slate-200"
+                      className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[11px] font-semibold text-zinc-200"
                     >
                       Replace PDF
                     </button>
@@ -1722,24 +1760,24 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                 <iframe
                   src={`${apiUrl(`/api/plans/${plan.id}/file/pdf?share=${encodeURIComponent(plan.share_token || '')}`)}#view=FitH`}
                   title={plan.pdf_filename || plan.name}
-                  className="flex-1 w-full h-full border-0 bg-slate-950"
+                  className="flex-1 w-full h-full border-0 bg-zinc-950"
                 />
               </>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
-                  <FileText className="w-6 h-6 text-amber-400" />
+                <div className="w-12 h-12 rounded-2xl bg-zinc-500/10 border border-zinc-500/30 flex items-center justify-center">
+                  <FileText className="w-6 h-6 text-zinc-400" />
                 </div>
                 <div className="space-y-1 max-w-sm">
-                  <h3 className="text-sm font-bold text-white">No Associated PDF Uploaded Yet</h3>
-                  <p className="text-xs text-slate-400">
+                  <h3 className="text-sm font-medium text-white">No Associated PDF Uploaded Yet</h3>
+                  <p className="text-xs text-zinc-400">
                     Upload the associated PDF for this DWG. PlanVault will also match the PDF against the DWG sheets to keep only the matching view.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-2.5">
                   <button
                     onClick={() => pdfInputRef.current?.click()}
-                    className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg"
+                    className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-2 shadow-lg"
                   >
                     <Upload className="w-4 h-4" />
                     Upload Associated PDF
@@ -1754,9 +1792,9 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                           setBusyAction(null);
                         }
                       }}
-                      className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold flex items-center gap-2 border border-slate-700"
+                      className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium flex items-center gap-2 border border-zinc-700"
                     >
-                      <Sparkles className="w-4 h-4 text-emerald-400" />
+                      <Layers className="w-4 h-4 text-zinc-300" />
                       Auto-Generate PDF from Cleaned View
                     </button>
                   )}
@@ -1770,35 +1808,35 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
       {/* Sheet Metadata Edit Modal */}
       {editingSheetMeta && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-white">Edit Sheet Name & Description</h3>
+              <h3 className="text-sm font-medium text-white">Edit Sheet Name & Description</h3>
               <button
                 onClick={() => setEditingSheetMeta(false)}
-                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400"
+                className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Sheet Name</label>
+              <label className="block text-xs font-semibold text-zinc-300 mb-1">Sheet Name</label>
               <input
                 type="text"
                 value={tempSheetName}
                 onChange={(e) => setTempSheetName(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
                 placeholder="e.g. Ground Floor Plan"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-zinc-300 mb-1">
                 Description (What this view represents)
               </label>
               <textarea
                 rows={3}
                 value={tempSheetDesc}
                 onChange={(e) => setTempSheetDesc(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-blue-500 resize-none"
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-blue-500 resize-none"
                 placeholder="e.g., Working plan showing room boundaries and external columns..."
               />
             </div>
@@ -1806,7 +1844,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
               <button
                 type="button"
                 onClick={() => setEditingSheetMeta(false)}
-                className="px-3 py-1.5 rounded-xl bg-slate-800 text-xs font-semibold text-slate-300 hover:bg-slate-700"
+                className="px-3 py-1.5 rounded-xl bg-zinc-800 text-xs font-semibold text-zinc-300 hover:bg-zinc-700"
               >
                 Cancel
               </button>
@@ -1823,7 +1861,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                   }
                   setEditingSheetMeta(false);
                 }}
-                className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shadow"
+                className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white shadow"
               >
                 Save Changes
               </button>
