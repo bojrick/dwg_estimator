@@ -131,25 +131,49 @@ def _process_dwg_for_plan(
         doc = load_ezdxf_doc(dxf_path)
         full_raw = extract_dxf_raw_entities(dxf_path, doc=doc)
 
-        sheets_to_use = custom_sheets if custom_sheets is not None else full_raw.get("sheets", [])
-        full_raw["sheets"] = sheets_to_use
-
         matched_sheet = None
         reason = ""
-        if preferred_active_sheet_id:
-            matched_sheet = next((s for s in sheets_to_use if s["id"] == preferred_active_sheet_id), None)
-            if matched_sheet:
-                reason = f"User selected sheet: {matched_sheet.get('name', 'Selected view')}"
 
-        if not matched_sheet:
-            matched_sheet, reason = match_sheet_for_pdf(
-                sheets=sheets_to_use,
-                raw_texts=full_raw.get("texts", []),
-                pdf_bytes=pdf_bytes,
-                pdf_filename=pdf_filename,
-            )
-        sheet_id = matched_sheet["id"] if matched_sheet else None
-        cleaned_raw = clean_raw_data_to_sheet(full_raw, sheet_id)
+        if custom_sheets:
+            sheets_to_use = custom_sheets
+            if len(sheets_to_use) == 1:
+                matched_sheet = sheets_to_use[0]
+                sheet_id = matched_sheet["id"]
+                reason = f"User selected sheet view: {matched_sheet.get('name', 'Selected view')}"
+                full_raw["sheets"] = sheets_to_use
+                cleaned_raw = clean_raw_data_to_sheet(full_raw, sheet_id, custom_sheet=matched_sheet)
+                cleaned_raw["sheets"] = sheets_to_use
+                cleaned_raw["bbox_full"] = matched_sheet["bbox"]
+                full_raw = dict(cleaned_raw)
+            else:
+                # 2+ sheets selected: isolate and merge only those selected sheets side-by-side, discarding all other clutter
+                merged_subset = merge_dwg_views_to_single_plan(
+                    sheets_to_use,
+                    {"file_0": {"filename": safe_dwg_name, "raw_data": full_raw}},
+                )
+                full_raw = merged_subset
+                sheets_to_use = full_raw.get("sheets", sheets_to_use)
+                matched_sheet = None
+                sheet_id = "all"
+                reason = f"Merged {len(sheets_to_use)} selected sheet views"
+                cleaned_raw = clean_raw_data_to_sheet(full_raw, "all")
+        else:
+            sheets_to_use = full_raw.get("sheets", [])
+            full_raw["sheets"] = sheets_to_use
+            if preferred_active_sheet_id:
+                matched_sheet = next((s for s in sheets_to_use if s["id"] == preferred_active_sheet_id), None)
+                if matched_sheet:
+                    reason = f"User selected sheet: {matched_sheet.get('name', 'Selected view')}"
+
+            if not matched_sheet:
+                matched_sheet, reason = match_sheet_for_pdf(
+                    sheets=sheets_to_use,
+                    raw_texts=full_raw.get("texts", []),
+                    pdf_bytes=pdf_bytes,
+                    pdf_filename=pdf_filename,
+                )
+            sheet_id = matched_sheet["id"] if matched_sheet else None
+            cleaned_raw = clean_raw_data_to_sheet(full_raw, sheet_id, custom_sheet=matched_sheet)
 
         # Defer cleaned DXF file export until user requests /file/dxf download
         plan.cleaned_dxf_key = None
@@ -362,17 +386,20 @@ async def preview_multi_cad(
             file_id = f"file_{idx}"
             out_files.append({
                 "file_id": file_id,
+                "fileId": file_id,
                 "filename": f_name,
                 "name": Path(f.filename).stem.replace("_", " ").strip(),
                 "raw_data": cleaned_raw,
+                "rawData": cleaned_raw,
                 "summary": summary,
                 "sheets": [
                     {
                         **s,
+                        "id": f"{file_id}__{s.get('id', f'sheet_{s_idx + 1}')}",
                         "file_id": file_id,
                         "source_file": f_name,
                     }
-                    for s in cleaned_raw.get("sheets", [])
+                    for s_idx, s in enumerate(cleaned_raw.get("sheets", []))
                 ],
                 "unit_name": cleaned_raw.get("unit_name", "m"),
                 "scale_to_m": cleaned_raw.get("scale_to_m", 1.0),
@@ -419,7 +446,8 @@ async def merge_preview_cad(
             files_data[f_name] = files_data[file_id]
 
         merged_full = merge_dwg_views_to_single_plan(selected_sheets, files_data)
-        target_sheet_id = active_sheet_id or (merged_full["sheets"][0]["id"] if merged_full.get("sheets") else None)
+        merged_sheets = merged_full.get("sheets", [])
+        target_sheet_id = merged_sheets[0]["id"] if len(merged_sheets) == 1 else "all"
         cleaned_raw = clean_raw_data_to_sheet(merged_full, target_sheet_id)
         summary = _build_summary(cleaned_raw)
 
@@ -428,7 +456,7 @@ async def merge_preview_cad(
             "raw_data": cleaned_raw,
             "full_raw_data": merged_full,
             "summary": summary,
-            "sheets": merged_full.get("sheets", []),
+            "sheets": merged_sheets,
             "active_sheet_id": target_sheet_id,
             "unit_name": "m",
             "scale_to_m": 1.0,
@@ -589,7 +617,8 @@ async def create_plan(
                             })
 
                 merged_full_raw = merge_dwg_views_to_single_plan(custom_sheets_parsed, files_data)
-                target_sheet_id = active_sheet_id or (merged_full_raw["sheets"][0]["id"] if merged_full_raw.get("sheets") else None)
+                merged_sheets = merged_full_raw.get("sheets", [])
+                target_sheet_id = merged_sheets[0]["id"] if len(merged_sheets) == 1 else "all"
                 cleaned_raw = clean_raw_data_to_sheet(merged_full_raw, target_sheet_id)
 
                 primary_name = collected_dwgs[0].filename
@@ -611,9 +640,9 @@ async def create_plan(
                 )
                 active_sheet = cleaned_raw.get("active_sheet")
                 plan.active_sheet_id = active_sheet["id"] if active_sheet else "all"
-                plan.active_sheet_name = active_sheet["name"] if active_sheet else "All Merged Sheets"
-                plan.match_reason = f"Merged {len(merged_full_raw.get('sheets', []))} views from {len(collected_dwgs)} DWG files"
-                plan.sheets_json = json.dumps(merged_full_raw.get("sheets", []))
+                plan.active_sheet_name = active_sheet["name"] if active_sheet else f"Merged ({len(merged_sheets)} Views)"
+                plan.match_reason = f"Merged {len(merged_sheets)} views from {len(collected_dwgs)} DWG files"
+                plan.sheets_json = json.dumps(merged_sheets)
                 plan.unit_name = "m"
                 plan.scale_to_m = 1.0
                 plan.summary_json = json.dumps(_build_summary(cleaned_raw))
@@ -650,7 +679,6 @@ async def create_plan(
     except Exception as exc:
         session.delete(plan)
         session.commit()
-        raise HTTPException(status_code=400, detail=str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
 
     return {

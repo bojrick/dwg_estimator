@@ -1215,27 +1215,36 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
 
           {sheets.length > 0 && (
             <div className="flex items-center gap-1">
-              <select
-                value={plan.active_sheet_id || 'all'}
-                onChange={async (e) => {
-                  const nextId = e.target.value;
-                  setBusyAction('Isolating sheet view...');
-                  try {
-                    await onSelectSheet(nextId);
-                  } finally {
-                    setBusyAction(null);
-                  }
-                }}
-                className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-slate-200 max-w-[155px] sm:max-w-[210px] truncate"
-                title="Switch isolated view from multi-sheet DWG"
-              >
-                {sheets.map((s: any) => (
-                  <option key={s.id} value={s.id}>
-                    {s.index ? `View #${s.index}: ` : ''}{s.name}
-                  </option>
-                ))}
-                <option value="all">Show All {sheets.length} Sheets (Uncropped)</option>
-              </select>
+              {sheets.length === 1 ? (
+                <span
+                  className="bg-slate-950 border border-slate-800 rounded-lg px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 max-w-[155px] sm:max-w-[210px] truncate"
+                  title={sheets[0].name}
+                >
+                  {sheets[0].name}
+                </span>
+              ) : (
+                <select
+                  value={plan.active_sheet_id || 'all'}
+                  onChange={async (e) => {
+                    const nextId = e.target.value;
+                    setBusyAction('Isolating sheet view...');
+                    try {
+                      await onSelectSheet(nextId);
+                    } finally {
+                      setBusyAction(null);
+                    }
+                  }}
+                  className="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-slate-200 max-w-[155px] sm:max-w-[210px] truncate"
+                  title="Switch isolated view"
+                >
+                  <option value="all">All {sheets.length} Selected Views (Merged)</option>
+                  {sheets.map((s: any, idx: number) => (
+                    <option key={s.id} value={s.id}>
+                      View #{idx + 1}: {s.name}
+                    </option>
+                  ))}
+                </select>
+              )}
 
               {onUpdateMetadata && !isGuest && plan.active_sheet_id && plan.active_sheet_id !== 'all' && (
                 <button

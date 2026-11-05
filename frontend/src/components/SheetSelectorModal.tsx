@@ -12,6 +12,7 @@ import {
   Eye,
   Layers,
   Files,
+  CheckSquare,
 } from 'lucide-react';
 
 export interface SheetConfig {
@@ -66,13 +67,19 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
 }) => {
   const hasMultipleFiles = Boolean(filesData && filesData.length > 1);
 
+  const normalizedFiles = filesData?.map((f: any, idx: number) => ({
+    ...f,
+    fileId: f.fileId || f.file_id || `file_${idx}`,
+    rawData: f.rawData || f.raw_data,
+  }));
+
   // Active file being inspected
   const [activeFileId, setActiveFileId] = useState<string>(() => {
-    return filesData && filesData[0] ? filesData[0].fileId : 'file_0';
+    return normalizedFiles && normalizedFiles[0] ? normalizedFiles[0].fileId : 'file_0';
   });
 
   const activeFileInfo = hasMultipleFiles
-    ? filesData?.find((f) => f.fileId === activeFileId) || filesData?.[0]
+    ? normalizedFiles?.find((f) => f.fileId === activeFileId) || normalizedFiles?.[0]
     : null;
 
   const currentRawData = activeFileInfo ? activeFileInfo.rawData : rawData;
@@ -84,16 +91,19 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
 
   // Initialize sheets from auto-detected sheets or modelspace bbox
   const [sheets, setSheets] = useState<SheetConfig[]>(() => {
-    if (hasMultipleFiles && filesData) {
+    if (hasMultipleFiles && normalizedFiles) {
       const all: SheetConfig[] = [];
-      filesData.forEach((f, fIdx) => {
+      normalizedFiles.forEach((f, fIdx) => {
+        const fid = f.fileId;
         if (f.sheets && f.sheets.length > 0) {
-          f.sheets.forEach((s, sIdx) => {
+          f.sheets.forEach((s: any, sIdx: number) => {
+            const rawId = s.id || `sheet_${sIdx + 1}`;
+            const uniqueId = String(rawId).startsWith(`${fid}__`) ? rawId : `${fid}__${rawId}`;
             all.push({
-              id: s.id || `file_${fIdx}_sheet_${sIdx + 1}`,
+              id: uniqueId,
               name: s.name || `${f.name || f.filename} - Sheet ${sIdx + 1}`,
               description: s.description || '',
-              file_id: f.fileId,
+              file_id: fid,
               source_file: f.filename,
               bbox: { ...s.bbox },
               is_custom_window: false,
@@ -102,10 +112,10 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
         } else {
           const b = f.rawData?.bbox_raw || { min_x: 0, min_y: 0, max_x: 100, max_y: 100, width: 100, height: 100 };
           all.push({
-            id: `file_${fIdx}_sheet_1`,
+            id: `${fid}__sheet_1`,
             name: `${f.name || f.filename} View`,
             description: `Full view from ${f.filename}`,
-            file_id: f.fileId,
+            file_id: fid,
             source_file: f.filename,
             bbox: {
               min_x: b.min_x,
@@ -157,6 +167,15 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
 
   const [activeSheetId, setActiveSheetId] = useState<string>(() => {
     return (sheets && sheets[0]?.id) || 'sheet_1';
+  });
+
+  // Selection state: user selects which sheets to KEEP and which to DISCARD (removes clutter)
+  const [selectedSheetIds, setSelectedSheetIds] = useState<Set<string>>(() => {
+    if (sheets.length <= 1) {
+      return new Set(sheets.map((s) => s.id));
+    }
+    // Default to keeping sheet 1 so user starts with clean focus, not 22 cluttered sheets
+    return new Set([sheets[0].id]);
   });
 
   const activeSheet = sheets.find((s) => s.id === activeSheetId) || sheets[0] || null;
@@ -280,6 +299,43 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
     if (!hasMultipleFiles) return true;
     return (s.file_id || 'file_0') === activeFileId;
   });
+
+  // Sheet selection helpers
+  // In default single-sheet mode, clicking any sheet card switches the single kept sheet to that view.
+  // Clicking checkboxes enters multi-select mode so users can cherry-pick 2+ views across sheets/files.
+  const [multiSelectMode, setMultiSelectMode] = useState<boolean>(false);
+
+  const toggleSheetSelection = (id: string) => {
+    setMultiSelectMode(true);
+    setSelectedSheetIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const selectOnlyCurrent = () => {
+    if (activeSheetId) {
+      setMultiSelectMode(false);
+      setSelectedSheetIds(new Set([activeSheetId]));
+    }
+  };
+
+  const selectAll = () => {
+    setMultiSelectMode(true);
+    setSelectedSheetIds(new Set(sheets.map((s) => s.id)));
+  };
+
+  const resetSelection = () => {
+    if (activeSheetId) {
+      setMultiSelectMode(false);
+      setSelectedSheetIds(new Set([activeSheetId]));
+    }
+  };
 
   // Render High-DPI CAD drawing and sheet bounding boxes
   useEffect(() => {
@@ -471,6 +527,7 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
     // Render defined sheets for this file
     visibleSheetsInFile.forEach((s) => {
       const isSelected = s.id === activeSheetId;
+      const isKept = selectedSheetIds.has(s.id);
       const b = s.bbox;
       const [sx1, sy1] = worldToScreen(b.min_x, b.max_y);
       const [sx2, sy2] = worldToScreen(b.max_x, b.min_y);
@@ -479,8 +536,8 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
 
       ctx.save();
       if (isSelected) {
-        ctx.fillStyle = 'rgba(56, 189, 248, 0.08)';
-        ctx.strokeStyle = '#38bdf8';
+        ctx.fillStyle = isKept ? 'rgba(56, 189, 248, 0.08)' : 'rgba(100, 116, 139, 0.04)';
+        ctx.strokeStyle = isKept ? '#38bdf8' : '#94a3b8';
         ctx.lineWidth = 2.5;
         ctx.fillRect(Math.min(sx1, sx2), Math.min(sy1, sy2), sw, sh);
         ctx.strokeRect(Math.min(sx1, sx2), Math.min(sy1, sy2), sw, sh);
@@ -488,21 +545,27 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
         // Highlight header badge
         const badgeX = Math.min(sx1, sx2);
         const badgeY = Math.max(16, Math.min(sy1, sy2) - 24);
-        ctx.fillStyle = '#0284c7';
+        ctx.fillStyle = isKept ? '#0284c7' : '#475569';
         ctx.fillRect(badgeX, badgeY, Math.min(sw, 200), 22);
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 11px ui-monospace, monospace';
-        ctx.fillText(`View: ${s.name}`, badgeX + 6, badgeY + 15);
-      } else {
-        ctx.fillStyle = 'rgba(100, 116, 139, 0.04)';
-        ctx.strokeStyle = '#64748b';
-        ctx.lineWidth = 1.2;
-        ctx.setLineDash([5, 5]);
+        ctx.fillText(isKept ? `View: ${s.name}` : `(Excluded): ${s.name}`, badgeX + 6, badgeY + 15);
+      } else if (isKept) {
+        ctx.fillStyle = 'rgba(56, 189, 248, 0.03)';
+        ctx.strokeStyle = '#0284c7';
+        ctx.lineWidth = 1.4;
+        ctx.setLineDash([4, 4]);
         ctx.strokeRect(Math.min(sx1, sx2), Math.min(sy1, sy2), sw, sh);
 
-        ctx.fillStyle = '#94a3b8';
+        ctx.fillStyle = '#38bdf8';
         ctx.font = '500 10px ui-monospace, monospace';
-        ctx.fillText(s.name, Math.min(sx1, sx2) + 4, Math.min(sy1, sy2) - 4);
+        ctx.fillText(`✓ ${s.name}`, Math.min(sx1, sx2) + 4, Math.min(sy1, sy2) - 4);
+      } else {
+        // Excluded sheet: draw faint outline so user sees it will be discarded
+        ctx.strokeStyle = 'rgba(100, 116, 139, 0.25)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([6, 6]);
+        ctx.strokeRect(Math.min(sx1, sx2), Math.min(sy1, sy2), sw, sh);
       }
       ctx.restore();
     });
@@ -531,6 +594,7 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
     currentRawData,
     visibleSheetsInFile,
     activeSheetId,
+    selectedSheetIds,
     drawingBox,
     canvasSize,
     worldToScreen,
@@ -624,6 +688,7 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
         };
         setSheets((prev) => [...prev, newSheet]);
         setActiveSheetId(newId);
+        setSelectedSheetIds((prev) => (multiSelectMode ? new Set([...prev, newId]) : new Set([newId])));
         setMode('pan');
       }
       setDrawingBox(null);
@@ -656,17 +721,29 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
     if (sheets.length <= 1) return;
     const remaining = sheets.filter((s) => s.id !== id);
     setSheets(remaining);
+    setSelectedSheetIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      if (next.size === 0 && remaining.length > 0) {
+        next.add(remaining[0].id);
+      }
+      return next;
+    });
     if (activeSheetId === id) {
       setActiveSheetId(remaining[0].id);
     }
   };
 
+  const keptCount = selectedSheetIds.size;
+
   const handleFinish = () => {
-    if (sheets.length === 0) return;
+    const keptSheets = sheets.filter((s) => selectedSheetIds.has(s.id));
+    if (keptSheets.length === 0) return;
+    const finalActiveId = selectedSheetIds.has(activeSheetId) ? activeSheetId : keptSheets[0].id;
     onConfirm({
       planTitle: planTitle.trim() || 'Untitled Plan',
-      sheets,
-      activeSheetId,
+      sheets: keptSheets,
+      activeSheetId: finalActiveId,
     });
   };
 
@@ -683,16 +760,12 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
             <div className="min-w-0">
               <h2 className="text-sm sm:text-base font-bold text-white truncate flex items-center gap-2">
                 <span>Configure Sheets & Views</span>
-                {hasMultipleFiles && (
-                  <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-semibold">
-                    {filesData?.length} DWGs
-                  </span>
-                )}
+                <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-semibold">
+                  {keptCount} of {sheets.length} kept
+                </span>
               </h2>
               <p className="text-[11px] text-slate-400 truncate">
-                {hasMultipleFiles
-                  ? 'Inspect each DWG drawing, customize views, and merge into a single consolidated plan'
-                  : 'Select sheet window boundaries, describe each view, and customize titles'}
+                Select only the sheet views you need — unselected clutter sheets are discarded
               </p>
             </div>
           </div>
@@ -706,13 +779,12 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
             </button>
             <button
               onClick={handleFinish}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition shadow"
+              disabled={keptCount === 0}
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-xs font-bold text-white transition shadow"
             >
               <Check className="w-4 h-4" />
               <span>
-                {hasMultipleFiles
-                  ? `Confirm & Merge Plan (${sheets.length} ${sheets.length === 1 ? 'View' : 'Views'})`
-                  : `Confirm & Open Plan (${sheets.length} ${sheets.length === 1 ? 'Sheet' : 'Sheets'})`}
+                Confirm & Keep {keptCount} {keptCount === 1 ? 'Sheet' : 'Sheets'}
               </span>
             </button>
           </div>
@@ -732,15 +804,16 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
           </div>
 
           {/* Multi-DWG File Tabs Selector */}
-          {hasMultipleFiles && filesData && (
+          {hasMultipleFiles && normalizedFiles && (
             <div className="flex items-center gap-1 overflow-x-auto max-w-full">
               <span className="text-[11px] font-bold text-slate-400 mr-1 flex items-center gap-1">
                 <Layers className="w-3.5 h-3.5 text-blue-400" />
                 <span>DWG Source:</span>
               </span>
-              {filesData.map((f) => {
+              {normalizedFiles.map((f) => {
                 const isCurrent = f.fileId === activeFileId;
-                const viewsCount = sheets.filter((s) => (s.file_id || 'file_0') === f.fileId).length;
+                const fileSheets = sheets.filter((s) => (s.file_id || 'file_0') === f.fileId);
+                const keptFileSheets = fileSheets.filter((s) => selectedSheetIds.has(s.id)).length;
                 return (
                   <button
                     key={f.fileId}
@@ -762,7 +835,7 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                   >
                     <span className="truncate">{f.name || f.filename}</span>
                     <span className="px-1.5 py-0.2 rounded-full bg-black/30 text-[10px]">
-                      {viewsCount}
+                      {keptFileSheets}/{fileSheets.length}
                     </span>
                   </button>
                 );
@@ -866,54 +939,110 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
           {/* Right Sheet Configuration Sidebar */}
           <div className="w-full md:w-80 lg:w-96 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900/80 flex flex-col shrink-0">
             
-            <div className="p-3 border-b border-slate-800 flex items-center justify-between">
-              <div>
-                <h3 className="text-xs font-bold text-white uppercase tracking-wider">
-                  Sheets & Views ({sheets.length})
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  Select a view to inspect or draw boundaries
-                </p>
+            <div className="p-3 border-b border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                    <CheckSquare className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Sheets & Views</span>
+                  </h3>
+                  <p className="text-[11px] text-blue-400 font-semibold">
+                    {keptCount} of {sheets.length} kept in plan
+                  </p>
+                </div>
+                <button
+                  onClick={() => setMode('draw-window')}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition"
+                  title="Draw a new sheet window box"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Box</span>
+                </button>
               </div>
-              <button
-                onClick={() => setMode('draw-window')}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 text-xs font-semibold transition"
-                title="Draw a new sheet window box"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Box</span>
-              </button>
+
+              {/* Quick view selection actions */}
+              <div className="flex items-center gap-1.5 pt-1 text-[10px]">
+                <button
+                  type="button"
+                  onClick={selectOnlyCurrent}
+                  className="px-2 py-0.5 rounded bg-blue-600/25 hover:bg-blue-600/40 text-blue-300 font-semibold transition border border-blue-500/30"
+                  title="Keep only this active sheet and discard all other clutter"
+                >
+                  Only This View
+                </button>
+                <button
+                  type="button"
+                  onClick={selectAll}
+                  className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+                >
+                  Select All
+                </button>
+                <button
+                  type="button"
+                  onClick={resetSelection}
+                  className="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 transition"
+                >
+                  Reset
+                </button>
+              </div>
             </div>
 
-            {/* Sheet Tabs / List */}
-            <div className="p-3 space-y-2 overflow-y-auto max-h-48 md:max-h-60 border-b border-slate-800">
+            {/* Sheet Tabs / List with Checkboxes */}
+            <div className="p-3 space-y-2 overflow-y-auto max-h-52 md:max-h-64 border-b border-slate-800">
               {sheets.map((s, idx) => {
                 const isSelected = s.id === activeSheetId;
+                const isKept = selectedSheetIds.has(s.id);
                 return (
                   <div
                     key={s.id}
                     onClick={() => {
                       setActiveSheetId(s.id);
+                      if (!multiSelectMode) {
+                        setSelectedSheetIds(new Set([s.id]));
+                      }
                       if (hasMultipleFiles && s.file_id && s.file_id !== activeFileId) {
                         setActiveFileId(s.file_id);
                       }
                       zoomToSheet(s);
                     }}
-                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition flex items-start justify-between gap-2 ${
+                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition flex items-center justify-between gap-2.5 ${
                       isSelected
-                        ? 'bg-blue-600/15 border-blue-500 text-white'
-                        : 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-300'
+                        ? 'bg-blue-600/15 border-blue-500 text-white shadow-xs'
+                        : isKept
+                        ? 'bg-slate-950/60 border-slate-800 hover:border-slate-700 text-slate-200'
+                        : 'bg-slate-950/30 border-slate-900 opacity-60 text-slate-500'
                     }`}
                   >
+                    {/* Prominent Inclusion Checkbox */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSheetSelection(s.id);
+                      }}
+                      className={`w-4 h-4 rounded flex items-center justify-center border transition shrink-0 ${
+                        isKept
+                          ? 'bg-blue-600 border-blue-500 text-white'
+                          : 'bg-slate-900 border-slate-700 text-transparent hover:border-slate-500'
+                      }`}
+                      title={isKept ? 'Included in plan (click to exclude)' : 'Excluded from plan (click to include)'}
+                    >
+                      <Check className="w-3 h-3 stroke-[3]" />
+                    </button>
+
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5 font-bold text-xs truncate">
-                        <span className="w-4 h-4 rounded-full bg-slate-800 text-[10px] flex items-center justify-center shrink-0">
-                          {idx + 1}
+                        <span className={`truncate ${!isKept ? 'line-through text-slate-500' : ''}`}>
+                          {s.name}
                         </span>
-                        <span className="truncate">{s.name}</span>
                         {s.is_custom_window && (
                           <span className="px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-medium shrink-0">
                             Custom Box
+                          </span>
+                        )}
+                        {!isKept && (
+                          <span className="px-1 py-0.2 rounded bg-slate-800 text-slate-500 text-[9px] font-medium shrink-0">
+                            Excluded
                           </span>
                         )}
                       </div>
@@ -935,7 +1064,7 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                           deleteSheet(s.id);
                         }}
                         className="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition shrink-0"
-                        title="Remove sheet"
+                        title="Delete view"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -950,10 +1079,19 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
               <div className="p-4 flex-1 flex flex-col space-y-3 overflow-y-auto bg-slate-950/50">
                 <div className="text-xs font-bold text-slate-200 flex items-center justify-between">
                   <span>Edit Selected View #{sheets.findIndex((s) => s.id === activeSheet.id) + 1}</span>
-                  {hasMultipleFiles && activeSheet.source_file && (
-                    <span className="text-[10px] text-blue-400 font-mono font-normal">
-                      Source: {activeSheet.source_file}
+                  {selectedSheetIds.has(activeSheet.id) ? (
+                    <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                      <Check className="w-3 h-3" />
+                      <span>Included in Plan</span>
                     </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => toggleSheetSelection(activeSheet.id)}
+                      className="text-[10px] text-blue-400 hover:text-blue-300 font-semibold"
+                    >
+                      + Include in Plan
+                    </button>
                   )}
                 </div>
 
@@ -1015,4 +1153,63 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
 
 function round3(n: number): number {
   return Math.round(n * 1000) / 1000;
+}
+
+export function cropRawDataToSheet(fullRaw: any, targetSheet: SheetConfig) {
+  if (!fullRaw || !targetSheet) return fullRaw;
+  const b = targetSheet.bbox;
+  const padX = Math.max(0.5, (b.width || 50) * 0.025);
+  const padY = Math.max(0.5, (b.height || 50) * 0.025);
+  const minX = Math.min(b.min_x, b.max_x) - padX;
+  const maxX = Math.max(b.min_x, b.max_x) + padX;
+  const minY = Math.min(b.min_y, b.max_y) - padY;
+  const maxY = Math.max(b.min_y, b.max_y) + padY;
+  const inBox = (x: number, y: number) => x >= minX && x <= maxX && y >= minY && y <= maxY;
+
+  const lines = (fullRaw.lines || []).filter(
+    (ln: any) => inBox(ln.start[0], ln.start[1]) && inBox(ln.end[0], ln.end[1])
+  );
+  const polylines = (fullRaw.polylines || []).filter(
+    (pl: any) => pl.points && pl.points.every((pt: any) => inBox(pt[0], pt[1]))
+  );
+  const arcs_circles = (fullRaw.arcs_circles || []).filter(
+    (ac: any) => inBox(ac.center[0], ac.center[1])
+  );
+  const texts = (fullRaw.texts || []).filter((t: any) => inBox(t.x, t.y));
+  const hatches = (fullRaw.hatches || []).filter(
+    (h: any) => h.points && inBox(h.points[0][0], h.points[0][1])
+  );
+  const inserts = (fullRaw.inserts || []).filter(
+    (ins: any) => ins.pos && inBox(ins.pos[0], ins.pos[1])
+  );
+
+  const layerCounts: Record<string, number> = {};
+  for (const item of [...lines, ...polylines, ...arcs_circles, ...texts, ...hatches]) {
+    if (item.layer) layerCounts[item.layer] = (layerCounts[item.layer] || 0) + 1;
+  }
+  const filteredLayers = (fullRaw.layers || [])
+    .filter((lyr: any) => (layerCounts[lyr.name] || 0) > 0)
+    .map((lyr: any) => ({ ...lyr, entity_count: layerCounts[lyr.name] || 0 }));
+
+  return {
+    ...fullRaw,
+    bbox_raw: b,
+    bbox_full: b,
+    active_sheet: targetSheet,
+    sheets: [targetSheet],
+    layers: filteredLayers.length > 0 ? filteredLayers : fullRaw.layers,
+    lines,
+    polylines,
+    arcs_circles,
+    texts,
+    hatches,
+    inserts,
+    cleanup_stats: {
+      is_cropped: true,
+      sheet_id: targetSheet.id,
+      sheet_name: targetSheet.name,
+      cleaned_primitives:
+        lines.length + polylines.length + arcs_circles.length + texts.length + hatches.length,
+    },
+  };
 }

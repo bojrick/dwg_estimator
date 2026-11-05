@@ -249,10 +249,63 @@ def test_merge_dwg_views_to_single_plan():
     assert abs(t_b["height"] - 0.3) < 0.01
 
 
+def test_single_sheet_isolation_cleans_clutter():
+    from app.services.dxf_parser import clean_raw_data_to_sheet
+
+    multi_sheet_raw = {
+        "unit_name": "m",
+        "scale_to_m": 1.0,
+        "sheets": [
+            {
+                "id": "sheet_1",
+                "name": "Terrace Floor Block A",
+                "bbox": {"min_x": 10.0, "min_y": 10.0, "max_x": 30.0, "max_y": 25.0, "width": 20.0, "height": 15.0},
+            },
+            {
+                "id": "sheet_2",
+                "name": "Basement Working Plan",
+                "bbox": {"min_x": 100.0, "min_y": 100.0, "max_x": 140.0, "max_y": 130.0, "width": 40.0, "height": 30.0},
+            },
+        ],
+        "lines": [
+            # Sheet 1 lines
+            {"start": [12.0, 12.0], "end": [28.0, 12.0], "layer": "WALL"},
+            {"start": [28.0, 12.0], "end": [28.0, 24.0], "layer": "WALL"},
+            # Sheet 2 line (clutter that must be discarded)
+            {"start": [105.0, 105.0], "end": [135.0, 105.0], "layer": "BASEMENT"},
+            # Stray clutter outside all sheets
+            {"start": [500.0, 500.0], "end": [520.0, 500.0], "layer": "TRASH"},
+        ],
+        "texts": [
+            {"x": 15.0, "y": 15.0, "text": "TERRACE A", "layer": "TEXT"},
+            {"x": 110.0, "y": 110.0, "text": "BASEMENT", "layer": "TEXT"},
+        ],
+        "layers": [
+            {"name": "WALL", "color": "#ff0000", "entity_count": 2},
+            {"name": "BASEMENT", "color": "#00ff00", "entity_count": 1},
+            {"name": "TRASH", "color": "#888888", "entity_count": 1},
+            {"name": "TEXT", "color": "#ffffff", "entity_count": 2},
+        ],
+    }
+
+    # Isolate sheet_1
+    cleaned = clean_raw_data_to_sheet(multi_sheet_raw, "sheet_1")
+    assert len(cleaned["lines"]) == 2
+    assert all(ln["layer"] == "WALL" for ln in cleaned["lines"])
+    assert len(cleaned["texts"]) == 1
+    assert cleaned["texts"][0]["text"] == "TERRACE A"
+    assert cleaned["active_sheet"]["name"] == "Terrace Floor Block A"
+    # Ensure discarded layers are stripped from active layer list
+    active_layer_names = {l["name"] for l in cleaned["layers"]}
+    assert "BASEMENT" not in active_layer_names
+    assert "TRASH" not in active_layer_names
+
+
 if __name__ == "__main__":
     test_infer_discipline_and_project()
     test_plans_api_project_and_discipline()
     test_supabase_user_isolation()
     test_custom_sheet_and_name_editing()
     test_merge_dwg_views_to_single_plan()
+    test_single_sheet_isolation_cleans_clutter()
     print("All plan organization & API checks passed.")

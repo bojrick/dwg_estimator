@@ -23,7 +23,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { OpenCadViewer, ViewerTabMode } from './components/OpenCadViewer';
-import { SheetSelectorModal, SheetConfig } from './components/SheetSelectorModal';
+import { SheetSelectorModal, SheetConfig, cropRawDataToSheet } from './components/SheetSelectorModal';
 import {
   AuthConfig,
   AuthSession,
@@ -129,6 +129,38 @@ interface UploadProgressState {
   remainingSec: number;
 }
 
+function UploadProgressOverlay({ progress }: { progress: UploadProgressState | null }) {
+  if (!progress) return null;
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
+      <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-5 space-y-3 shadow-2xl">
+        <div className="flex items-center justify-between text-xs font-bold text-white">
+          <span className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+            {progress.stage}
+          </span>
+          <span className="text-blue-400 font-mono">{progress.pct}%</span>
+        </div>
+        <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-blue-500 to-emerald-400 transition-all duration-300"
+            style={{ width: `${progress.pct}%` }}
+          />
+        </div>
+        <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+          <span>Elapsed: {progress.elapsedSec}s</span>
+          <span className="text-emerald-300 flex items-center gap-1">
+            <Clock className="w-3 h-3" />
+            {progress.remainingSec > 0
+              ? `~${progress.remainingSec}s remaining`
+              : 'Finishing up...'}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
   const [authSession, setAuthSession] = useState<AuthSession | null>(() => getStoredSession());
@@ -147,7 +179,7 @@ export function App() {
   const [selectedDiscipline, setSelectedDiscipline] = useState<string>('ALL');
 
   // Active opened plan state
-  const [activePlanPayload, setActivePlanPayload] = useState<{ plan: any; raw: any; isGuest?: boolean } | null>(null);
+  const [activePlanPayload, setActivePlanPayload] = useState<{ plan: any; raw: any; fullRaw?: any; isGuest?: boolean } | null>(null);
   const [guestDwgFile, setGuestDwgFile] = useState<File | null>(null);
   const [viewerInitialTab, setViewerInitialTab] = useState<ViewerTabMode>('dwg');
   const [viewerInitialMeasure, setViewerInitialMeasure] = useState<boolean>(false);
@@ -451,15 +483,7 @@ export function App() {
         if (uploadDwgFiles.length > 1) {
           const form = new FormData();
           uploadDwgFiles.forEach((f) => form.append('dwg_files', f));
-          const res = await fetch(apiUrl('/api/plans/preview-multi'), {
-            method: 'POST',
-            body: form,
-          });
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.detail || 'Failed to inspect CAD files');
-          }
-          const parsed = await res.json();
+          const parsed = await runUploadWithProgress('/api/plans/preview-multi', form, uploadDwgFiles[0]);
           const first = parsed.files?.[0];
           setSheetSelectorData({
             dwgFiles: uploadDwgFiles,
@@ -474,15 +498,7 @@ export function App() {
         } else {
           const form = new FormData();
           form.append('dwg_file', uploadDwgFiles[0]);
-          const res = await fetch(apiUrl('/api/plans/preview-guest'), {
-            method: 'POST',
-            body: form,
-          });
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.detail || 'Failed to inspect CAD file');
-          }
-          const parsed = await res.json();
+          const parsed = await runUploadWithProgress('/api/plans/preview-guest', form, uploadDwgFiles[0]);
           setSheetSelectorData({
             dwgFiles: uploadDwgFiles,
             pdfFile: uploadPdfFile,
@@ -545,33 +561,26 @@ export function App() {
     setSheetSelectorData(null);
 
     if (isGuest) {
-      if (dwgFiles.length > 1) {
+      // If user selected multiple sheets (from 1 or multiple DWG files), merge them into a unified plan
+      if (configuredSheets.length > 1 || dwgFiles.length > 1) {
         setUploading(true);
         try {
           const form = new FormData();
           dwgFiles.forEach((f) => form.append('dwg_files', f));
           form.append('sheets_json', JSON.stringify(configuredSheets));
           form.append('active_sheet_id', activeSheetId);
-          const res = await fetch(apiUrl('/api/plans/merge-preview'), {
-            method: 'POST',
-            body: form,
-          });
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.detail || 'Failed to merge views');
-          }
-          const merged = await res.json();
+          const merged = await runUploadWithProgress('/api/plans/merge-preview', form, dwgFiles[0]);
           setGuestDwgFile(dwgFiles[0]);
           setActivePlanPayload({
             plan: {
               id: 0,
-              name: confirmedTitle,
+              name: confirmedTitle || 'Merged CAD Plan',
               project_name: 'Guest Inspection',
               discipline: 'architectural',
               has_dwg: true,
               has_pdf: false,
-              active_sheet_id: activeSheetId,
-              active_sheet_name: configuredSheets.find((s) => s.id === activeSheetId)?.name || 'Selected View',
+              active_sheet_id: merged.active_sheet_id || activeSheetId,
+              active_sheet_name: configuredSheets.find((s) => s.id === (merged.active_sheet_id || activeSheetId))?.name || 'Selected View',
               unit_name: merged.unit_name || 'm',
               scale_to_m: merged.scale_to_m || 1.0,
               sheets: merged.sheets || configuredSheets,
@@ -582,36 +591,41 @@ export function App() {
             isGuest: true,
           });
           setViewerInitialTab('dwg');
-          showToast('Multi-DWG sheets merged! Sign up to save.');
+          showToast(dwgFiles.length > 1 ? 'Multi-DWG sheets merged! Sign up to save.' : 'Selected sheets configured! Sign up to save.');
         } catch (err: any) {
           showToast(err.message || 'Failed to merge plans');
         } finally {
           setUploading(false);
+          setUploadProgress(null);
         }
         return;
       }
 
+      // Single sheet selected from 1 DWG file: isolate and crop tightly to discard all clutter immediately
+      const targetSheet = configuredSheets[0];
+      const croppedRaw = cropRawDataToSheet(sheetSelectorData.parsed?.raw_data, targetSheet);
       setGuestDwgFile(dwgFiles[0]);
       setActivePlanPayload({
         plan: {
           id: 0,
-          name: confirmedTitle,
+          name: confirmedTitle || targetSheet?.name || 'Guest Plan',
           project_name: 'Guest Inspection',
           discipline: 'architectural',
           has_dwg: true,
           has_pdf: false,
-          active_sheet_id: activeSheetId,
-          active_sheet_name: configuredSheets.find((s) => s.id === activeSheetId)?.name || 'Selected View',
-          unit_name: sheetSelectorData.parsed.unit_name,
-          scale_to_m: sheetSelectorData.parsed.scale_to_m,
+          active_sheet_id: targetSheet?.id || activeSheetId,
+          active_sheet_name: targetSheet?.name || 'Selected View',
+          unit_name: sheetSelectorData.parsed?.unit_name || 'm',
+          scale_to_m: sheetSelectorData.parsed?.scale_to_m || 1.0,
           sheets: configuredSheets,
-          summary: sheetSelectorData.parsed.summary,
+          summary: sheetSelectorData.parsed?.summary,
         },
-        raw: sheetSelectorData.parsed.raw_data,
+        raw: croppedRaw,
+        fullRaw: croppedRaw,
         isGuest: true,
       });
       setViewerInitialTab('dwg');
-      showToast('CAD plan sheets configured! Sign up to save.');
+      showToast(`Isolated view: ${targetSheet?.name || 'Selected Sheet'}`);
       return;
     }
 
@@ -667,15 +681,7 @@ export function App() {
       if (valid.length > 1) {
         const form = new FormData();
         valid.forEach((f) => form.append('dwg_files', f));
-        const res = await fetch(apiUrl('/api/plans/preview-multi'), {
-          method: 'POST',
-          body: form,
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.detail || 'Failed to parse CAD files');
-        }
-        const parsed = await res.json();
+        const parsed = await runUploadWithProgress('/api/plans/preview-multi', form, valid[0]);
         const first = parsed.files?.[0];
         setSheetSelectorData({
           dwgFiles: valid,
@@ -689,15 +695,7 @@ export function App() {
       } else {
         const form = new FormData();
         form.append('dwg_file', valid[0]);
-        const res = await fetch(apiUrl('/api/plans/preview-guest'), {
-          method: 'POST',
-          body: form,
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.detail || 'Failed to parse CAD file');
-        }
-        const data = await res.json();
+        const data = await runUploadWithProgress('/api/plans/preview-guest', form, valid[0]);
         setSheetSelectorData({
           dwgFiles: valid,
           pdfFile: null,
@@ -711,6 +709,7 @@ export function App() {
       showToast(err.message || 'Error parsing CAD files');
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -850,34 +849,7 @@ export function App() {
             <span>{toastMsg}</span>
           </div>
         )}
-        {uploadProgress && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-5 space-y-3 shadow-2xl">
-              <div className="flex items-center justify-between text-xs font-bold text-white">
-                <span className="flex items-center gap-2">
-                  <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
-                  {uploadProgress.stage}
-                </span>
-                <span className="text-blue-400 font-mono">{uploadProgress.pct}%</span>
-              </div>
-              <div className="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-blue-500 to-emerald-400 transition-all duration-300"
-                  style={{ width: `${uploadProgress.pct}%` }}
-                />
-              </div>
-              <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-                <span>Elapsed: {uploadProgress.elapsedSec}s</span>
-                <span className="text-emerald-300 flex items-center gap-1">
-                  <Clock className="w-3 h-3" />
-                  {uploadProgress.remainingSec > 0
-                    ? `~${uploadProgress.remainingSec}s remaining`
-                    : 'Finishing up...'}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
+        <UploadProgressOverlay progress={uploadProgress} />
         <OpenCadViewer
           plan={p}
           rawData={activePlanPayload.raw}
@@ -896,18 +868,23 @@ export function App() {
           onShare={handleSharePlan}
           onSelectSheet={async (sheetId) => {
             if (activePlanPayload.isGuest) {
+              if (sheetId === 'all' && activePlanPayload.fullRaw) {
+                setActivePlanPayload((prev: any) => ({
+                  ...prev,
+                  plan: {
+                    ...prev.plan,
+                    active_sheet_id: 'all',
+                    active_sheet_name: 'All Selected Sheets',
+                  },
+                  raw: activePlanPayload.fullRaw,
+                }));
+                showToast('Showing all selected sheets');
+                return;
+              }
               const sheets = p.sheets || [];
               const targetSheet = sheets.find((s: any) => s.id === sheetId);
               if (targetSheet && activePlanPayload.fullRaw) {
-                const b = targetSheet.bbox;
-                const inBox = (x: number, y: number) =>
-                  x >= b.min_x - 0.5 && x <= b.max_x + 0.5 && y >= b.min_y - 0.5 && y <= b.max_y + 0.5;
-                const fRaw = activePlanPayload.fullRaw;
-                const croppedLines = (fRaw.lines || []).filter((ln: any) => inBox(ln.start[0], ln.start[1]) && inBox(ln.end[0], ln.end[1]));
-                const croppedPolys = (fRaw.polylines || []).filter((pl: any) => pl.points && pl.points.every((pt: any) => inBox(pt[0], pt[1])));
-                const croppedArcs = (fRaw.arcs_circles || []).filter((ac: any) => inBox(ac.center[0], ac.center[1]));
-                const croppedTexts = (fRaw.texts || []).filter((t: any) => inBox(t.x, t.y));
-                const croppedHatches = (fRaw.hatches || []).filter((h: any) => h.points && inBox(h.points[0][0], h.points[0][1]));
+                const cropped = cropRawDataToSheet(activePlanPayload.fullRaw, targetSheet);
                 setActivePlanPayload((prev: any) => ({
                   ...prev,
                   plan: {
@@ -915,15 +892,7 @@ export function App() {
                     active_sheet_id: sheetId,
                     active_sheet_name: targetSheet.name,
                   },
-                  raw: {
-                    ...fRaw,
-                    bbox_raw: b,
-                    lines: croppedLines,
-                    polylines: croppedPolys,
-                    arcs_circles: croppedArcs,
-                    texts: croppedTexts,
-                    hatches: croppedHatches,
-                  },
+                  raw: cropped,
                 }));
                 showToast(`Isolated view: ${targetSheet.name}`);
               }
@@ -2109,6 +2078,9 @@ export function App() {
           </div>
         </div>
       )}
+
+      {/* Global Upload Progress Overlay */}
+      <UploadProgressOverlay progress={uploadProgress} />
 
       {/* Sheet Window Selector & Configuration Modal */}
       {sheetSelectorData && (
