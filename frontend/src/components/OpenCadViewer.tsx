@@ -96,6 +96,8 @@ interface OpenCadViewerProps {
   onUploadPdf: (file: File) => Promise<void>;
   onGeneratePdf: () => Promise<void>;
   onUploadDwg: (file: File) => Promise<void>;
+  onSavePlan?: () => void;
+  isGuest?: boolean;
 }
 
 const UNIT_OPTIONS = [
@@ -118,6 +120,8 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   onUploadPdf,
   onGeneratePdf,
   onUploadDwg,
+  onSavePlan,
+  isGuest = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1078,6 +1082,11 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
           </button>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
+              {isGuest && (
+                <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold shrink-0">
+                  Guest Preview
+                </span>
+              )}
               {plan.project_name && (
                 <span className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-blue-300 shrink-0">
                   {plan.project_name}
@@ -1133,8 +1142,18 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
           </button>
         </div>
 
-        {/* Right Actions: Sheet View Selector + Share + Download */}
+        {/* Right Actions: Sheet View Selector + Save (Guest) + Share + Download */}
         <div className="flex items-center gap-1.5 shrink-0">
+          {isGuest && onSavePlan && (
+            <button
+              onClick={onSavePlan}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow transition animate-pulse"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Save Plan</span>
+            </button>
+          )}
+
           {sheets.length > 1 && (
             <select
               value={plan.active_sheet_id || 'all'}

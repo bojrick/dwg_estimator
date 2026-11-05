@@ -1,9 +1,10 @@
-const CACHE_NAME = 'planvault-shell-v1';
+const CACHE_NAME = 'planvault-shell-v2';
 const SHELL_ASSETS = ['/', '/index.html', '/manifest.webmanifest', '/icon.svg'];
 
 self.addEventListener('install', (event) => {
+  self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS)).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS))
   );
 });
 
@@ -16,9 +17,29 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET' || event.request.url.includes('/api/')) return;
+  const url = event.request.url;
+  // Never intercept API requests, vite dev modules, or websocket HMR
+  if (
+    event.request.method !== 'GET' ||
+    url.includes('/api/') ||
+    url.includes('/@vite') ||
+    url.includes('/@react-refresh') ||
+    url.includes('/src/') ||
+    url.includes('/node_modules/')
+  ) {
+    return;
+  }
+
+  // Network-first strategy for index and shell so updates are instant
   event.respondWith(
-    fetch(event.request).catch(() => caches.match(event.request).then((r) => r || caches.match('/')))
+    fetch(event.request)
+      .then((response) => {
+        if (response && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request).then((r) => r || caches.match('/')))
   );
 });
-

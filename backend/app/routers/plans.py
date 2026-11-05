@@ -9,13 +9,18 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from app.database import TMP_WORK_DIR, get_session
-from app.models.schema import Plan
+from app.models.schema import Plan, User
 from app.services.auth import (
+    create_access_token,
     extract_bearer_token,
     get_current_user_id,
+    get_optional_user_id,
     get_supabase_config,
+    hash_password,
     is_auth_enabled,
-    verify_supabase_token,
+    is_supabase_enabled,
+    verify_password,
+    verify_token,
 )
 from app.services.dwg_converter import ensure_dxf, load_ezdxf_doc
 from app.services.dxf_parser import (
@@ -45,6 +50,15 @@ class UpdatePlanRequest(BaseModel):
     discipline: Optional[str] = None
     active_sheet_id: Optional[str] = None
     scale_to_m: Optional[float] = None
+
+
+class AuthPayload(BaseModel):
+    email: str
+    password: str
+
+
+class UpdateProfileRequest(BaseModel):
+    default_unit: Optional[str] = None
 
 
 def _build_summary(cleaned_raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -168,10 +182,137 @@ def _get_owned_plan(session: Session, plan_id: int, user_id: Optional[str]) -> P
 def get_auth_config():
     cfg = get_supabase_config()
     return {
-        "enabled": is_auth_enabled(),
+        "enabled": True,
+        "type": "foss",
+        "supabase_enabled": is_supabase_enabled(),
         "supabase_url": cfg["url"],
         "supabase_anon_key": cfg["anon_key"],
     }
+
+
+@router.post("/auth/signup")
+def auth_signup(payload: AuthPayload, session: Session = Depends(get_session)):
+    email = payload.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="A valid email address is required")
+    if len(payload.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    existing = session.exec(select(User).where(User.email == email)).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="An account with this email already exists")
+
+    pwd_hash, salt = hash_password(payload.password)
+    user = User(email=email, password_hash=pwd_hash, salt=salt, default_unit="m")
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    token = create_access_token(user.id, user.email)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "default_unit": user.default_unit,
+        },
+    }
+
+
+@router.post("/auth/signin")
+def auth_signin(payload: AuthPayload, session: Session = Depends(get_session)):
+    email = payload.email.strip().lower()
+    user = session.exec(select(User).where(User.email == email)).first()
+    if not user or not verify_password(payload.password, user.salt, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    token = create_access_token(user.id, user.email)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "default_unit": user.default_unit,
+        },
+    }
+
+
+@router.get("/auth/me")
+def get_auth_profile(
+    session: Session = Depends(get_session),
+    user_id: str = Depends(get_current_user_id),
+):
+    user = session.get(User, user_id)
+    if not user:
+        # Might be a Supabase user or deleted user
+        return {"id": user_id, "email": "", "default_unit": "m"}
+    return {
+        "id": user.id,
+        "email": user.email,
+        "default_unit": user.default_unit,
+    }
+
+
+@router.patch("/auth/profile")
+def update_auth_profile(
+    req: UpdateProfileRequest,
+    session: Session = Depends(get_session),
+    user_id: str = Depends(get_current_user_id),
+):
+    user = session.get(User, user_id)
+    if not user:
+        # Create minimal user record if it was a Supabase ID
+        user = User(id=user_id, email="", password_hash="", salt="", default_unit="m")
+        session.add(user)
+    if req.default_unit and req.default_unit in ("m", "mm", "ft", "in"):
+        user.default_unit = req.default_unit
+        user.updated_at = datetime.now(timezone.utc)
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+    return {
+        "id": user.id,
+        "email": user.email,
+        "default_unit": user.default_unit,
+    }
+
+
+@router.post("/plans/preview-guest")
+async def preview_guest_cad(
+    dwg_file: UploadFile = File(...),
+):
+    if not dwg_file.filename:
+        raise HTTPException(status_code=400, detail="CAD file is required")
+    ext = Path(dwg_file.filename).suffix.lower()
+    if ext not in (".dwg", ".dxf"):
+        raise HTTPException(status_code=400, detail="CAD file must be .dwg or .dxf")
+
+    dwg_bytes = await dwg_file.read()
+    temp_dir = Path(TMP_WORK_DIR) / f"guest_{datetime.now(timezone.utc).timestamp()}"
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    in_path = temp_dir / Path(dwg_file.filename).name
+    in_path.write_bytes(dwg_bytes)
+
+    try:
+        dxf_path, _ = ensure_dxf(in_path, temp_dir)
+        doc = load_ezdxf_doc(dxf_path)
+        raw_data = extract_dxf_raw_entities(dxf_path, doc=doc)
+        cleaned_raw = clean_raw_data_to_sheet(raw_data, None)
+        summary = _build_summary(cleaned_raw)
+
+        return {
+            "name": Path(dwg_file.filename).stem.replace("_", " ").strip(),
+            "dwg_filename": Path(dwg_file.filename).name,
+            "raw_data": cleaned_raw,
+            "summary": summary,
+            "sheets": cleaned_raw.get("sheets", []),
+            "unit_name": cleaned_raw.get("unit_name", "m"),
+            "scale_to_m": cleaned_raw.get("scale_to_m", 1.0),
+        }
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @router.get("/plans")

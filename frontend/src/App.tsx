@@ -18,21 +18,25 @@ import {
   Clock,
   LogOut,
   Lock,
+  Settings,
+  Compass,
+  ArrowRight,
 } from 'lucide-react';
 import { OpenCadViewer, ViewerTabMode } from './components/OpenCadViewer';
 import {
   AuthConfig,
   AuthSession,
+  UserProfile,
   apiUrl,
   authFetch,
-  consumeUrlHashSession,
-  ensureFreshSession,
   fetchAuthConfig,
+  fetchUserProfile,
   getStoredSession,
   saveSession,
   signInWithEmail,
   signOutSession,
   signUpWithEmail,
+  updateUserProfile,
 } from './auth';
 
 export type PlanDiscipline = 'architectural' | 'electrical' | 'structural' | 'plumbing' | 'fire';
@@ -142,10 +146,16 @@ export function App() {
   const [selectedDiscipline, setSelectedDiscipline] = useState<string>('ALL');
 
   // Active opened plan state
-  const [activePlanPayload, setActivePlanPayload] = useState<{ plan: any; raw: any } | null>(null);
+  const [activePlanPayload, setActivePlanPayload] = useState<{ plan: any; raw: any; isGuest?: boolean } | null>(null);
+  const [guestDwgFile, setGuestDwgFile] = useState<File | null>(null);
   const [viewerInitialTab, setViewerInitialTab] = useState<ViewerTabMode>('dwg');
   const [viewerInitialMeasure, setViewerInitialMeasure] = useState<boolean>(false);
   const [openingPlan, setOpeningPlan] = useState<boolean>(false);
+
+  // Auth modal & profile state
+  const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
+  const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
+  const [savingGuestPlan, setSavingGuestPlan] = useState<boolean>(false);
 
   // Upload modal state
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
@@ -220,22 +230,21 @@ export function App() {
     []
   );
 
-  // Initialize Supabase Auth & check for ?share=<token> on initial load
+  // Initialize Auth & check for ?share=<token> on initial load
   useEffect(() => {
     let active = true;
     (async () => {
       const cfg = await fetchAuthConfig();
       if (!active) return;
       setAuthConfig(cfg);
-      let sess = getStoredSession();
-      if (cfg.enabled) {
-        const hashSess = await consumeUrlHashSession(cfg);
-        if (hashSess) {
-          sess = hashSess;
-        } else {
-          sess = await ensureFreshSession(cfg);
-        }
-        if (active) setAuthSession(sess);
+      const sess = getStoredSession();
+      if (sess && active) {
+        setAuthSession(sess);
+        fetchUserProfile().then((prof) => {
+          if (prof && active) {
+            setAuthSession((s) => (s ? { ...s, user: prof } : null));
+          }
+        });
       }
 
       const params = new URLSearchParams(window.location.search);
@@ -252,7 +261,7 @@ export function App() {
           });
       }
 
-      if (!cfg.enabled || sess) {
+      if (sess) {
         await fetchVaultPlans();
       } else if (active) {
         setLoadingVault(false);
@@ -439,20 +448,19 @@ export function App() {
         const sess = await signInWithEmail(authConfig, authEmail.trim(), authPassword);
         setAuthSession(sess);
         setAuthPassword('');
+        setShowAuthModal(false);
         await fetchVaultPlans();
-        showToast('Signed in to your PlanVault!');
+        showToast('Signed in to PlanVault!');
       } else {
-        const { session, confirmationRequired } = await signUpWithEmail(
+        const { session } = await signUpWithEmail(
           authConfig,
           authEmail.trim(),
           authPassword
         );
-        if (confirmationRequired) {
-          setAuthNotice('Check your email for the confirmation link, then sign in.');
-          setAuthMode('signin');
-        } else if (session) {
+        if (session) {
           setAuthSession(session);
           setAuthPassword('');
+          setShowAuthModal(false);
           await fetchVaultPlans();
           showToast('Account created & signed in!');
         }
@@ -461,6 +469,76 @@ export function App() {
       setAuthError(err.message || 'Authentication failed');
     } finally {
       setAuthBusy(false);
+    }
+  };
+
+  const handleGuestCadPreview = async (file: File) => {
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const form = new FormData();
+      form.append('dwg_file', file);
+      const res = await fetch(apiUrl('/api/plans/preview-guest'), {
+        method: 'POST',
+        body: form,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || 'Failed to parse CAD file');
+      }
+      const data = await res.json();
+      setGuestDwgFile(file);
+      setActivePlanPayload({
+        plan: {
+          id: 0,
+          name: data.name,
+          project_name: 'Guest Inspection',
+          discipline: 'architectural',
+          has_dwg: true,
+          has_pdf: false,
+          unit_name: data.unit_name,
+          scale_to_m: data.scale_to_m,
+          sheets: data.sheets,
+          summary: data.summary,
+        },
+        raw: data.raw_data,
+        isGuest: true,
+      });
+      setViewerInitialTab('dwg');
+      showToast('CAD plan loaded for inspection! Sign up to save.');
+    } catch (err: any) {
+      showToast(err.message || 'Error parsing CAD file');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleSaveGuestPlan = async () => {
+    if (!authSession) {
+      setAuthMode('signup');
+      setShowAuthModal(true);
+      return;
+    }
+    if (!guestDwgFile && !activePlanPayload) return;
+    setSavingGuestPlan(true);
+    try {
+      const form = new FormData();
+      if (guestDwgFile) {
+        form.append('dwg_file', guestDwgFile);
+      }
+      form.append('name', activePlanPayload?.plan?.name || 'My Plan');
+      form.append('project_name', 'My Project');
+      form.append('discipline', 'architectural');
+
+      const data = await runUploadWithProgress('/api/plans', form, guestDwgFile);
+      setGuestDwgFile(null);
+      await fetchVaultPlans();
+      setActivePlanPayload({ ...data, isGuest: false });
+      showToast('Plan saved permanently to your vault!');
+    } catch (err: any) {
+      showToast(err.message || 'Failed to save plan');
+    } finally {
+      setSavingGuestPlan(false);
     }
   };
 
@@ -598,15 +676,19 @@ export function App() {
           rawData={activePlanPayload.raw}
           initialTab={viewerInitialTab}
           initialMeasure={viewerInitialMeasure}
+          isGuest={activePlanPayload.isGuest}
+          onSavePlan={handleSaveGuestPlan}
           onBack={() => {
             if (window.location.search.includes('share=')) {
               window.history.replaceState({}, '', '/');
             }
             setActivePlanPayload(null);
-            fetchVaultPlans();
+            setGuestDwgFile(null);
+            if (authSession) fetchVaultPlans();
           }}
           onShare={handleSharePlan}
           onSelectSheet={async (sheetId) => {
+            if (activePlanPayload.isGuest) return;
             const res = await authFetch(`/api/plans/${p.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
@@ -619,6 +701,18 @@ export function App() {
             }
           }}
           onChangeUnitScale={async (scaleToM) => {
+            if (activePlanPayload.isGuest) {
+              setActivePlanPayload((prev) => {
+                if (!prev) return null;
+                return {
+                  ...prev,
+                  plan: { ...prev.plan, scale_to_m: scaleToM },
+                  raw: { ...prev.raw, scale_to_m: scaleToM },
+                };
+              });
+              showToast('Measurement unit updated for preview');
+              return;
+            }
             const res = await authFetch(`/api/plans/${p.id}`, {
               method: 'PATCH',
               headers: { 'Content-Type': 'application/json' },
@@ -631,6 +725,12 @@ export function App() {
             }
           }}
           onUploadPdf={async (file) => {
+            if (activePlanPayload.isGuest) {
+              setAuthMode('signup');
+              setShowAuthModal(true);
+              showToast('Create an account to attach associated PDFs');
+              return;
+            }
             const form = new FormData();
             form.append('pdf_file', file);
             const res = await authFetch(`/api/plans/${p.id}/pdf`, { method: 'POST', body: form });
@@ -641,6 +741,12 @@ export function App() {
             }
           }}
           onGeneratePdf={async () => {
+            if (activePlanPayload.isGuest) {
+              setAuthMode('signup');
+              setShowAuthModal(true);
+              showToast('Create an account to generate PDFs');
+              return;
+            }
             const res = await authFetch(`/api/plans/${p.id}/generate-pdf`, { method: 'POST' });
             if (res.ok) {
               const data = await res.json();
@@ -649,6 +755,10 @@ export function App() {
             }
           }}
           onUploadDwg={async (file) => {
+            if (activePlanPayload.isGuest) {
+              await handleGuestCadPreview(file);
+              return;
+            }
             const form = new FormData();
             form.append('dwg_file', file);
             try {
@@ -708,6 +818,11 @@ export function App() {
               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                 Cloud PWA
               </span>
+              {!authSession && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                  Guest Mode
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-slate-400 truncate">
               Project & Discipline Organizer · Auto View Cleanup · CAD Measure
@@ -716,17 +831,47 @@ export function App() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {authSession?.user?.email && (
+          {authSession?.user?.email ? (
             <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1.5 text-xs">
-              <span className="text-slate-300 font-mono truncate max-w-[130px] sm:max-w-[180px]">
+              <span className="text-slate-300 font-mono truncate max-w-[110px] sm:max-w-[160px]">
                 {authSession.user.email}
               </span>
+              <button
+                onClick={() => setShowProfileModal(true)}
+                className="p-1 rounded-lg text-slate-400 hover:text-blue-400 transition"
+                title="Preferences & Units"
+              >
+                <Settings className="w-3.5 h-3.5" />
+              </button>
               <button
                 onClick={handleSignOut}
                 className="p-1 rounded-lg text-slate-400 hover:text-rose-400 transition"
                 title="Sign Out"
               >
                 <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setAuthMode('signin');
+                  setAuthError(null);
+                  setShowAuthModal(true);
+                }}
+                className="px-3 py-1.5 rounded-xl text-xs font-bold text-slate-300 hover:text-white transition"
+              >
+                Sign In
+              </button>
+              <button
+                onClick={() => {
+                  setAuthMode('signup');
+                  setAuthError(null);
+                  setShowAuthModal(true);
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow transition"
+              >
+                Sign Up
               </button>
             </div>
           )}
@@ -745,7 +890,7 @@ export function App() {
             </button>
           )}
 
-          {(!authConfig?.enabled || authSession) && (
+          {authSession && (
             <button
               onClick={() => {
                 if (selectedProject !== 'ALL') setUploadProject(selectedProject);
@@ -760,89 +905,101 @@ export function App() {
         </div>
       </header>
 
-      {/* Supabase Auth Gate when enabled and user is not signed in */}
-      {authConfig?.enabled && !authSession ? (
-        <main className="flex-1 flex items-center justify-center px-4 py-10">
-          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center shrink-0">
-                <Lock className="w-5 h-5 text-blue-400" />
-              </div>
-              <div>
-                <h2 className="text-base font-extrabold text-white">
-                  {authMode === 'signin' ? 'Sign In to PlanVault' : 'Create Your PlanVault Account'}
-                </h2>
-                <p className="text-xs text-slate-400">
-                  Your DWG & PDF plans are saved privately to your account.
-                </p>
-              </div>
+      {/* Guest Landing Page Hero when not signed in */}
+      {!authSession ? (
+        <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8 sm:py-12 flex flex-col justify-center space-y-8">
+          <div className="text-center space-y-3">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold">
+              <Compass className="w-3.5 h-3.5" />
+              <span>FOSS CAD Takeoff & Sheet Organizer</span>
+            </div>
+            <h2 className="text-2xl sm:text-4xl font-extrabold text-white tracking-tight">
+              Fast, accurate DWG viewer & area takeoff in your browser
+            </h2>
+            <p className="text-sm sm:text-base text-slate-400 max-w-xl mx-auto leading-relaxed">
+              Open large DWG and DXF files instantly on desktop or mobile. Take precise distance and room area measurements with zero installations.
+            </p>
+          </div>
+
+          {/* Guest CAD Upload Card */}
+          <div className="max-w-lg w-full mx-auto bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl">
+            <div className="text-center space-y-1">
+              <h3 className="text-base font-bold text-white">Try CAD Viewer Instantly</h3>
+              <p className="text-xs text-slate-400">
+                Upload a DWG or DXF file to view and measure immediately as a guest.
+              </p>
             </div>
 
-            <form onSubmit={handleAuthSubmit} className="space-y-3.5">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Email</label>
-                <input
-                  type="email"
-                  required
-                  value={authEmail}
-                  onChange={(e) => setAuthEmail(e.target.value)}
-                  placeholder="you@company.com"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
+            <label className="flex flex-col items-center justify-center border-2 border-dashed border-slate-700 hover:border-blue-500/50 rounded-2xl p-6 cursor-pointer bg-slate-950/60 transition group">
+              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:scale-105 transition mb-3">
+                <Upload className="w-6 h-6" />
               </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1">Password</label>
-                <input
-                  type="password"
-                  required
-                  minLength={6}
-                  value={authPassword}
-                  onChange={(e) => setAuthPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              {authError && (
-                <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-200">
-                  {authError}
-                </div>
-              )}
-
-              {authNotice && (
-                <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-xs text-emerald-200">
-                  {authNotice}
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={authBusy}
-                className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-bold text-white shadow-lg transition"
-              >
-                {authBusy
-                  ? 'Please wait...'
-                  : authMode === 'signin'
-                  ? 'Sign In'
-                  : 'Create Account'}
-              </button>
-            </form>
-
-            <div className="text-center pt-1 border-t border-slate-800">
-              <button
-                type="button"
-                onClick={() => {
-                  setAuthMode((m) => (m === 'signin' ? 'signup' : 'signin'));
-                  setAuthError(null);
-                  setAuthNotice(null);
+              <span className="text-sm font-bold text-white">Tap to choose a DWG or DXF</span>
+              <span className="text-xs text-slate-400 mt-1">Free instant preview • No account required</span>
+              <input
+                type="file"
+                accept=".dwg,.dxf"
+                className="hidden"
+                disabled={uploading}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleGuestCadPreview(file);
                 }}
-                className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
+              />
+            </label>
+
+            {uploading && (
+              <div className="flex items-center justify-center gap-2 text-xs font-bold text-blue-400 animate-pulse py-2">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                <span>Parsing and cleaning CAD entities...</span>
+              </div>
+            )}
+
+            <div className="border-t border-slate-800 pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+              <span className="text-slate-400 text-center sm:text-left">
+                Need to save plans, organize projects & sync?
+              </span>
+              <button
+                onClick={() => {
+                  setAuthMode('signup');
+                  setShowAuthModal(true);
+                }}
+                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold flex items-center justify-center gap-1.5 transition"
               >
-                {authMode === 'signin'
-                  ? "Don't have an account? Create one"
-                  : 'Already have an account? Sign in'}
+                <span>Create Free Account</span>
+                <ArrowRight className="w-3.5 h-3.5" />
               </button>
+            </div>
+          </div>
+
+          {/* Feature Highlights Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto pt-4">
+            <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 space-y-1.5">
+              <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
+                <Ruler className="w-4 h-4" />
+              </div>
+              <h4 className="text-xs font-bold text-white">Precise Takeoffs</h4>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Measure distances, room areas, and perimeter polygons with customizable units (m, mm, ft, in).
+              </p>
+            </div>
+            <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 space-y-1.5">
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-400">
+                <Sparkles className="w-4 h-4" />
+              </div>
+              <h4 className="text-xs font-bold text-white">Auto Sheet Cleanup</h4>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Intelligently isolates individual floor plans from cluttered drawing borders and titleblocks.
+              </p>
+            </div>
+            <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 space-y-1.5">
+              <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-400">
+                <Cloud className="w-4 h-4" />
+              </div>
+              <h4 className="text-xs font-bold text-white">Cloud Backup & Share</h4>
+              <p className="text-[11px] text-slate-400 leading-relaxed">
+                Save plans privately to your vault and generate instant shareable links for client review.
+              </p>
             </div>
           </div>
         </main>
@@ -1484,6 +1641,177 @@ export function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Auth Modal for Sign In / Sign Up */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center shrink-0">
+                  <Lock className="w-4 h-4 text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-white">
+                    {authMode === 'signin' ? 'Sign In to PlanVault' : 'Create Free Account'}
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {authMode === 'signin'
+                      ? 'Access and sync your private vault'
+                      : 'Save DWG plans & customize your measurement units'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowAuthModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAuthSubmit} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Email</label>
+                <input
+                  type="email"
+                  required
+                  value={authEmail}
+                  onChange={(e) => setAuthEmail(e.target.value)}
+                  placeholder="you@example.com"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Password</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  value={authPassword}
+                  onChange={(e) => setAuthPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+
+              {authError && (
+                <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-200">
+                  {authError}
+                </div>
+              )}
+
+              {authNotice && (
+                <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-500/40 text-xs text-emerald-200">
+                  {authNotice}
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={authBusy}
+                className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-bold text-white shadow-lg transition"
+              >
+                {authBusy
+                  ? 'Please wait...'
+                  : authMode === 'signin'
+                  ? 'Sign In'
+                  : 'Create Account & Save'}
+              </button>
+            </form>
+
+            <div className="text-center pt-2 border-t border-slate-800">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode((m) => (m === 'signin' ? 'signup' : 'signin'));
+                  setAuthError(null);
+                  setAuthNotice(null);
+                }}
+                className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
+              >
+                {authMode === 'signin'
+                  ? "Don't have an account? Sign up"
+                  : 'Already have an account? Sign in'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* User Preferences & Unit Customization Modal */}
+      {showProfileModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="w-full max-w-sm bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center shrink-0">
+                  <Settings className="w-4 h-4 text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-white">Profile Preferences</h3>
+                  <p className="text-[11px] text-slate-400">{authSession?.user?.email}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowProfileModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-slate-300">
+                Default Takeoff Measurement Unit
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'm', label: 'Meters (m)', desc: 'Metric standard' },
+                  { id: 'mm', label: 'Millimeters (mm)', desc: 'Architectural details' },
+                  { id: 'ft', label: 'Feet (ft)', desc: 'Imperial standard' },
+                  { id: 'in', label: 'Inches (in)', desc: 'Imperial engineering' },
+                ].map((u) => {
+                  const active = (authSession?.user?.default_unit || 'm') === u.id;
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const updated = await updateUserProfile(u.id as any);
+                          setAuthSession((s) => (s ? { ...s, user: updated } : null));
+                          showToast(`Default unit set to ${u.label}`);
+                        } catch {
+                          showToast('Failed to update unit preference');
+                        }
+                      }}
+                      className={`p-3 rounded-2xl border text-left transition ${
+                        active
+                          ? 'bg-blue-600/20 border-blue-500 text-white'
+                          : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <div className="text-xs font-bold">{u.label}</div>
+                      <div className="text-[10px] text-slate-400">{u.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-800 flex justify-end">
+              <button
+                onClick={() => setShowProfileModal(false)}
+                className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold transition"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}
