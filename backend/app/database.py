@@ -40,6 +40,8 @@ def init_db() -> None:
             conn.execute(text("ALTER TABLE plan ADD COLUMN discipline VARCHAR NOT NULL DEFAULT 'architectural'"))
         if "user_id" not in cols:
             conn.execute(text("ALTER TABLE plan ADD COLUMN user_id VARCHAR"))
+        if "structural_estimate_json" not in cols:
+            conn.execute(text("ALTER TABLE plan ADD COLUMN structural_estimate_json TEXT NOT NULL DEFAULT '{}'"))
 
     from app.models.schema import Plan
     from app.services.dxf_parser import infer_discipline, infer_project_name

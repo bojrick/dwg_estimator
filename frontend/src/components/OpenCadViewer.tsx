@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Edit2,
   Check,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 export type ViewerTabMode = 'dwg';
@@ -96,6 +97,7 @@ interface OpenCadViewerProps {
   onSavePlan?: () => void;
   onOpenAuth?: (mode: 'signin' | 'signup') => void;
   onUpdateMetadata?: (patch: { name?: string; sheets?: any[] }) => Promise<void>;
+  onOpenStructuralEstimator?: () => void;
   isGuest?: boolean;
 }
 
@@ -120,6 +122,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   onSavePlan,
   onOpenAuth,
   onUpdateMetadata,
+  onOpenStructuralEstimator,
   isGuest = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1206,6 +1209,17 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
             >
               <Upload className="w-3.5 h-3.5" />
               <span>{onOpenAuth ? 'Sign Up & Save' : 'Save Plan'}</span>
+            </button>
+          )}
+
+          {plan.discipline === 'structural' && onOpenStructuralEstimator && (
+            <button
+              onClick={onOpenStructuralEstimator}
+              className="flex items-center gap-1.5 px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition"
+              title="Open Bar Bending Schedule (BBS) & Structural Estimator"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">BBS Estimator</span>
             </button>
           )}
 

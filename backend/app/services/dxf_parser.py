@@ -400,6 +400,7 @@ def extract_dxf_raw_entities(
     raw_inserts: List[Dict[str, Any]] = []
     raw_texts: List[Dict[str, Any]] = []
     raw_hatches: List[Dict[str, Any]] = []
+    raw_tables: List[Dict[str, Any]] = []
 
     all_x: List[float] = []
     all_y: List[float] = []
@@ -679,6 +680,22 @@ def extract_dxf_raw_entities(
                 except Exception:
                     pass
 
+            elif etype in ("ACAD_TABLE", "TABLE"):
+                try:
+                    from ezdxf.entities import read_acad_table_content
+                    matrix = read_acad_table_content(entity)
+                    if matrix and len(matrix) >= 2:
+                        raw_tables.append({
+                            "layer": lname,
+                            "role": role,
+                            "color": color_hex,
+                            "headers": [str(c or "").strip() for c in matrix[0]],
+                            "rows": [[str(c or "").strip() for c in r] for r in matrix[1:]],
+                            "source": source_kind,
+                        })
+                except Exception:
+                    pass
+
         except Exception:
             pass
 
@@ -825,6 +842,7 @@ def extract_dxf_raw_entities(
         "inserts": raw_inserts,
         "texts": raw_texts,
         "hatches": raw_hatches,
+        "tables": raw_tables,
     }
 
 
@@ -1042,6 +1060,7 @@ def clean_raw_data_to_sheet(
         "inserts": inserts,
         "texts": texts,
         "hatches": hatches,
+        "tables": full_raw.get("tables", []),
     }
 
 

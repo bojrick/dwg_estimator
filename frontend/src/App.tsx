@@ -25,6 +25,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { OpenCadViewer } from './components/OpenCadViewer';
+import { StructuralEstimatorPage } from './components/StructuralEstimator/StructuralEstimatorPage';
 import { SheetSelectorModal, SheetConfig, cropRawDataToSheet } from './components/SheetSelectorModal';
 import {
   AuthConfig,
@@ -190,6 +191,7 @@ export function App() {
   const [guestDwgFile, setGuestDwgFile] = useState<File | null>(null);
   const [viewerInitialMeasure, setViewerInitialMeasure] = useState<boolean>(false);
   const [openingPlan, setOpeningPlan] = useState<boolean>(false);
+  const [isStructuralEstimatorOpen, setIsStructuralEstimatorOpen] = useState<boolean>(false);
 
   // Auth modal & profile state
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
@@ -307,12 +309,33 @@ export function App() {
 
       const params = new URLSearchParams(window.location.search);
       const shareToken = params.get('share');
+      const planIdParam = params.get('planId');
       if (shareToken) {
         setOpeningPlan(true);
         fetch(apiUrl(`/api/plans/share/${encodeURIComponent(shareToken)}`))
           .then((r) => (r.ok ? r.json() : null))
           .then((data) => {
-            if (active && data) setActivePlanPayload(data);
+            if (active && data) {
+              setActivePlanPayload(data);
+              if (params.get('view') === 'structural') {
+                setIsStructuralEstimatorOpen(true);
+              }
+            }
+          })
+          .finally(() => {
+            if (active) setOpeningPlan(false);
+          });
+      } else if (planIdParam && sess) {
+        setOpeningPlan(true);
+        authFetch(`/api/plans/${encodeURIComponent(planIdParam)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (active && data) {
+              setActivePlanPayload(data);
+              if (params.get('view') === 'structural') {
+                setIsStructuralEstimatorOpen(true);
+              }
+            }
           })
           .finally(() => {
             if (active) setOpeningPlan(false);
@@ -1047,6 +1070,63 @@ export function App() {
     </div>
   );
 
+  // If Structural Estimator is open
+  if (activePlanPayload && isStructuralEstimatorOpen) {
+    return (
+      <div className="h-[100dvh] flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden">
+        {toastMsg && (
+          <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white text-xs font-medium px-4 py-2 rounded-full shadow-xl flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4" />
+            <span>{toastMsg}</span>
+          </div>
+        )}
+        <StructuralEstimatorPage
+          plan={activePlanPayload.plan}
+          rawData={activePlanPayload.raw}
+          fullRawData={activePlanPayload.fullRaw}
+          isGuest={activePlanPayload.isGuest}
+          onBack={() => {
+            setIsStructuralEstimatorOpen(false);
+            const params = new URLSearchParams(window.location.search);
+            params.delete('view');
+            const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
+            window.history.replaceState({}, '', newUrl);
+          }}
+          onSaveEstimate={async (estimate) => {
+            if (activePlanPayload.isGuest) {
+              setActivePlanPayload((prev: any) => ({
+                ...prev,
+                plan: {
+                  ...prev.plan,
+                  structural_estimate: estimate,
+                },
+              }));
+              return;
+            }
+            const res = await authFetch(`/api/plans/${activePlanPayload.plan.id}/structural-estimate`, {
+              method: 'PUT',
+              body: JSON.stringify({ structural_estimate: estimate }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              setActivePlanPayload((prev: any) => ({
+                ...prev,
+                plan: {
+                  ...prev.plan,
+                  structural_estimate: data.structural_estimate,
+                },
+              }));
+              fetchVaultPlans();
+            } else {
+              throw new Error('Save failed');
+            }
+          }}
+          showToast={showToast}
+        />
+      </div>
+    );
+  }
+
   // If a Plan is open in the viewer, show full-screen mobile-first Viewer
   if (activePlanPayload) {
     const p = activePlanPayload.plan;
@@ -1064,6 +1144,15 @@ export function App() {
           rawData={activePlanPayload.raw}
           initialMeasure={viewerInitialMeasure}
           isGuest={activePlanPayload.isGuest}
+          onOpenStructuralEstimator={() => {
+            setIsStructuralEstimatorOpen(true);
+            const params = new URLSearchParams(window.location.search);
+            params.set('view', 'structural');
+            if (activePlanPayload.plan?.id) {
+              params.set('planId', String(activePlanPayload.plan.id));
+            }
+            window.history.pushState({}, '', `?${params.toString()}`);
+          }}
           onSavePlan={handleSaveGuestPlan}
           onOpenAuth={
             !authSession
@@ -1079,6 +1168,7 @@ export function App() {
             if (window.location.search.includes('share=')) {
               window.history.replaceState({}, '', '/');
             }
+            setIsStructuralEstimatorOpen(false);
             setActivePlanPayload(null);
             setGuestDwgFile(null);
             if (authSession) fetchVaultPlans();

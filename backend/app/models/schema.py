@@ -40,6 +40,7 @@ class Plan(SQLModel, table=True):
     match_reason: str = Field(default="")
     sheets_json: str = Field(default="[]")
     summary_json: str = Field(default="{}")
+    structural_estimate_json: str = Field(default="{}")
 
     unit_name: str = Field(default="m")
     scale_to_m: float = Field(default=1.0)

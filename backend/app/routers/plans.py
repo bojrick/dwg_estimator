@@ -64,6 +64,11 @@ class UpdatePlanRequest(BaseModel):
     active_sheet_id: Optional[str] = None
     scale_to_m: Optional[float] = None
     sheets: Optional[List[Dict[str, Any]]] = None
+    structural_estimate: Optional[Dict[str, Any]] = None
+
+
+class SaveStructuralEstimateRequest(BaseModel):
+    structural_estimate: Dict[str, Any]
 
 
 class AuthPayload(BaseModel):
@@ -108,6 +113,7 @@ def _serialize_plan(plan: Plan) -> Dict[str, Any]:
         "match_reason": plan.match_reason,
         "sheets": json.loads(plan.sheets_json or "[]"),
         "summary": json.loads(plan.summary_json or "{}"),
+        "structural_estimate": json.loads(getattr(plan, "structural_estimate_json", "{}") or "{}"),
         "unit_name": plan.unit_name,
         "scale_to_m": plan.scale_to_m,
         "storage_backend": plan.storage_backend,
@@ -868,6 +874,8 @@ def update_plan_view_or_units(
         plan.discipline = req.discipline.strip().lower()
     if req.sheets is not None:
         plan.sheets_json = json.dumps(req.sheets)
+    if req.structural_estimate is not None:
+        plan.structural_estimate_json = json.dumps(req.structural_estimate)
 
     cleaned_raw = None
     if (req.sheets is not None or req.active_sheet_id is not None or req.scale_to_m is not None) and plan.full_parsed_json_key:
@@ -920,6 +928,46 @@ def update_plan_view_or_units(
     return {
         "plan": _serialize_plan(plan),
         "raw": cleaned_raw,
+    }
+
+
+@router.get("/plans/{plan_id}/structural-estimate")
+def get_structural_estimate(
+    plan_id: int,
+    share: Optional[str] = None,
+    session: Session = Depends(get_session),
+    user_id: Optional[str] = Depends(get_current_user_id),
+):
+    if share:
+        plan = session.exec(select(Plan).where(Plan.id == plan_id, Plan.share_token == share)).first()
+        if not plan:
+            raise HTTPException(status_code=404, detail="Plan not found")
+    else:
+        plan = _get_owned_plan(session, plan_id, user_id)
+    return {
+        "plan_id": plan.id,
+        "structural_estimate": json.loads(getattr(plan, "structural_estimate_json", "{}") or "{}"),
+    }
+
+
+@router.put("/plans/{plan_id}/structural-estimate")
+def save_structural_estimate(
+    plan_id: int,
+    req: SaveStructuralEstimateRequest,
+    session: Session = Depends(get_session),
+    user_id: Optional[str] = Depends(get_current_user_id),
+):
+    plan = _get_owned_plan(session, plan_id, user_id)
+    plan.structural_estimate_json = json.dumps(req.structural_estimate)
+    plan.updated_at = datetime.now(timezone.utc)
+    session.add(plan)
+    session.commit()
+    session.refresh(plan)
+    return {
+        "status": "ok",
+        "plan_id": plan.id,
+        "structural_estimate": json.loads(plan.structural_estimate_json or "{}"),
+        "updated_at": plan.updated_at.isoformat(),
     }
 
 

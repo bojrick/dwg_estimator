@@ -1239,6 +1239,7 @@ export function cropRawDataToSheet(fullRaw: any, targetSheet: SheetConfig) {
     texts,
     hatches,
     inserts,
+    tables: fullRaw.tables || [],
     cleanup_stats: {
       is_cropped: true,
       sheet_id: targetSheet.id,
