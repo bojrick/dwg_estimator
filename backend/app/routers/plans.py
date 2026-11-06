@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import shutil
 from typing import Any, Dict, List, Optional
+import urllib.parse
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
@@ -50,6 +51,10 @@ class SheetUpdateRequest(BaseModel):
     name: str
     description: Optional[str] = ""
     bbox: Optional[Dict[str, float]] = None
+
+
+class RenameProjectRequest(BaseModel):
+    new_name: str
 
 
 class UpdatePlanRequest(BaseModel):
@@ -1005,4 +1010,67 @@ def delete_plan(
     session.delete(plan)
     session.commit()
     return {"deleted": True, "id": plan_id}
+
+
+@router.patch("/projects/{project_name}")
+def rename_project(
+    project_name: str,
+    req: RenameProjectRequest,
+    session: Session = Depends(get_session),
+    user_id: Optional[str] = Depends(get_current_user_id),
+):
+    uid = _resolve_uid(user_id)
+    decoded_name = urllib.parse.unquote(project_name).strip()
+    new_name = req.new_name.strip()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Project name cannot be empty")
+
+    if uid:
+        stmt = select(Plan).where((Plan.project_name == decoded_name) & ((Plan.user_id == uid) | (Plan.user_id == None)))
+    else:
+        stmt = select(Plan).where(Plan.project_name == decoded_name)
+    plans = session.exec(stmt).all()
+    if not plans:
+        raise HTTPException(status_code=404, detail="Project not found or contains no plans")
+
+    for p in plans:
+        p.project_name = new_name
+        p.updated_at = datetime.now(timezone.utc)
+        session.add(p)
+    session.commit()
+    return {"renamed": True, "old_name": decoded_name, "new_name": new_name, "count": len(plans)}
+
+
+@router.delete("/projects/{project_name}")
+def delete_project(
+    project_name: str,
+    session: Session = Depends(get_session),
+    user_id: Optional[str] = Depends(get_current_user_id),
+):
+    uid = _resolve_uid(user_id)
+    decoded_name = urllib.parse.unquote(project_name).strip()
+
+    if uid:
+        stmt = select(Plan).where((Plan.project_name == decoded_name) & ((Plan.user_id == uid) | (Plan.user_id == None)))
+    else:
+        stmt = select(Plan).where(Plan.project_name == decoded_name)
+    plans = session.exec(stmt).all()
+    if not plans:
+        raise HTTPException(status_code=404, detail="Project not found or contains no plans")
+
+    count = len(plans)
+    for plan in plans:
+        for key in (
+            plan.dwg_key,
+            plan.cleaned_dxf_key,
+            plan.full_parsed_json_key,
+            plan.parsed_json_key,
+            plan.pdf_key,
+        ):
+            delete_object(key)
+        session.delete(plan)
+
+    session.commit()
+    return {"deleted": True, "project_name": decoded_name, "count": count}
+
 

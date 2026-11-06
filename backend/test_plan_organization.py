@@ -9,11 +9,14 @@ from sqlmodel import Session
 from app.database import engine, init_db
 from app.models.schema import Plan
 from app.routers.plans import (
+    RenameProjectRequest,
     UpdatePlanRequest,
     delete_plan,
+    delete_project,
     get_plan,
     get_shared_plan,
     list_plans,
+    rename_project,
     update_plan_view_or_units,
 )
 from app.services.auth import get_current_user_id
@@ -301,6 +304,53 @@ def test_single_sheet_isolation_cleans_clutter():
     assert "TRASH" not in active_layer_names
 
 
+def test_project_rename_delete_and_move_plan():
+    init_db()
+    with Session(engine) as session:
+        # Create test plans in a unique project
+        p1 = Plan(name="Tower Plan 1", project_name="Alpha Towers")
+        p2 = Plan(name="Tower Plan 2", project_name="Alpha Towers")
+        session.add(p1)
+        session.add(p2)
+        session.commit()
+        session.refresh(p1)
+        session.refresh(p2)
+
+        # 1. Rename project
+        res_rename = rename_project(
+            "Alpha Towers",
+            RenameProjectRequest(new_name="Beta Towers"),
+            session=session,
+        )
+        assert res_rename["renamed"] is True
+        assert res_rename["count"] >= 2
+        session.refresh(p1)
+        session.refresh(p2)
+        assert p1.project_name == "Beta Towers"
+        assert p2.project_name == "Beta Towers"
+
+        # 2. Move plan p1 from Beta Towers to Gamma Complex
+        res_move = update_plan_view_or_units(
+            p1.id,
+            UpdatePlanRequest(project_name="Gamma Complex"),
+            session=session,
+        )
+        assert res_move["plan"]["project_name"] == "Gamma Complex"
+        session.refresh(p1)
+        assert p1.project_name == "Gamma Complex"
+
+        # 3. Delete project Beta Towers (should delete p2)
+        res_del = delete_project("Beta Towers", session=session)
+        assert res_del["deleted"] is True
+        assert res_del["count"] >= 1
+        assert session.get(Plan, p2.id) is None
+        # p1 remains in Gamma Complex
+        assert session.get(Plan, p1.id) is not None
+
+        # Clean up p1
+        delete_plan(p1.id, session=session)
+
+
 if __name__ == "__main__":
     test_infer_discipline_and_project()
     test_plans_api_project_and_discipline()
@@ -308,4 +358,5 @@ if __name__ == "__main__":
     test_custom_sheet_and_name_editing()
     test_merge_dwg_views_to_single_plan()
     test_single_sheet_isolation_cleans_clutter()
+    test_project_rename_delete_and_move_plan()
     print("All plan organization & API checks passed.")

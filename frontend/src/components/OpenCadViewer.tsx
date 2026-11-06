@@ -9,9 +9,7 @@ import {
   ZoomOut,
   Layers,
   Share2,
-  FileText,
   FileCode2,
-  Columns,
   Upload,
   Download,
   Eye,
@@ -23,7 +21,7 @@ import {
   Check,
 } from 'lucide-react';
 
-export type ViewerTabMode = 'dwg' | 'pdf' | 'split';
+export type ViewerTabMode = 'dwg';
 type ToolMode = 'pan' | 'measure';
 type MeasureSubMode = 'distance' | 'area-pick' | 'area-points';
 type ColorMode = 'cad' | 'blueprint' | 'mono';
@@ -94,8 +92,6 @@ interface OpenCadViewerProps {
   onShare: (plan: any) => void;
   onSelectSheet: (sheetId: string) => Promise<void>;
   onChangeUnitScale: (scaleToM: number) => Promise<void>;
-  onUploadPdf: (file: File) => Promise<void>;
-  onGeneratePdf: () => Promise<void>;
   onUploadDwg: (file: File) => Promise<void>;
   onSavePlan?: () => void;
   onOpenAuth?: (mode: 'signin' | 'signup') => void;
@@ -120,8 +116,6 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   onShare,
   onSelectSheet,
   onChangeUnitScale,
-  onUploadPdf,
-  onGeneratePdf,
   onUploadDwg,
   onSavePlan,
   onOpenAuth,
@@ -130,10 +124,8 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const pdfInputRef = useRef<HTMLInputElement | null>(null);
   const dwgInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [viewTab, setViewTab] = useState<ViewerTabMode>(initialTab);
   const [toolMode, setToolMode] = useState<ToolMode>(initialMeasure ? 'measure' : 'pan');
   const [colorMode, setColorMode] = useState<ColorMode>('cad');
 
@@ -197,7 +189,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
     const ro = new ResizeObserver(updateSize);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [viewTab]);
+  }, []);
 
   const fitDrawing = useCallback(() => {
     const b = rawData?.bbox_raw;
@@ -1097,24 +1089,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
 
   return (
     <div className="flex-1 flex flex-col bg-zinc-950 overflow-hidden">
-      {/* Hidden file inputs for attaching/replacing PDF or DWG */}
-      <input
-        ref={pdfInputRef}
-        type="file"
-        accept=".pdf"
-        className="hidden"
-        onChange={async (e) => {
-          const f = e.target.files?.[0];
-          if (!f) return;
-          setBusyAction('Uploading & matching PDF...');
-          try {
-            await onUploadPdf(f);
-          } finally {
-            setBusyAction(null);
-            e.target.value = '';
-          }
-        }}
-      />
+      {/* Hidden file input for replacing DWG */}
       <input
         ref={dwgInputRef}
         type="file"
@@ -1189,7 +1164,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                           setTempPlanTitle(plan.name || '');
                           setEditingPlanTitle(true);
                         }}
-                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition"
+                        className="p-0.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition shrink-0"
                         title="Edit plan name"
                       >
                         <Edit2 className="w-3 h-3" />
@@ -1272,67 +1247,12 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                     </a>
                   </>
                 )}
-                {plan.has_pdf && (
-                  <a
-                    href={apiUrl(`/api/plans/${plan.id}/file/pdf?share=${encodeURIComponent(plan.share_token || '')}`)}
-                    download={plan.pdf_filename || 'plan.pdf'}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-200"
-                  >
-                    <Download className="w-3.5 h-3.5 text-zinc-400" />
-                    Download Associated .PDF
-                  </a>
-                )}
-                <div className="border-t border-zinc-800 my-1" />
-                <button
-                  onClick={() => {
-                    setShowDownloadMenu(false);
-                    pdfInputRef.current?.click();
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-left text-zinc-200"
-                >
-                  <Upload className="w-3.5 h-3.5 text-blue-400" />
-                  {plan.has_pdf ? 'Replace Associated PDF' : 'Upload Associated PDF'}
-                </button>
               </div>
             )}
           </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-        {/* Center Segmented Switcher: DWG | PDF | Split */}
-        <div className="flex items-center bg-zinc-950 p-1 rounded-xl border border-zinc-800 shrink-0">
-          <button
-            onClick={() => setViewTab('dwg')}
-            className={`flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium transition ${
-              viewTab === 'dwg' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <FileCode2 className="w-3.5 h-3.5" />
-            <span>DWG</span>
-          </button>
-          <button
-            onClick={() => setViewTab('pdf')}
-            className={`flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium transition ${
-              viewTab === 'pdf' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>PDF</span>
-            {!plan.has_pdf && (
-              <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" title="Upload associated PDF" />
-            )}
-          </button>
-          <button
-            onClick={() => setViewTab('split')}
-            className={`hidden sm:flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 rounded-lg text-xs font-medium transition ${
-              viewTab === 'split' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <Columns className="w-3.5 h-3.5" />
-            <span>Split</span>
-          </button>
-        </div>
-
           {sheets.length > 0 && (
             <div className="flex items-center gap-1 flex-1 min-w-0">
               {sheets.length === 1 ? (
@@ -1395,16 +1315,12 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
         </div>
       )}
 
-      {/* Main Content Area: DWG / PDF / Split */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative">
-        {/* DWG VIEWPORT */}
-        {(viewTab === 'dwg' || viewTab === 'split') && (
-          <div
-            ref={containerRef}
-            className={`relative overflow-hidden bg-zinc-950 ${
-              viewTab === 'split' ? 'flex-1 border-b lg:border-b-0 lg:border-r border-zinc-800' : 'flex-1'
-            }`}
-          >
+      {/* Main CAD Content Area */}
+      <div className="flex-1 flex overflow-hidden relative">
+        <div
+          ref={containerRef}
+          className="relative flex-1 overflow-hidden bg-zinc-950"
+        >
             {!rawData ? (
               <div className="h-full flex flex-col items-center justify-center p-6 text-center gap-3">
                 <FileCode2 className="w-10 h-10 text-zinc-500" />
@@ -1728,82 +1644,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
               </>
             )}
           </div>
-        )}
-
-        {/* ASSOCIATED PDF VIEWPORT */}
-        {(viewTab === 'pdf' || viewTab === 'split') && (
-          <div className="flex-1 flex flex-col bg-zinc-900 overflow-hidden">
-            {plan.has_pdf ? (
-              <>
-                <div className="px-3 py-1.5 bg-zinc-950 border-b border-zinc-800 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2 truncate text-zinc-300">
-                    <FileText className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                    <span className="font-mono truncate">{plan.pdf_filename || 'Associated Plan.pdf'}</span>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      onClick={() => pdfInputRef.current?.click()}
-                      className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-[11px] font-semibold text-zinc-200"
-                    >
-                      Replace PDF
-                    </button>
-                    <a
-                      href={apiUrl(`/api/plans/${plan.id}/file/pdf?share=${encodeURIComponent(plan.share_token || '')}`)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-2 py-1 rounded bg-blue-600/20 text-blue-300 hover:bg-blue-600/30 text-[11px] font-semibold"
-                    >
-                      Open Full Tab ↗
-                    </a>
-                  </div>
-                </div>
-                <iframe
-                  src={`${apiUrl(`/api/plans/${plan.id}/file/pdf?share=${encodeURIComponent(plan.share_token || '')}`)}#view=FitH`}
-                  title={plan.pdf_filename || plan.name}
-                  className="flex-1 w-full h-full border-0 bg-zinc-950"
-                />
-              </>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-zinc-500/10 border border-zinc-500/30 flex items-center justify-center">
-                  <FileText className="w-6 h-6 text-zinc-400" />
-                </div>
-                <div className="space-y-1 max-w-sm">
-                  <h3 className="text-sm font-medium text-white">No Associated PDF Uploaded Yet</h3>
-                  <p className="text-xs text-zinc-400">
-                    Upload the associated PDF for this DWG. PlanVault will also match the PDF against the DWG sheets to keep only the matching view.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center justify-center gap-2.5">
-                  <button
-                    onClick={() => pdfInputRef.current?.click()}
-                    className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-2 shadow-lg"
-                  >
-                    <Upload className="w-4 h-4" />
-                    Upload Associated PDF
-                  </button>
-                  {plan.has_dwg && (
-                    <button
-                      onClick={async () => {
-                        setBusyAction('Generating matching PDF from cleaned DWG view...');
-                        try {
-                          await onGeneratePdf();
-                        } finally {
-                          setBusyAction(null);
-                        }
-                      }}
-                      className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium flex items-center gap-2 border border-zinc-700"
-                    >
-                      <Layers className="w-4 h-4 text-zinc-300" />
-                      Auto-Generate PDF from Cleaned View
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+        </div>
 
       {/* Sheet Metadata Edit Modal */}
       {editingSheetMeta && (

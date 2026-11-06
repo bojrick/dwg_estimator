@@ -3,7 +3,6 @@ import {
   Cloud,
   Upload,
   FileCode2,
-  FileText,
   Ruler,
   Share2,
   Trash2,
@@ -15,6 +14,9 @@ import {
   X,
   Download,
   FolderKanban,
+  FolderInput,
+  FolderPlus,
+  Pencil,
   Clock,
   LogOut,
   Lock,
@@ -22,7 +24,7 @@ import {
   Compass,
   ArrowRight,
 } from 'lucide-react';
-import { OpenCadViewer, ViewerTabMode } from './components/OpenCadViewer';
+import { OpenCadViewer } from './components/OpenCadViewer';
 import { SheetSelectorModal, SheetConfig, cropRawDataToSheet } from './components/SheetSelectorModal';
 import {
   AuthConfig,
@@ -186,7 +188,6 @@ export function App() {
   // Active opened plan state
   const [activePlanPayload, setActivePlanPayload] = useState<{ plan: any; raw: any; fullRaw?: any; isGuest?: boolean } | null>(null);
   const [guestDwgFile, setGuestDwgFile] = useState<File | null>(null);
-  const [viewerInitialTab, setViewerInitialTab] = useState<ViewerTabMode>('dwg');
   const [viewerInitialMeasure, setViewerInitialMeasure] = useState<boolean>(false);
   const [openingPlan, setOpeningPlan] = useState<boolean>(false);
 
@@ -199,7 +200,6 @@ export function App() {
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
   const [uploadDwgFiles, setUploadDwgFiles] = useState<File[]>([]);
   const uploadDwgFile = uploadDwgFiles[0] || null;
-  const [uploadPdfFile, setUploadPdfFile] = useState<File | null>(null);
   const [uploadTitle, setUploadTitle] = useState<string>('');
   const [uploadProject, setUploadProject] = useState<string>('');
   const [uploadDiscipline, setUploadDiscipline] = useState<PlanDiscipline>('architectural');
@@ -211,7 +211,6 @@ export function App() {
   // Sheet Window Selector state
   const [sheetSelectorData, setSheetSelectorData] = useState<{
     dwgFiles: File[];
-    pdfFile: File | null;
     project: string;
     discipline: PlanDiscipline;
     parsed: any;
@@ -219,10 +218,13 @@ export function App() {
     isGuest: boolean;
   } | null>(null);
 
-  // Quick inline PDF attach for existing card
-  const cardPdfInputRef = useRef<HTMLInputElement | null>(null);
-  const [attachingPdfPlanId, setAttachingPdfPlanId] = useState<number | null>(null);
+  // Project & Plan Management Modals
   const [confirmDeletePlan, setConfirmDeletePlan] = useState<any | null>(null);
+  const [renameProjectModal, setRenameProjectModal] = useState<{ oldName: string; newName: string } | null>(null);
+  const [deleteProjectModal, setDeleteProjectModal] = useState<{ name: string; count: number } | null>(null);
+  const [movePlanModal, setMovePlanModal] = useState<{ plan: any; targetProject: string; customProject: string } | null>(null);
+  const [renamePlanModal, setRenamePlanModal] = useState<{ plan: any; newName: string } | null>(null);
+  const [createProjectModal, setCreateProjectModal] = useState<{ name: string } | null>(null);
 
   // Toast & PWA install prompt
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -263,21 +265,24 @@ export function App() {
   }, []);
 
   const openPlanById = useCallback(
-    async (planId: number, tab: ViewerTabMode = 'dwg', startMeasure = false) => {
+    async (planId: number, startMeasure = false) => {
       setOpeningPlan(true);
-      setViewerInitialTab(tab);
       setViewerInitialMeasure(startMeasure);
       try {
         const res = await authFetch(`/api/plans/${planId}`);
         if (res.ok) {
           const data = await res.json();
           setActivePlanPayload(data);
+        } else {
+          showToast('Failed to load plan');
         }
+      } catch (err: any) {
+        showToast(err.message || 'Error opening plan');
       } finally {
         setOpeningPlan(false);
       }
     },
-    []
+    [showToast]
   );
 
   // Initialize Auth & check for ?share=<token> on initial load
@@ -329,12 +334,16 @@ export function App() {
     new Set(plans.map((p) => p.project_name || 'Default Project'))
   ).sort();
 
-  const handleFilePicked = (dwg: File | null, pdf: File | null) => {
-    const detectedDisc = inferDisciplineFromFilename(dwg?.name, pdf?.name, uploadTitle);
+  const userEmail = authSession?.user?.email || '';
+  const username = userEmail ? userEmail.split('@')[0] : 'Account';
+  const userInitial = userEmail ? userEmail.charAt(0).toUpperCase() : 'U';
+
+  const handleFilePicked = (dwg: File | null) => {
+    const detectedDisc = inferDisciplineFromFilename(dwg?.name, undefined, uploadTitle);
     setUploadDiscipline(detectedDisc);
     setDisciplineAutoDetected(true);
     if (!uploadProject.trim()) {
-      const inferredProj = inferProjectFromFilename(dwg?.name || pdf?.name || '', distinctProjects);
+      const inferredProj = inferProjectFromFilename(dwg?.name || '', distinctProjects);
       if (inferredProj) {
         setUploadProject(inferredProj);
       } else if (selectedProject !== 'ALL') {
@@ -355,7 +364,7 @@ export function App() {
       const newOnes = arr.filter((f) => !existingNames.has(f.name));
       const combined = [...prev, ...newOnes];
       if (combined.length > 0 && !uploadTitle) {
-        handleFilePicked(combined[0], uploadPdfFile);
+        handleFilePicked(combined[0]);
       }
       return combined;
     });
@@ -391,10 +400,7 @@ export function App() {
 
         if (!uploadBytesDone) {
           pct = Math.min(30, Math.max(4, Math.round(latestUploadRatio * 30)));
-          stage = 'Uploading CAD & PDF files...';
-        } else if (!dwgFile) {
-          pct = 90;
-          stage = 'Saving PDF plan to vault...';
+          stage = 'Uploading CAD drawings...';
         } else {
           const procElapsed = (Date.now() - startTime) / 1000;
           const procRatio = Math.min(0.97, procElapsed / estTotalSec);
@@ -478,77 +484,43 @@ export function App() {
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (uploadDwgFiles.length === 0 && !uploadPdfFile) {
-      setUploadError('Please select one or more DWG/DXF files, a PDF file, or both.');
+    if (uploadDwgFiles.length === 0) {
+      setUploadError('Please select one or more DWG/DXF files.');
       return;
     }
 
-    // If DWG files are uploaded, inspect CAD drawings so user can configure & merge sheet views
-    if (uploadDwgFiles.length > 0) {
-      setUploading(true);
-      setUploadError(null);
-      try {
-        if (uploadDwgFiles.length > 1) {
-          const form = new FormData();
-          uploadDwgFiles.forEach((f) => form.append('dwg_files', f));
-          const parsed = await runUploadWithProgress('/api/plans/preview-multi', form, uploadDwgFiles[0]);
-          const first = parsed.files?.[0];
-          setSheetSelectorData({
-            dwgFiles: uploadDwgFiles,
-            pdfFile: uploadPdfFile,
-            project: uploadProject.trim(),
-            discipline: uploadDiscipline,
-            parsed: first,
-            filesData: parsed.files,
-            isGuest: false,
-          });
-          setShowUploadModal(false);
-        } else {
-          const form = new FormData();
-          form.append('dwg_file', uploadDwgFiles[0]);
-          const parsed = await runUploadWithProgress('/api/plans/preview-guest', form, uploadDwgFiles[0]);
-          setSheetSelectorData({
-            dwgFiles: uploadDwgFiles,
-            pdfFile: uploadPdfFile,
-            project: uploadProject.trim(),
-            discipline: uploadDiscipline,
-            parsed,
-            isGuest: false,
-          });
-          setShowUploadModal(false);
-        }
-      } catch (err: any) {
-        setUploadError(err.message || 'Failed to inspect CAD files');
-      } finally {
-        setUploading(false);
-        setUploadProgress(null);
-      }
-      return;
-    }
-
-    // PDF only upload
     setUploading(true);
     setUploadError(null);
     try {
-      const form = new FormData();
-      if (uploadPdfFile) form.append('pdf_file', uploadPdfFile);
-      if (uploadTitle.trim()) form.append('name', uploadTitle.trim());
-      if (uploadProject.trim()) form.append('project_name', uploadProject.trim());
-      form.append('discipline', uploadDiscipline);
-
-      const data = await runUploadWithProgress('/api/plans', form, null);
-      setShowUploadModal(false);
-      setUploadPdfFile(null);
-      setUploadTitle('');
-      setUploadProject('');
-      setDisciplineAutoDetected(false);
-      await fetchVaultPlans();
-      setViewerInitialTab('pdf');
-      setViewerInitialMeasure(false);
-      setActivePlanPayload(data);
-      showToast('Plan uploaded');
+      if (uploadDwgFiles.length > 1) {
+        const form = new FormData();
+        uploadDwgFiles.forEach((f) => form.append('dwg_files', f));
+        const parsed = await runUploadWithProgress('/api/plans/preview-multi', form, uploadDwgFiles[0]);
+        const first = parsed.files?.[0];
+        setSheetSelectorData({
+          dwgFiles: uploadDwgFiles,
+          project: uploadProject.trim(),
+          discipline: uploadDiscipline,
+          parsed: first,
+          filesData: parsed.files,
+          isGuest: false,
+        });
+        setShowUploadModal(false);
+      } else {
+        const form = new FormData();
+        form.append('dwg_file', uploadDwgFiles[0]);
+        const parsed = await runUploadWithProgress('/api/plans/preview-guest', form, uploadDwgFiles[0]);
+        setSheetSelectorData({
+          dwgFiles: uploadDwgFiles,
+          project: uploadProject.trim(),
+          discipline: uploadDiscipline,
+          parsed,
+          isGuest: false,
+        });
+        setShowUploadModal(false);
+      }
     } catch (err: any) {
-      setUploadError(err.message || 'Failed to upload plan');
+      setUploadError(err.message || 'Failed to inspect CAD files');
     } finally {
       setUploading(false);
       setUploadProgress(null);
@@ -600,7 +572,7 @@ export function App() {
     activeSheetId: string;
   }) => {
     if (!sheetSelectorData) return;
-    const { dwgFiles, pdfFile, project, discipline, isGuest } = sheetSelectorData;
+    const { dwgFiles, project, discipline, isGuest } = sheetSelectorData;
     setSheetSelectorData(null);
 
     if (isGuest) {
@@ -621,7 +593,6 @@ export function App() {
               project_name: 'Guest Inspection',
               discipline: 'architectural',
               has_dwg: true,
-              has_pdf: false,
               active_sheet_id: merged.active_sheet_id || activeSheetId,
               active_sheet_name: configuredSheets.find((s) => s.id === (merged.active_sheet_id || activeSheetId))?.name || 'Selected View',
               unit_name: merged.unit_name || 'm',
@@ -633,7 +604,6 @@ export function App() {
             fullRaw: merged.full_raw_data,
             isGuest: true,
           });
-          setViewerInitialTab('dwg');
           showToast(dwgFiles.length > 1 ? 'Sheets merged. Sign up to save' : 'Sheets ready. Sign up to save');
         } catch (err: any) {
           showToast(err.message || 'Failed to merge plans');
@@ -655,7 +625,6 @@ export function App() {
           project_name: 'Guest Inspection',
           discipline: 'architectural',
           has_dwg: true,
-          has_pdf: false,
           active_sheet_id: targetSheet?.id || activeSheetId,
           active_sheet_name: targetSheet?.name || 'Selected View',
           unit_name: sheetSelectorData.parsed?.unit_name || 'm',
@@ -667,7 +636,6 @@ export function App() {
         fullRaw: croppedRaw,
         isGuest: true,
       });
-      setViewerInitialTab('dwg');
       showToast(`Isolated view: ${targetSheet?.name || 'Selected Sheet'}`);
       return;
     }
@@ -680,7 +648,6 @@ export function App() {
       } else if (dwgFiles.length === 1) {
         form.append('dwg_file', dwgFiles[0]);
       }
-      if (pdfFile) form.append('pdf_file', pdfFile);
       form.append('name', confirmedTitle);
       if (project) form.append('project_name', project);
       form.append('discipline', discipline);
@@ -689,12 +656,10 @@ export function App() {
 
       const data = await runUploadWithProgress('/api/plans', form, dwgFiles[0] || null);
       setUploadDwgFiles([]);
-      setUploadPdfFile(null);
       setUploadTitle('');
       setUploadProject('');
       setDisciplineAutoDetected(false);
       await fetchVaultPlans();
-      setViewerInitialTab(data.plan.has_dwg ? 'dwg' : 'pdf');
       setViewerInitialMeasure(false);
       setActivePlanPayload(data);
       showToast(dwgFiles.length > 1 ? 'Merged plan saved' : 'Plan saved');
@@ -728,7 +693,6 @@ export function App() {
         const first = parsed.files?.[0];
         setSheetSelectorData({
           dwgFiles: valid,
-          pdfFile: null,
           project: 'Guest Inspection',
           discipline: 'architectural',
           parsed: first,
@@ -741,7 +705,6 @@ export function App() {
         const data = await runUploadWithProgress('/api/plans/preview-guest', form, valid[0]);
         setSheetSelectorData({
           dwgFiles: valid,
-          pdfFile: null,
           project: 'Guest Inspection',
           discipline: 'architectural',
           parsed: data,
@@ -822,7 +785,7 @@ export function App() {
       try {
         await navigator.share({
           title: plan.name,
-          text: `View & measure plan "${plan.name}" (DWG + PDF) in PlanVault`,
+          text: `View & measure plan "${plan.name}" (DWG / DXF) in PlanVault`,
           url: shareUrl,
         });
         return;
@@ -850,6 +813,113 @@ export function App() {
     }
   };
 
+  const handleRenameProject = async (oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) {
+      setRenameProjectModal(null);
+      return;
+    }
+    try {
+      const res = await authFetch(`/api/projects/${encodeURIComponent(oldName)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_name: trimmed }),
+      });
+      if (res.ok) {
+        if (selectedProject === oldName) {
+          setSelectedProject(trimmed);
+        }
+        await fetchVaultPlans();
+        showToast(`Project renamed to "${trimmed}"`);
+      } else {
+        const err = await res.json();
+        showToast(err.detail || 'Failed to rename project');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to rename project');
+    } finally {
+      setRenameProjectModal(null);
+    }
+  };
+
+  const handleDeleteProject = async (projectName: string) => {
+    try {
+      const res = await authFetch(`/api/projects/${encodeURIComponent(projectName)}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        if (selectedProject === projectName) {
+          setSelectedProject('ALL');
+        }
+        await fetchVaultPlans();
+        showToast(`Project "${projectName}" deleted`);
+      } else {
+        const err = await res.json();
+        showToast(err.detail || 'Failed to delete project');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to delete project');
+    } finally {
+      setDeleteProjectModal(null);
+    }
+  };
+
+  const handleMovePlan = async (planId: number, targetProject: string) => {
+    const trimmed = targetProject.trim();
+    if (!trimmed) return;
+    try {
+      const res = await authFetch(`/api/plans/${planId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_name: trimmed }),
+      });
+      if (res.ok) {
+        await fetchVaultPlans();
+        showToast(`Plan moved to "${trimmed}"`);
+      } else {
+        const err = await res.json();
+        showToast(err.detail || 'Failed to move plan');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to move plan');
+    } finally {
+      setMovePlanModal(null);
+    }
+  };
+
+  const handleRenamePlan = async (planId: number, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    try {
+      const res = await authFetch(`/api/plans/${planId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed }),
+      });
+      if (res.ok) {
+        await fetchVaultPlans();
+        showToast('Plan name updated');
+      } else {
+        const err = await res.json();
+        showToast(err.detail || 'Failed to update plan name');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Failed to update plan name');
+    } finally {
+      setRenamePlanModal(null);
+    }
+  };
+
+  const handleCreateProject = (projectName: string) => {
+    const trimmed = projectName.trim();
+    if (trimmed) {
+      setSelectedProject(trimmed);
+      setUploadProject(trimmed);
+      setShowUploadModal(true);
+    }
+    setCreateProjectModal(null);
+  };
+
   const projectScopedPlans = plans.filter((p) => {
     if (selectedProject !== 'ALL' && (p.project_name || 'Default Project') !== selectedProject) {
       return false;
@@ -868,7 +938,6 @@ export function App() {
       p.project_name?.toLowerCase().includes(q) ||
       p.discipline?.toLowerCase().includes(q) ||
       p.dwg_filename?.toLowerCase().includes(q) ||
-      p.pdf_filename?.toLowerCase().includes(q) ||
       p.active_sheet_name?.toLowerCase().includes(q)
     );
   });
@@ -993,7 +1062,6 @@ export function App() {
         <OpenCadViewer
           plan={p}
           rawData={activePlanPayload.raw}
-          initialTab={viewerInitialTab}
           initialMeasure={viewerInitialMeasure}
           isGuest={activePlanPayload.isGuest}
           onSavePlan={handleSaveGuestPlan}
@@ -1083,36 +1151,6 @@ export function App() {
               showToast(`Measurement unit updated to ${data.plan.unit_name}`);
             }
           }}
-          onUploadPdf={async (file) => {
-            if (activePlanPayload.isGuest) {
-              setAuthMode('signup');
-              setShowAuthModal(true);
-              showToast('Create an account to attach associated PDFs');
-              return;
-            }
-            const form = new FormData();
-            form.append('pdf_file', file);
-            const res = await authFetch(`/api/plans/${p.id}/pdf`, { method: 'POST', body: form });
-            if (res.ok) {
-              const data = await res.json();
-              setActivePlanPayload(data);
-              showToast('Associated PDF uploaded & DWG matched!');
-            }
-          }}
-          onGeneratePdf={async () => {
-            if (activePlanPayload.isGuest) {
-              setAuthMode('signup');
-              setShowAuthModal(true);
-              showToast('Create an account to generate PDFs');
-              return;
-            }
-            const res = await authFetch(`/api/plans/${p.id}/generate-pdf`, { method: 'POST' });
-            if (res.ok) {
-              const data = await res.json();
-              setActivePlanPayload((prev) => (prev ? { ...prev, plan: data.plan } : null));
-              showToast('Associated PDF generated from cleaned DWG view!');
-            }
-          }}
           onUploadDwg={async (file) => {
             if (activePlanPayload.isGuest) {
               await handleGuestCadPreview(file);
@@ -1123,7 +1161,7 @@ export function App() {
             try {
               const data = await runUploadWithProgress(`/api/plans/${p.id}/dwg`, form, file);
               setActivePlanPayload(data);
-              showToast('DWG uploaded & cleaned to match PDF!');
+              showToast('DWG uploaded & cleaned!');
             } finally {
               setUploadProgress(null);
             }
@@ -1158,29 +1196,6 @@ export function App() {
 
   return (
     <div className="min-h-[100dvh] flex flex-col bg-zinc-950 text-zinc-100 pb-20 sm:pb-8">
-      {/* Hidden input for quick PDF attachment from vault card */}
-      <input
-        ref={cardPdfInputRef}
-        type="file"
-        accept=".pdf"
-        className="hidden"
-        onChange={async (e) => {
-          const f = e.target.files?.[0];
-          const targetId = attachingPdfPlanId;
-          e.target.value = '';
-          if (!f || !targetId) return;
-          showToast('Uploading PDF & matching DWG sheet...');
-          const form = new FormData();
-          form.append('pdf_file', f);
-          const res = await authFetch(`/api/plans/${targetId}/pdf`, { method: 'POST', body: form });
-          if (res.ok) {
-            await fetchVaultPlans();
-            showToast('PDF attached');
-          }
-          setAttachingPdfPlanId(null);
-        }}
-      />
-
       {toastMsg && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white text-xs font-medium px-4 py-2 rounded-full shadow-xl flex items-center gap-2">
           <CheckCircle2 className="w-4 h-4" />
@@ -1214,7 +1229,7 @@ export function App() {
               <h1 className="text-base font-semibold tracking-tight text-white">PlanVault</h1>
               {!authSession && <span className="text-[11px] text-zinc-400">Guest</span>}
             </div>
-            <p className="text-[11px] text-zinc-400 truncate">
+            <p className="text-[11px] text-zinc-400 truncate hidden sm:block">
               Plans by project and discipline
             </p>
           </div>
@@ -1222,9 +1237,15 @@ export function App() {
 
         <div className="flex items-center gap-2 shrink-0">
           {authSession ? (
-            <div className="flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 rounded-xl px-2.5 py-1.5 text-xs">
-              <span className="text-zinc-300 font-mono truncate max-w-[110px] sm:max-w-[160px]">
-                {authSession.user?.email || 'Account'}
+            <div className="flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 rounded-xl px-2 py-1 sm:px-2.5 sm:py-1.5 text-xs">
+              <div className="w-5 h-5 rounded-md bg-blue-600/20 text-blue-400 flex items-center justify-center text-[10px] font-semibold shrink-0">
+                {userInitial}
+              </div>
+              <span
+                className="text-zinc-300 font-mono truncate max-w-[70px] sm:max-w-[140px]"
+                title={userEmail}
+              >
+                {username}
               </span>
               <button
                 onClick={() => setShowProfileModal(true)}
@@ -1406,59 +1427,199 @@ export function App() {
           </div>
         </main>
       ) : (
-      /* Main Vault Container */
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-4 space-y-4">
-        {/* Layer 1: Project Navigation Bar */}
-        {distinctProjects.length > 0 && (
-          <div className="bg-zinc-900/90 border border-zinc-800 rounded-2xl p-3 space-y-2.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] font-medium text-zinc-400 flex items-center gap-1.5">
-                <FolderKanban className="w-3.5 h-3.5 text-blue-400" />
-                Projects
-              </span>
-              <span className="text-[11px] text-zinc-400">
-                {distinctProjects.length} {distinctProjects.length === 1 ? 'Project' : 'Projects'} · {plans.length} Plans
-              </span>
-            </div>
-            <div className="flex items-center gap-2 overflow-x-auto pb-1">
+      /* Unslop AEC Drafting-Station App Shell */
+      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-3 sm:py-4 flex flex-col md:flex-row gap-3 sm:gap-5 items-start">
+        {/* Mobile Horizontal Projects Bar */}
+        <div className="md:hidden w-full flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-3 px-3">
+          <button
+            onClick={() => setSelectedProject('ALL')}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
+              selectedProject === 'ALL'
+                ? 'bg-zinc-100 text-zinc-950 border-white'
+                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+            }`}
+          >
+            <FolderKanban className="w-3 h-3 opacity-75 shrink-0" />
+            <span>All</span>
+            <span className="text-[10px] tabular-nums font-mono opacity-80">({plans.length})</span>
+          </button>
+          {distinctProjects.map((proj) => {
+            const count = plans.filter((p) => (p.project_name || 'Default Project') === proj).length;
+            const isSelected = selectedProject === proj;
+            return (
               <button
-                onClick={() => setSelectedProject('ALL')}
-                className={`px-3 py-2 rounded-xl text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
-                  selectedProject === 'ALL'
-                    ? 'bg-zinc-100 text-zinc-900 border-zinc-100 shadow-sm'
-                    : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:border-zinc-700'
+                key={proj}
+                onClick={() => setSelectedProject(proj)}
+                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-zinc-100 text-zinc-950 border-white'
+                    : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
                 }`}
               >
-                <span>All Projects</span>
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/25">
-                  {plans.length}
-                </span>
+                <span className="truncate max-w-[130px]">{proj}</span>
+                <span className="text-[10px] tabular-nums font-mono opacity-80">({count})</span>
               </button>
-              {distinctProjects.map((proj) => {
-                const count = plans.filter((p) => (p.project_name || 'Default Project') === proj).length;
-                const active = selectedProject === proj;
-                return (
-                  <button
-                    key={proj}
-                    onClick={() => setSelectedProject(proj)}
-                    className={`px-3 py-2 rounded-xl text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
-                      active
-                        ? 'bg-zinc-100 text-zinc-900 border-zinc-100 shadow-sm'
-                        : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:border-zinc-700'
+            );
+          })}
+          <button
+            onClick={() => setCreateProjectModal({ name: '' })}
+            className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white shrink-0"
+            title="Create new project"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Desktop Left Sidebar: Projects Navigation */}
+        <aside className="hidden md:block w-64 shrink-0 bg-zinc-900/80 border border-zinc-800 rounded-2xl p-3 space-y-3">
+          <div className="flex items-center justify-between px-1">
+            <span className="text-[11px] font-medium text-zinc-400 flex items-center gap-1.5">
+              <FolderKanban className="w-3.5 h-3.5 text-blue-400" />
+              Projects ({distinctProjects.length})
+            </span>
+            <button
+              onClick={() => setCreateProjectModal({ name: '' })}
+              className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
+              title="Create new project"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Vertical Projects Navigation */}
+          <div className="space-y-1">
+            <button
+              onClick={() => setSelectedProject('ALL')}
+              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition ${
+                selectedProject === 'ALL'
+                  ? 'bg-zinc-100 text-zinc-950 shadow-xs'
+                  : 'text-zinc-300 hover:bg-zinc-800/70 hover:text-white'
+              }`}
+            >
+              <div className="flex items-center gap-2 truncate">
+                <FolderKanban className="w-4 h-4 opacity-70 shrink-0" />
+                <span className="truncate">All Plans</span>
+              </div>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] tabular-nums font-mono ${
+                  selectedProject === 'ALL'
+                    ? 'bg-black/20 text-zinc-900 font-semibold'
+                    : 'bg-zinc-800 text-zinc-400'
+                }`}
+              >
+                {plans.length}
+              </span>
+            </button>
+
+            {distinctProjects.map((proj) => {
+              const count = plans.filter((p) => (p.project_name || 'Default Project') === proj).length;
+              const isSelected = selectedProject === proj;
+              return (
+                <button
+                  key={proj}
+                  onClick={() => setSelectedProject(proj)}
+                  title={proj}
+                  className={`group w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition text-left ${
+                    isSelected
+                      ? 'bg-zinc-800 text-white font-medium border border-zinc-700/60'
+                      : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 truncate flex-1 min-w-0">
+                    <FolderKanban
+                      className={`w-3.5 h-3.5 shrink-0 ${
+                        isSelected ? 'text-blue-400' : 'text-zinc-500 group-hover:text-zinc-400'
+                      }`}
+                    />
+                    <span className="truncate">{proj}</span>
+                  </div>
+                  <span
+                    className={`ml-1.5 shrink-0 px-1.5 py-0.5 rounded-full text-[10px] tabular-nums font-mono ${
+                      isSelected ? 'bg-zinc-700 text-zinc-200' : 'bg-zinc-950 text-zinc-400'
                     }`}
                   >
-                    <FolderKanban className="w-3.5 h-3.5 opacity-80" />
-                    <span>{proj}</span>
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/25">
-                      {count}
-                    </span>
-                  </button>
-                );
-              })}
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
+        {/* Right Main Content Pane */}
+        <div className="flex-1 w-full space-y-3 sm:space-y-4 min-w-0">
+          {/* Compact Active Project Scope Header */}
+          <div className="bg-zinc-900/90 border border-zinc-800 rounded-xl px-3 py-2 sm:px-4 sm:py-3 flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                <FolderKanban className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              </div>
+              <div className="flex items-center gap-2 min-w-0">
+                <h2 className="text-sm sm:text-base font-semibold text-white truncate">
+                  {selectedProject === 'ALL' ? 'All Plans' : selectedProject}
+                </h2>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums bg-zinc-800 text-zinc-300 shrink-0">
+                  {projectScopedPlans.length} {projectScopedPlans.length === 1 ? 'plan' : 'plans'}
+                </span>
+                {selectedProject !== 'ALL' && (
+                  <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 shrink-0 ml-1">
+                    <button
+                      onClick={() =>
+                        setRenameProjectModal({
+                          oldName: selectedProject,
+                          newName: selectedProject,
+                        })
+                      }
+                      className="p-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-blue-400 inline-flex items-center gap-1 transition"
+                      title="Rename project"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      <span className="hidden sm:inline">Rename</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        const count = plans.filter(
+                          (p) => (p.project_name || 'Default Project') === selectedProject
+                        ).length;
+                        setDeleteProjectModal({ name: selectedProject, count });
+                      }}
+                      className="p-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-rose-400 inline-flex items-center gap-1 transition"
+                      title="Delete project"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span className="hidden sm:inline">Delete</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Layer 2: Plan Type (Discipline) Filter Pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pt-1 border-t border-zinc-800/80">
+            <button
+              onClick={() => {
+                if (selectedProject !== 'ALL') setUploadProject(selectedProject);
+                setShowUploadModal(true);
+              }}
+              className="hidden sm:inline-flex px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium items-center gap-1.5 shadow-sm transition shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Upload plan</span>
+            </button>
+          </div>
+
+          {/* Filter Bar: Search + Discipline Pills */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search plans..."
+                className="w-full bg-zinc-900 border border-zinc-800 focus:border-blue-500 rounded-xl pl-10 pr-4 py-2 text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-3 px-3 sm:mx-0 sm:px-0">
               <button
                 onClick={() => setSelectedDiscipline('ALL')}
                 className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 ${
@@ -1467,7 +1628,7 @@ export function App() {
                     : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
                 }`}
               >
-                All Types ({projectScopedPlans.length})
+                All ({projectScopedPlans.length})
               </button>
               {DISCIPLINES.map((d) => {
                 const count = projectScopedPlans.filter(
@@ -1478,284 +1639,536 @@ export function App() {
                   <button
                     key={d.id}
                     onClick={() => setSelectedDiscipline(d.id)}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 flex items-center gap-1 ${
+                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 flex items-center gap-1 ${
                       active
                         ? d.pillActiveClass
-                        : 'bg-zinc-950 text-zinc-300 border-zinc-800 hover:border-zinc-700'
+                        : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700'
                     }`}
                   >
                     <span>{d.label}</span>
-                    <span className="opacity-75 text-[10px]">({count})</span>
+                    <span className="opacity-75 text-[10px] font-mono">({count})</span>
                   </button>
                 );
               })}
             </div>
           </div>
-        )}
 
-        {/* Search & Cloud Status Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search plans"
-              className="w-full bg-zinc-900 border border-zinc-800 focus:border-blue-500 rounded-xl pl-10 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none"
-            />
-          </div>
-          <div className="flex items-center justify-between sm:justify-end gap-2 text-[11px] text-zinc-400 px-1">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-zinc-300" />
-              Storage: <strong className="text-zinc-200 font-mono">{storageBackend}</strong>
-            </span>
-            <span>·</span>
-            <span>Showing {filteredPlans.length} of {plans.length} Plans</span>
-          </div>
-        </div>
-
-        {/* Loading or Plan Cards Grouped by Project */}
-        {loadingVault || openingPlan ? (
-          <div className="py-20 flex flex-col items-center justify-center gap-3 text-zinc-400">
-            <RefreshCw className="w-7 h-7 text-blue-400 animate-spin" />
-            <div className="text-sm font-semibold text-zinc-200">
-              {openingPlan ? 'Opening Cleaned Plan View...' : 'Loading Cloud Plan Vault...'}
+          {/* Loading or Plan Cards Grid */}
+          {loadingVault || openingPlan ? (
+            <div className="py-20 flex flex-col items-center justify-center gap-3 text-zinc-400">
+              <RefreshCw className="w-7 h-7 text-blue-400 animate-spin" />
+              <div className="text-sm font-semibold text-zinc-200">
+                {openingPlan ? 'Opening Cleaned Plan View...' : 'Loading Cloud Plan Vault...'}
+              </div>
             </div>
-          </div>
-        ) : filteredPlans.length === 0 ? (
-          <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-8 text-center space-y-4">
-            <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto">
-              <Upload className="w-6 h-6 text-blue-400" />
+          ) : filteredPlans.length === 0 ? (
+            <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-8 text-center space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto">
+                <Upload className="w-6 h-6 text-blue-400" />
+              </div>
+              <div className="space-y-1 max-w-md mx-auto">
+                <h3 className="text-sm font-medium text-white">
+                  {plans.length === 0 ? 'Your Cloud Plan Vault is Empty' : 'No Matching Plans Found'}
+                </h3>
+                <p className="text-xs text-zinc-400">
+                  {plans.length === 0
+                    ? 'Upload a DWG/DXF plan to view, isolate sheet views, and measure distances.'
+                    : 'Try changing your search query or discipline filter.'}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  if (selectedProject !== 'ALL') setUploadProject(selectedProject);
+                  setShowUploadModal(true);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium inline-flex items-center gap-2 shadow-lg"
+              >
+                <Plus className="w-4 h-4" />
+                Upload plan
+              </button>
             </div>
-            <div className="space-y-1 max-w-md mx-auto">
-              <h3 className="text-sm font-medium text-white">
-                {plans.length === 0 ? 'Your Cloud Plan Vault is Empty' : 'No Matching Plans Found'}
-              </h3>
-              <p className="text-xs text-zinc-400">
-                {plans.length === 0
-                  ? 'Upload a DWG/DXF plan and its associated PDF. PlanVault organizes plans by project & discipline and cleans multi-sheet DWGs.'
-                  : 'Try switching the project or plan discipline filter above, or upload a new plan.'}
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                if (selectedProject !== 'ALL') setUploadProject(selectedProject);
-                setShowUploadModal(true);
-              }}
-              className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium inline-flex items-center gap-2 shadow-lg"
-            >
-              <Plus className="w-4 h-4" />
-              Upload plan
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {projectGroupKeys.map((projName) => {
-              const projPlans = groupedByProject[projName];
-              return (
-                <section key={projName} className="space-y-3">
-                  {/* Project Group Header */}
-                  <div className="flex items-center justify-between border-b border-zinc-800/80 pb-2 px-1">
-                    <div className="flex items-center gap-2">
-                      <FolderKanban className="w-4 h-4 text-blue-400" />
-                      <h2 className="text-sm font-semibold text-white tracking-tight">
-                        {projName}
-                      </h2>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-zinc-800 text-zinc-300">
-                        {projPlans.length} {projPlans.length === 1 ? 'plan' : 'plans'}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setUploadProject(projName);
-                        setShowUploadModal(true);
-                      }}
-                      className="text-[11px] font-medium text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add Plan to {projName}</span>
-                    </button>
-                  </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              {filteredPlans.map((plan) => {
+                const s = plan.summary || {};
+                const totalSheets = s.total_sheets_in_dwg || (plan.sheets?.length ?? 0);
+                const discObj =
+                  DISCIPLINES.find((d) => d.id === (plan.discipline || 'architectural')) ||
+                  DISCIPLINES[0];
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                    {projPlans.map((plan) => {
-                      const s = plan.summary || {};
-                      const totalSheets = s.total_sheets_in_dwg || (plan.sheets?.length ?? 0);
-                      const discObj =
-                        DISCIPLINES.find((d) => d.id === (plan.discipline || 'architectural')) ||
-                        DISCIPLINES[0];
-
-                      return (
-                        <div
-                          key={plan.id}
-                          className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-4 flex flex-col justify-between gap-3.5 transition shadow-sm"
-                        >
-                          <div className="space-y-2">
-                            {/* Top Row: Title + Share + Delete */}
-                            <div className="flex items-start justify-between gap-2">
-                              <button
-                                onClick={() => openPlanById(plan.id, 'dwg', false)}
-                                className="text-left group min-w-0"
-                              >
-                                <h3 className="text-sm font-medium text-white group-hover:text-blue-400 transition truncate">
-                                  {plan.name}
-                                </h3>
-                                <p className="text-[11px] text-zinc-300 flex items-center gap-1 mt-0.5 truncate">
-                                  <Layers className="w-3 h-3 shrink-0" />
-                                  <span className="truncate">
-                                    {plan.match_reason || 'Cleaned Single-Sheet Plan View'}
-                                  </span>
-                                </p>
-                              </button>
-
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button
-                                  onClick={() => handleSharePlan(plan)}
-                                  className="p-2.5 rounded-xl bg-zinc-800 hover:bg-blue-600 text-zinc-200 hover:text-white transition"
-                                  title="Share Plan Link"
-                                >
-                                  <Share2 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => setConfirmDeletePlan(plan)}
-                                  className="p-2.5 rounded-xl bg-zinc-800 hover:bg-rose-600 text-zinc-400 hover:text-white transition"
-                                  title="Delete Plan"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* Discipline Selector Badge + Paired Files Badges */}
-                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                              <select
-                                value={plan.discipline || 'architectural'}
-                                onChange={(e) =>
-                                  handleQuickUpdateMeta(plan.id, { discipline: e.target.value })
-                                }
-                                title="Change Plan Discipline Type"
-                                className={`px-2 py-0.5 rounded-md border text-[11px] font-medium cursor-pointer focus:outline-none ${discObj.badgeClass}`}
-                              >
-                                {DISCIPLINES.map((d) => (
-                                  <option
-                                    key={d.id}
-                                    value={d.id}
-                                    className="bg-zinc-900 text-zinc-100"
-                                  >
-                                    {d.label}
-                                  </option>
-                                ))}
-                              </select>
-
-                              {plan.has_dwg ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-zinc-300 text-[11px] font-mono">
-                                  <FileCode2 className="w-3 h-3" />
-                                  <span className="truncate max-w-[140px]">
-                                    {plan.dwg_filename}
-                                  </span>
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-400 text-[11px]">
-                                  No DWG attached
-                                </span>
-                              )}
-
-                              {plan.has_pdf ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-zinc-300 text-[11px] font-mono">
-                                  <FileText className="w-3 h-3" />
-                                  <span className="truncate max-w-[140px]">
-                                    {plan.pdf_filename}
-                                  </span>
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => {
-                                    setAttachingPdfPlanId(plan.id);
-                                    cardPdfInputRef.current?.click();
-                                  }}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-zinc-500/20 hover:bg-zinc-500/30 border border-zinc-500/40 text-zinc-300 text-[11px] font-semibold transition"
-                                >
-                                  <Upload className="w-3 h-3" />
-                                  + Upload PDF
-                                </button>
-                              )}
-                            </div>
-
-                            {/* Cleanup Metrics Row */}
-                            {plan.has_dwg && (
-                              <div className="text-[11px] text-zinc-400 flex flex-wrap items-center gap-x-3 gap-y-1 bg-zinc-950/70 rounded-xl px-3 py-1.5 border border-zinc-800/80">
-                                {totalSheets > 1 && (
-                                  <span className="text-zinc-300 font-semibold">
-                                    Isolated 1 of {totalSheets} plans
-                                  </span>
-                                )}
-                                <span>
-                                  Cleaned:{' '}
-                                  <strong className="text-zinc-200">
-                                    {s.cleaned_primitives?.toLocaleString() || 0}
-                                  </strong>
-                                  {s.original_primitives > s.cleaned_primitives
-                                    ? ` / ${s.original_primitives.toLocaleString()} entities`
-                                    : ' entities'}
-                                </span>
-                                <span>Layers: {s.layers_count || 0}</span>
-                                <span>Unit: {plan.unit_name}</span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Bottom Card Action Buttons: Open DWG | Measure | Open PDF */}
-                          <div className="grid grid-cols-3 gap-2 pt-1">
-                            <button
-                              onClick={() => openPlanById(plan.id, 'dwg', false)}
-                              className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition"
-                            >
-                              <FileCode2 className="w-3.5 h-3.5" />
-                              <span>Open DWG</span>
-                            </button>
-
-                            <button
-                              onClick={() => openPlanById(plan.id, 'dwg', true)}
-                              className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-zinc-300 text-xs font-medium transition"
-                            >
-                              <Ruler className="w-3.5 h-3.5" />
-                              <span>Measure</span>
-                            </button>
-
-                            <button
-                              onClick={() => openPlanById(plan.id, 'pdf', false)}
-                              className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition"
-                            >
-                              <FileText className="w-3.5 h-3.5 text-zinc-400" />
-                              <span>{plan.has_pdf ? 'Open PDF' : 'Add PDF'}</span>
-                            </button>
-                          </div>
+                return (
+                  <div
+                    key={plan.id}
+                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between gap-3 transition shadow-xs overflow-hidden"
+                  >
+                    <div className="space-y-2">
+                      {/* Row 1: Discipline Tag + Project (Left) & Actions (Right) */}
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={`px-2 py-0.5 rounded-md border text-[10px] font-medium shrink-0 ${discObj.badgeClass}`}
+                          >
+                            {discObj.label}
+                          </span>
+                          {selectedProject === 'ALL' && (
+                            <span className="text-[10px] font-mono text-zinc-400 flex items-center gap-1 truncate min-w-0">
+                              <FolderKanban className="w-2.5 h-2.5 opacity-60 shrink-0" />
+                              <span className="truncate max-w-[110px] sm:max-w-[150px]">
+                                {plan.project_name || 'Default Project'}
+                              </span>
+                            </span>
+                          )}
                         </div>
-                      );
-                    })}
+
+                        {/* Row 1 Right: Quiet Action Icons */}
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            onClick={() =>
+                              setMovePlanModal({
+                                plan,
+                                targetProject: plan.project_name || 'Default Project',
+                                customProject: '',
+                              })
+                            }
+                            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition"
+                            title="Move to another project"
+                          >
+                            <FolderInput className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setRenamePlanModal({ plan, newName: plan.name })}
+                            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition"
+                            title="Rename plan"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleSharePlan(plan)}
+                            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-blue-600 text-zinc-400 hover:text-white transition"
+                            title="Share Plan Link"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeletePlan(plan)}
+                            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-rose-600 text-zinc-400 hover:text-white transition"
+                            title="Delete Plan"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Row 2: Full-width Plan Title (no overflow) */}
+                      <button
+                        onClick={() => openPlanById(plan.id, false)}
+                        className="text-left group block w-full min-w-0"
+                        title={`Open ${plan.name}`}
+                      >
+                        <h3 className="text-sm font-medium text-white group-hover:text-blue-400 transition line-clamp-2 break-words">
+                          {plan.name}
+                        </h3>
+                      </button>
+
+                      {/* Row 3: Metadata row (without redundant storage/filename path) */}
+                      <div className="text-[11px] text-zinc-400 bg-zinc-950/70 rounded-xl px-3 py-2 border border-zinc-800/80 font-mono space-y-1">
+                        {totalSheets > 1 && (
+                          <div className="text-zinc-300 flex items-center gap-1.5 min-w-0">
+                            <span className="text-blue-400 shrink-0">Sheet:</span>
+                            <span className="truncate">{plan.active_sheet_name || '1'}</span>
+                            <span className="text-zinc-400 shrink-0 tabular-nums">({totalSheets})</span>
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2 text-zinc-400 flex-wrap tabular-nums">
+                          <span>
+                            {s.cleaned_primitives ? s.cleaned_primitives.toLocaleString() : 0} entities
+                          </span>
+                          <span>·</span>
+                          <span>{s.layers_count || 0} layers</span>
+                          <span>·</span>
+                          <span>{plan.unit_name || 'm'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Row 4: Action Buttons (Open DWG & Measure) */}
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button
+                        onClick={() => openPlanById(plan.id, false)}
+                        className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition"
+                      >
+                        <FileCode2 className="w-3.5 h-3.5" />
+                        <span>Open DWG</span>
+                      </button>
+                      <button
+                        onClick={() => openPlanById(plan.id, true)}
+                        className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 text-blue-300 text-xs font-medium transition"
+                      >
+                        <Ruler className="w-3.5 h-3.5" />
+                        <span>Measure</span>
+                      </button>
+                    </div>
                   </div>
-                </section>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          )}
+        </div>
       </main>
       )}
 
-      {/* Mobile Sticky Bottom Upload Bar */}
-      {authSession && (
-        <div className="sm:hidden fixed bottom-0 inset-x-0 p-3 bg-zinc-900/95 backdrop-blur-md border-t border-zinc-800 z-30">
-          <button
-            onClick={() => {
-              if (selectedProject !== 'ALL') setUploadProject(selectedProject);
-              setShowUploadModal(true);
-            }}
-            className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center justify-center gap-2 shadow-lg"
+      {/* Project & Plan Management Modals */}
+      {renameProjectModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setRenameProjectModal(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
           >
-            <Plus className="w-4 h-4" />
-            <span>Upload Plan (.DWG + Associated .PDF)</span>
-          </button>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-white flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-blue-400" />
+                Rename Project
+              </h3>
+              <button
+                onClick={() => setRenameProjectModal(null)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleRenameProject(renameProjectModal.oldName, renameProjectModal.newName);
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                  Project Name
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={renameProjectModal.newName}
+                  onChange={(e) =>
+                    setRenameProjectModal({
+                      ...renameProjectModal,
+                      newName: e.target.value,
+                    })
+                  }
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRenameProjectModal(null)}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-300 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!renameProjectModal.newName.trim()}
+                  className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-medium text-white transition"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {deleteProjectModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setDeleteProjectModal(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-4 h-4 text-rose-400" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-medium text-white">Delete Project?</h3>
+                  <p className="text-[11px] text-zinc-400">{deleteProjectModal.name}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setDeleteProjectModal(null)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-zinc-300 leading-relaxed">
+              Are you sure you want to delete project{' '}
+              <strong className="text-white">{deleteProjectModal.name}</strong>? This will
+              permanently delete all <strong className="text-white">{deleteProjectModal.count} plan(s)</strong> and
+              associated CAD drawings inside it from the cloud vault.
+            </p>
+            <div className="text-[11px] text-zinc-400 bg-zinc-950/80 border border-zinc-800 rounded-xl p-2.5">
+              Tip: If you want to keep any drawings, move them to another project before deleting.
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setDeleteProjectModal(null)}
+                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteProject(deleteProjectModal.name)}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-medium text-white flex items-center gap-1.5 transition"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Project & Plans</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {movePlanModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setMovePlanModal(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-white flex items-center gap-2">
+                <FolderInput className="w-4 h-4 text-blue-400" />
+                Move Plan to Project
+              </h3>
+              <button
+                onClick={() => setMovePlanModal(null)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-zinc-300">
+              Moving <strong className="text-white">{movePlanModal.plan.name}</strong> from{' '}
+              <span className="font-mono text-zinc-400">
+                {movePlanModal.plan.project_name || 'Default Project'}
+              </span>
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const target =
+                  movePlanModal.targetProject === '__NEW__'
+                    ? movePlanModal.customProject
+                    : movePlanModal.targetProject;
+                handleMovePlan(movePlanModal.plan.id, target);
+              }}
+              className="space-y-3.5"
+            >
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                  Destination Project
+                </label>
+                <select
+                  value={movePlanModal.targetProject}
+                  onChange={(e) =>
+                    setMovePlanModal({
+                      ...movePlanModal,
+                      targetProject: e.target.value,
+                    })
+                  }
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                >
+                  {distinctProjects.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                  <option value="__NEW__">+ Create new project...</option>
+                </select>
+              </div>
+              {movePlanModal.targetProject === '__NEW__' && (
+                <div>
+                  <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                    New Project Name
+                  </label>
+                  <input
+                    type="text"
+                    autoFocus
+                    placeholder="e.g. Tower 2"
+                    value={movePlanModal.customProject}
+                    onChange={(e) =>
+                      setMovePlanModal({
+                        ...movePlanModal,
+                        customProject: e.target.value,
+                      })
+                    }
+                    className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              )}
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setMovePlanModal(null)}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-300 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    movePlanModal.targetProject === '__NEW__' &&
+                    !movePlanModal.customProject.trim()
+                  }
+                  className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-medium text-white transition"
+                >
+                  Move Plan
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {renamePlanModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setRenamePlanModal(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-white flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-blue-400" />
+                Rename Plan
+              </h3>
+              <button
+                onClick={() => setRenamePlanModal(null)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleRenamePlan(renamePlanModal.plan.id, renamePlanModal.newName);
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                  Plan Display Name
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={renamePlanModal.newName}
+                  onChange={(e) =>
+                    setRenamePlanModal({
+                      ...renamePlanModal,
+                      newName: e.target.value,
+                    })
+                  }
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRenamePlanModal(null)}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-300 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!renamePlanModal.newName.trim()}
+                  className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-medium text-white transition"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {createProjectModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setCreateProjectModal(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-4 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-white flex items-center gap-2">
+                <FolderPlus className="w-4 h-4 text-blue-400" />
+                New Project
+              </h3>
+              <button
+                onClick={() => setCreateProjectModal(null)}
+                className="p-1 rounded-lg text-zinc-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleCreateProject(createProjectModal.name);
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                  Project Name
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="e.g. 1086 Mansa Tower B"
+                  value={createProjectModal.name}
+                  onChange={(e) => setCreateProjectModal({ name: e.target.value })}
+                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCreateProjectModal(null)}
+                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-300 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!createProjectModal.name.trim()}
+                  className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-medium text-white transition"
+                >
+                  Create & Upload
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
 
@@ -1791,7 +2204,7 @@ export function App() {
             <p className="text-xs text-zinc-300 leading-relaxed">
               Are you sure you want to delete{' '}
               <strong className="text-white">{confirmDeletePlan.name}</strong>? This will
-              permanently remove its DWG and PDF files from Cloud Vault.
+              permanently remove its DWG drawing and parsed data from Cloud Vault.
             </p>
             <div className="flex items-center justify-end gap-2 pt-1">
               <button
@@ -1822,7 +2235,7 @@ export function App() {
               <div>
                 <h3 className="text-sm font-medium text-white flex items-center gap-2">
                   <Upload className="w-4 h-4 text-blue-400" />
-                  Upload Plan to Cloud Vault
+                  Upload CAD Drawing to Cloud Vault
                 </h3>
                 <p className="text-[11px] text-zinc-400 mt-0.5">
                   Organize by project & discipline; multi-sheet DWGs auto-clean to match your view.
@@ -1902,46 +2315,10 @@ export function App() {
                 )}
               </div>
 
-              {/* 2. Associated PDF Input */}
-              <div>
-                <label className="block text-xs font-medium text-zinc-200 mb-1.5">
-                  2. Associated PDF Plan (.PDF — or upload later)
-                </label>
-                <label className="flex items-center justify-between gap-2 p-3 rounded-xl bg-zinc-950 border border-dashed border-zinc-700 hover:border-zinc-500 cursor-pointer transition">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <FileText className="w-5 h-5 text-zinc-400 shrink-0" />
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-white truncate">
-                        {uploadPdfFile
-                          ? uploadPdfFile.name
-                          : 'Choose associated .PDF file (optional)'}
-                      </div>
-                      <div className="text-[10px] text-zinc-400">
-                        Used to match & isolate the exact sheet in the DWG
-                      </div>
-                    </div>
-                  </div>
-                  <span className="px-2.5 py-1 rounded-lg bg-zinc-800 text-[11px] font-medium text-zinc-200 shrink-0">
-                    Browse
-                  </span>
-                  <input
-                    type="file"
-                    accept=".pdf"
-                    disabled={uploading}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0] || null;
-                      setUploadPdfFile(f);
-                      handleFilePicked(uploadDwgFile, f);
-                    }}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-
-              {/* 3. Project Name */}
+              {/* 2. Project Name */}
               <div>
                 <label className="block text-xs font-medium text-zinc-200 mb-1">
-                  3. Project Name (Select existing or type new)
+                  2. Project Name (Select existing or type new)
                 </label>
                 <input
                   type="text"
@@ -1959,11 +2336,11 @@ export function App() {
                 </datalist>
               </div>
 
-              {/* 4. Plan Discipline Type */}
+              {/* 3. Plan Discipline Type */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="block text-xs font-medium text-zinc-200">
-                    4. Plan Type / Discipline
+                    3. Plan Type / Discipline
                   </label>
                   {disciplineAutoDetected && (
                     <span className="text-[10px] font-semibold text-zinc-300">
@@ -1996,10 +2373,10 @@ export function App() {
                 </div>
               </div>
 
-              {/* 5. Optional Plan Title */}
+              {/* 4. Optional Plan Title */}
               <div>
                 <label className="block text-xs font-medium text-zinc-200 mb-1">
-                  5. Plan Title (Optional — auto-detected from sheet title)
+                  4. Plan Title (Optional — auto-detected from sheet title)
                 </label>
                 <input
                   type="text"
