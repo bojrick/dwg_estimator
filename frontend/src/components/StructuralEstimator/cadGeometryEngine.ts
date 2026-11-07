@@ -68,7 +68,8 @@ export function detectBeamSpanFromLayout(
   tagCoords: [number, number],
   lines: any[] = [],
   polylines: any[] = [],
-  scaleToM: number = 0.001
+  scaleToM: number = 0.001,
+  cadTexts: any[] = []
 ): MemberDetectedGeometry | null {
   const segments = extractAllSegments(lines, polylines);
   if (segments.length === 0) return null;
@@ -76,14 +77,14 @@ export function detectBeamSpanFromLayout(
   const [tx, ty] = tagCoords;
   const searchRadiusUnits = 8.0 / (scaleToM > 0 ? scaleToM : 1.0); // Search up to ~8m equivalent
 
-  // 1. Find segments passing close to tag
+  // 1. Find segments passing close to tag to determine dominant beam axis
   const nearby = segments.filter((s) => {
     return distSqToSegment([tx, ty], s.start, s.end) < (searchRadiusUnits * 0.25) ** 2;
   });
 
   if (nearby.length === 0) return null;
 
-  // 2. Determine dominant axis (horizontal vs vertical vs angled)
+  // 2. Determine dominant axis (horizontal vs vertical)
   let horizWeight = 0;
   let vertWeight = 0;
 
@@ -99,13 +100,98 @@ export function detectBeamSpanFromLayout(
 
   const isHoriz = horizWeight >= vertWeight;
 
-  // 3. Search along dominant axis for transverse support lines (columns or cross beams)
+  // 3. Extract candidate supporting columns: closed polylines (150-1500mm) or column text marks
+  interface CandidateColumn {
+    mark?: string;
+    center: [number, number];
+    minX: number;
+    maxX: number;
+    minY: number;
+    maxY: number;
+  }
+  const candidateColumns: CandidateColumn[] = [];
+
+  for (const pl of polylines) {
+    if (!pl.closed || !pl.points || pl.points.length < 4 || pl.points.length > 8) continue;
+    const xs = pl.points.map((p: any) => p[0]);
+    const ys = pl.points.map((p: any) => p[1]);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    const wMm = Math.round((maxX - minX) * scaleToM * 1000);
+    const dMm = Math.round((maxY - minY) * scaleToM * 1000);
+
+    if (wMm >= 150 && wMm <= 1500 && dMm >= 150 && dMm <= 1500) {
+      candidateColumns.push({
+        center: [(minX + maxX) / 2, (minY + maxY) / 2],
+        minX,
+        maxX,
+        minY,
+        maxY,
+      });
+    }
+  }
+
+  // Also include column markers from CAD texts (e.g. C1, C2)
+  for (const t of cadTexts) {
+    if (!t || !t.text) continue;
+    const str = String(t.text).trim();
+    if (/^(?:[1-9]?[SRC]?C|COL)-?\d{1,4}[A-Z]?$/i.test(str) && typeof t.x === 'number' && typeof t.y === 'number') {
+      const halfW = 0.2 / (scaleToM > 0 ? scaleToM : 1.0);
+      candidateColumns.push({
+        mark: str.toUpperCase(),
+        center: [t.x, t.y],
+        minX: t.x - halfW,
+        maxX: t.x + halfW,
+        minY: t.y - halfW,
+        maxY: t.y + halfW,
+      });
+    }
+  }
+
+  const corridorTol = 0.6 / (scaleToM > 0 ? scaleToM : 1.0); // 600mm corridor tolerance
+
   if (isHoriz) {
-    // Horizontal beam: span runs in X, support lines run transverse (in Y)
-    // Find transverse lines crossing near beam Y level
+    // Horizontal beam: runs in X, corridor bound by beam ty ± corridorTol
+    const corridorCols = candidateColumns.filter(
+      (c) => Math.abs(c.center[1] - ty) <= corridorTol || (ty >= c.minY && ty <= c.maxY)
+    );
+
+    // Immediate adjacent columns only: closest left and closest right
+    let closestLeft: CandidateColumn | null = null;
+    let closestRight: CandidateColumn | null = null;
+
+    for (const c of corridorCols) {
+      if (c.center[0] < tx && (!closestLeft || c.center[0] > closestLeft.center[0])) {
+        closestLeft = c;
+      } else if (c.center[0] > tx && (!closestRight || c.center[0] < closestRight.center[0])) {
+        closestRight = c;
+      }
+    }
+
+    if (closestLeft && closestRight) {
+      const c1 = closestLeft.center[0];
+      const c2 = closestRight.center[0];
+      const spanMm = Math.round(Math.abs(c2 - c1) * scaleToM * 1000);
+      if (spanMm >= 800 && spanMm <= 25000) {
+        const c1Name = closestLeft.mark || 'Col 1';
+        const c2Name = closestRight.mark || 'Col 2';
+        return {
+          type: 'line',
+          start: [c1, ty],
+          end: [c2, ty],
+          lengthMm: spanMm,
+          sourceConfidence: 'high',
+          notes: `Span between adjacent column centerlines (${c1Name} to ${c2Name}): ${spanMm} mm`,
+        };
+      }
+    }
+
+    // Fallback: search transverse support lines
     let minX = tx - searchRadiusUnits;
     let maxX = tx + searchRadiusUnits;
-
     let closestLeftX = minX;
     let closestRightX = maxX;
 
@@ -113,38 +199,66 @@ export function detectBeamSpanFromLayout(
       const dx = Math.abs(s.end[0] - s.start[0]);
       const dy = Math.abs(s.end[1] - s.start[1]);
       if (dy > dx * 1.5 && dy > 0.1) {
-        // Transverse line in Y
         const minY = Math.min(s.start[1], s.end[1]);
         const maxY = Math.max(s.start[1], s.end[1]);
         if (ty >= minY - 0.5 && ty <= maxY + 0.5) {
           const xPos = (s.start[0] + s.end[0]) / 2;
-          if (xPos < tx && xPos > closestLeftX) {
-            closestLeftX = xPos;
-          } else if (xPos > tx && xPos < closestRightX) {
-            closestRightX = xPos;
-          }
+          if (xPos < tx && xPos > closestLeftX) closestLeftX = xPos;
+          else if (xPos > tx && xPos < closestRightX) closestRightX = xPos;
         }
       }
     }
 
     const spanUnits = closestRightX - closestLeftX;
     const spanMm = Math.round(spanUnits * scaleToM * 1000);
-
     if (spanMm >= 800 && spanMm <= 20000) {
       return {
         type: 'line',
         start: [closestLeftX, ty],
         end: [closestRightX, ty],
         lengthMm: spanMm,
-        sourceConfidence: 'high',
-        notes: `Clear span detected between transverse supports (${spanMm} mm)`,
+        sourceConfidence: 'approximate',
+        notes: `Span between transverse supports (${spanMm} mm)`,
       };
     }
   } else {
-    // Vertical beam: span runs in Y, support lines run transverse (in X)
+    // Vertical beam: runs in Y, corridor bound by beam tx ± corridorTol
+    const corridorCols = candidateColumns.filter(
+      (c) => Math.abs(c.center[0] - tx) <= corridorTol || (tx >= c.minX && tx <= c.maxX)
+    );
+
+    let closestBottom: CandidateColumn | null = null;
+    let closestTop: CandidateColumn | null = null;
+
+    for (const c of corridorCols) {
+      if (c.center[1] < ty && (!closestBottom || c.center[1] > closestBottom.center[1])) {
+        closestBottom = c;
+      } else if (c.center[1] > ty && (!closestTop || c.center[1] < closestTop.center[1])) {
+        closestTop = c;
+      }
+    }
+
+    if (closestBottom && closestTop) {
+      const c1 = closestBottom.center[1];
+      const c2 = closestTop.center[1];
+      const spanMm = Math.round(Math.abs(c2 - c1) * scaleToM * 1000);
+      if (spanMm >= 800 && spanMm <= 25000) {
+        const c1Name = closestBottom.mark || 'Col 1';
+        const c2Name = closestTop.mark || 'Col 2';
+        return {
+          type: 'line',
+          start: [tx, c1],
+          end: [tx, c2],
+          lengthMm: spanMm,
+          sourceConfidence: 'high',
+          notes: `Span between adjacent column centerlines (${c1Name} to ${c2Name}): ${spanMm} mm`,
+        };
+      }
+    }
+
+    // Fallback: search transverse support lines
     let minY = ty - searchRadiusUnits;
     let maxY = ty + searchRadiusUnits;
-
     let closestBottomY = minY;
     let closestTopY = maxY;
 
@@ -152,31 +266,26 @@ export function detectBeamSpanFromLayout(
       const dx = Math.abs(s.end[0] - s.start[0]);
       const dy = Math.abs(s.end[1] - s.start[1]);
       if (dx > dy * 1.5 && dx > 0.1) {
-        // Transverse line in X
         const minX = Math.min(s.start[0], s.end[0]);
         const maxX = Math.max(s.start[0], s.end[0]);
         if (tx >= minX - 0.5 && tx <= maxX + 0.5) {
           const yPos = (s.start[1] + s.end[1]) / 2;
-          if (yPos < ty && yPos > closestBottomY) {
-            closestBottomY = yPos;
-          } else if (yPos > ty && yPos < closestTopY) {
-            closestTopY = yPos;
-          }
+          if (yPos < ty && yPos > closestBottomY) closestBottomY = yPos;
+          else if (yPos > ty && yPos < closestTopY) closestTopY = yPos;
         }
       }
     }
 
     const spanUnits = closestTopY - closestBottomY;
     const spanMm = Math.round(spanUnits * scaleToM * 1000);
-
     if (spanMm >= 800 && spanMm <= 20000) {
       return {
         type: 'line',
         start: [tx, closestBottomY],
         end: [tx, closestTopY],
         lengthMm: spanMm,
-        sourceConfidence: 'high',
-        notes: `Clear span detected between transverse supports (${spanMm} mm)`,
+        sourceConfidence: 'approximate',
+        notes: `Span between transverse supports (${spanMm} mm)`,
       };
     }
   }
@@ -338,13 +447,14 @@ export function detectMemberGeometry(
   tagCoords: [number, number],
   lines: any[] = [],
   polylines: any[] = [],
-  scaleToM: number = 0.001
+  scaleToM: number = 0.001,
+  cadTexts: any[] = []
 ): MemberDetectedGeometry | null {
   if (!tagCoords || !tagCoords[0] || !tagCoords[1]) return null;
 
   switch (scope) {
     case 'beam':
-      return detectBeamSpanFromLayout(tagCoords, lines, polylines, scaleToM);
+      return detectBeamSpanFromLayout(tagCoords, lines, polylines, scaleToM, cadTexts);
     case 'column':
       return detectColumnBoundaryFromLayout(tagCoords, polylines, lines, scaleToM);
     case 'slab':
@@ -354,4 +464,128 @@ export function detectMemberGeometry(
     default:
       return null;
   }
+}
+
+/**
+ * Extracts beam cross-section reinforcement and dimensions from detail CAD geometry within a bounding box.
+ */
+export function extractBeamCrossSectionFromBBox(
+  texts: any[] = [],
+  lines: any[] = [],
+  polylines: any[] = [],
+  bbox: { min_x: number; min_y: number; max_x: number; max_y: number },
+  scaleToM: number = 0.001
+): import('./types').BeamCrossSectionInspection {
+  const result: import('./types').BeamCrossSectionInspection = {};
+
+  // Filter texts inside bbox
+  const insideTexts = texts.filter(
+    (t) =>
+      typeof t.x === 'number' &&
+      typeof t.y === 'number' &&
+      t.x >= bbox.min_x &&
+      t.x <= bbox.max_x &&
+      t.y >= bbox.min_y &&
+      t.y <= bbox.max_y
+  );
+
+  const allStrings = insideTexts.map((t) => String(t.text).trim()).filter(Boolean);
+  result.sourceText = allStrings.join(' | ');
+
+  // 1. Detect Mark (e.g. B1, SEC B1, BEAM 101)
+  for (const str of allStrings) {
+    const markMatch = str.match(/\b(?:SEC(?:TION)?\s*)?([1-9]?[PFTBGRCS]?B-?\d{1,4}[A-Z]?)\b/i);
+    if (markMatch) {
+      result.mark = markMatch[1].toUpperCase();
+      break;
+    }
+  }
+
+  // 2. Detect Cross-Section Dimensions (e.g. 230x450, 300 x 600)
+  for (const str of allStrings) {
+    const dimMatch = str.match(/(\d{2,4})\s*[*xX/×]\s*(\d{2,4})/);
+    if (dimMatch) {
+      let w = parseInt(dimMatch[1], 10);
+      let d = parseInt(dimMatch[2], 10);
+      if (w <= 36 && d <= 48) {
+        w = Math.round(w * 25.4);
+        d = Math.round(d * 25.4);
+      }
+      if (w >= 100 && w <= 2000 && d >= 100 && d <= 3000) {
+        result.widthMm = w;
+        result.depthMm = d;
+        break;
+      }
+    }
+  }
+
+  // If dimensions not in text, inspect outer closed polyline in bbox
+  if (!result.widthMm || !result.depthMm) {
+    for (const pl of polylines) {
+      if (!pl.closed || !pl.points || pl.points.length < 4) continue;
+      const xs = pl.points.map((p: any) => p[0]);
+      const ys = pl.points.map((p: any) => p[1]);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+
+      if (minX >= bbox.min_x && maxX <= bbox.max_x && minY >= bbox.min_y && maxY <= bbox.max_y) {
+        const w = Math.round((maxX - minX) * scaleToM * 1000);
+        const d = Math.round((maxY - minY) * scaleToM * 1000);
+        if (w >= 150 && w <= 2000 && d >= 150 && d <= 3000) {
+          result.widthMm = w;
+          result.depthMm = d;
+          break;
+        }
+      }
+    }
+  }
+
+  // 3. Scan rebar callouts: top, bottom, stirrup
+  // Regexes:
+  const COUNT_DIA_REGEX = /(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm|[\u03A6\u03C6\u2300\u00D8])?\s*(\d{1,2})\s*(?:[tTyY#]|dia|mm|[\u03A6\u03C6\u2300\u00D8])?/i;
+  const STIRRUP_REGEX = /(?:(\d+)\s*L(?:EG)?-?)?\s*(?:[tTyY#]|dia|mm|[\u03A6\u03C6\u2300\u00D8])?\s*(\d{1,2})\s*(?:[tTyY#]|dia|mm)?\s*(?:@|at)\s*(\d{2,4})\s*(?:c\/c|cc|c-c|mm)?/i;
+
+  const midY = (bbox.min_y + bbox.max_y) / 2;
+
+  for (const t of insideTexts) {
+    const s = String(t.text).trim();
+
+    // Check stirrup first
+    const stMatch = s.match(STIRRUP_REGEX);
+    if (stMatch && !result.stirrups) {
+      const legs = stMatch[1] ? parseInt(stMatch[1], 10) : 2;
+      const dia = parseInt(stMatch[2], 10);
+      const sp = parseInt(stMatch[3], 10);
+      if (dia >= 6 && dia <= 32 && sp >= 50 && sp <= 500) {
+        result.stirrups = {
+          diameter: dia,
+          spacingMm: sp,
+          legs,
+          notes: s,
+        };
+        continue;
+      }
+    }
+
+    // Check bar count & diameter
+    const barMatch = s.match(COUNT_DIA_REGEX);
+    if (barMatch) {
+      const cnt = parseInt(barMatch[1], 10);
+      const dia = parseInt(barMatch[2], 10);
+      if (cnt >= 1 && cnt <= 30 && dia >= 8 && dia <= 40) {
+        const isTop = /top|hanger|anchor/i.test(s) || t.y > midY;
+        const isBtm = /btm|bottom|main/i.test(s) || t.y <= midY;
+
+        if (isTop && !result.topBars) {
+          result.topBars = { count: cnt, diameter: dia, notes: s };
+        } else if (isBtm && !result.bottomBars) {
+          result.bottomBars = { count: cnt, diameter: dia, notes: s };
+        }
+      }
+    }
+  }
+
+  return result;
 }

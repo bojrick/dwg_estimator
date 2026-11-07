@@ -251,8 +251,19 @@ def _detect_drawing_sheets(
         "LINEOUT PLAN",
         "KHUNT PLAN",
         "LAYOUT PLAN",
+        "FRAMING PLAN",
+        "STRUCTURAL",
+        "BEAM",
+        "COLUMN",
+        "FOOTING",
+        "FOUNDATION",
+        "PLINTH",
+        "SLAB",
+        "SCHEDULE",
+        "REINFORCEMENT",
         "ELEVATION",
         "SECTION",
+        "DETAIL",
     ]
 
     sheets: List[Dict[str, Any]] = []
@@ -267,28 +278,44 @@ def _detect_drawing_sheets(
         main_title_prio = 99
         block_label = None
         room_keywords_found = 0
+        structural_keywords_found = 0
+        title_block_candidates: List[str] = []
+
+        w_frame = max(1.0, x2 - x1)
+        h_frame = max(1.0, y2 - y1)
 
         for t in in_texts:
-            tu = t["text"].upper()
+            tu = t["text"].upper().strip()
             t_lyr_u = t["layer"].upper()
-            is_title_lyr = any(k in t_lyr_u for k in ["TITEL", "TITLE", "BORDER"])
+            is_title_lyr = any(k in t_lyr_u for k in ["TITEL", "TITLE", "BORDER", "SHEET", "HEADER"])
+            in_title_corner = (t["x"] >= x1 + 0.55 * w_frame) or (t["y"] <= y1 + 0.25 * h_frame)
+            if (is_title_lyr or in_title_corner) and 3 <= len(tu) <= 80:
+                if t["text"].strip() not in title_block_candidates and len(title_block_candidates) < 15:
+                    title_block_candidates.append(t["text"].strip())
+
             if any(k in tu for k in ["COMMENCEMENT", "CONSIDER", "DIMENSION", "AMBIGUITY", "ARCHITECT", "SLAB LVL", "FINISHED FLOOR"]):
                 continue
             if "BLOCK" in tu and len(tu) <= 28 and (is_title_lyr or block_label is None):
                 block_label = t["text"]
-            elif any(k in tu for k in title_keywords) and len(tu) <= 48:
-                prio = 1 if is_title_lyr else 2
+            elif any(k in tu for k in title_keywords) and len(tu) <= 64:
+                prio = 1 if is_title_lyr else (2 if in_title_corner else 3)
                 if main_title is None or prio < main_title_prio:
                     main_title = t["text"]
                     main_title_prio = prio
             if any(rk in tu for rk in ["BED ROOM", "KITCHEN", "TOILET", "LIVING", "DRG.ROOM", "DINING"]):
                 room_keywords_found += 1
+            if any(sk in tu for sk in ["STIRRUP", "REBAR", "C/C", "T12", "T16", "T20", "FE500", "M25"]):
+                structural_keywords_found += 1
 
         if not main_title:
             if room_keywords_found >= 2:
                 main_title = "ARCHITECTURAL FLOOR PLAN"
+            elif structural_keywords_found >= 2:
+                main_title = f"STRUCTURAL SHEET {idx + 1}"
             elif block_label:
                 main_title = f"DRAWING SHEET ({block_label})"
+            elif len(in_texts) >= 5:
+                main_title = title_block_candidates[0] if title_block_candidates else f"DRAWING SHEET {idx + 1}"
             else:
                 continue
 
@@ -296,10 +323,10 @@ def _detect_drawing_sheets(
         if any(k in tu_main for k in ["GROUND", "1ST", "2ND", "3RD", "4TH", "5TH", "TYPICAL", "TERRACE", "FLOOR PLAN", "WORKING PLAN"]):
             category = "floor_plan"
             sort_order = 1
-        elif any(k in tu_main for k in ["CENTERLINE", "LINEOUT", "KHUNT", "COLUMN", "FOOTING", "STRUCTURAL"]):
+        elif any(k in tu_main for k in ["CENTERLINE", "LINEOUT", "KHUNT", "COLUMN", "FOOTING", "FOUNDATION", "BEAM", "PLINTH", "SLAB", "FRAMING", "SCHEDULE", "STRUCTURAL"]):
             category = "structural_plan"
             sort_order = 2
-        elif "SECTION" in tu_main:
+        elif "SECTION" in tu_main or "DETAIL" in tu_main:
             category = "section"
             sort_order = 3
         elif "ELEVATION" in tu_main:
@@ -318,6 +345,7 @@ def _detect_drawing_sheets(
             "category": category,
             "sort_order": sort_order,
             "layer": lyr,
+            "title_block_texts": title_block_candidates[:12],
             "bbox": {
                 "min_x": round(x1, 3),
                 "min_y": round(y1, 3),

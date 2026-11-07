@@ -1,6 +1,7 @@
 import {
   BarShapeCode,
   BbsBarItem,
+  CivilAuditAnomaly,
   DiameterSummary,
   StructuralEstimateState,
   StructuralMemberDefinition,
@@ -18,7 +19,8 @@ export function getUnitWeightKgM(diameterMm: number): number {
 }
 
 /**
- * Calculates cutting length in meters for a given bar shape and dimensions (in mm).
+ * Calculates cutting length in meters for a given bar shape and dimensions (in mm)
+ * per IS 2502:1963 & IS 456:2000, including stock length lap splice allowance when > maxStockLengthM.
  */
 export function calculateCuttingLengthM(
   shape: BarShapeCode,
@@ -26,9 +28,17 @@ export function calculateCuttingLengthM(
   dimA: number,
   dimB: number = 0,
   dimC: number = 0,
-  dimD: number = 0
+  dimD: number = 0,
+  options?: {
+    maxStockLengthM?: number;
+    lapLengthMultiplier?: number;
+    hookAllowanceMultiplier?: number;
+  }
 ): number {
   const d = diameterMm || 10;
+  const hookMult = options?.hookAllowanceMultiplier ?? 20;
+  const lapMult = options?.lapLengthMultiplier ?? 50;
+  const maxStockMm = (options?.maxStockLengthM || 12.0) * 1000;
   let lenMm = 0;
 
   switch (shape) {
@@ -37,24 +47,23 @@ export function calculateCuttingLengthM(
       break;
 
     case 'l_bend':
-      // L-bar: A + B - 1x 90° bend deduction (2d)
+      // L-bar: A + B - 1x 90° bend deduction (2d per IS 2502)
       lenMm = Math.max(0, dimA + dimB - 2 * d);
       break;
 
     case 'u_hook':
-      // U-bar: A + B + C - 2x 90° bend deductions (4d)
+      // U-bar: A + B + C - 2x 90° bend deductions (4d per IS 2502)
       lenMm = Math.max(0, dimA + dimB + dimC - 4 * d);
       break;
 
     case 'crank':
-      // Cranked bar: A (straight) + B (cranked section inclined) + C (straight) + 0.42*D
-      // Where D is crank depth (dimD), minus 2x 45° bend deductions (2d)
+      // Cranked bar: A + B + C + 0.42*D - 2x 45° bend deductions (2d per IS 2502)
       lenMm = Math.max(0, dimA + dimB + dimC + 0.42 * dimD - 2 * d);
       break;
 
     case 'stirrup_rect':
-      // Rectangular stirrup: 2*(A + B) + 2x 135° hooks (24d) - 3x 90° bends (6d) = 2*(A+B) + 18d
-      lenMm = Math.max(0, 2 * (dimA + dimB) + 20 * d);
+      // Rectangular stirrup: 2*(A + B) + hook allowance (e.g. 24d for 135° seismic hooks - 6d bends = ~20d-24d)
+      lenMm = Math.max(0, 2 * (dimA + dimB) + hookMult * d);
       break;
 
     case 'chair':
@@ -66,6 +75,12 @@ export function calculateCuttingLengthM(
       lenMm = Math.max(0, dimA);
   }
 
+  // Commercial stock bar lap splice addition (IS 456: bars > maxStockMm require lap splices)
+  if (shape !== 'stirrup_rect' && shape !== 'chair' && maxStockMm >= 3000 && lenMm > maxStockMm) {
+    const numLaps = Math.floor((lenMm - 1) / maxStockMm);
+    lenMm += numLaps * lapMult * d;
+  }
+
   // Convert to meters and round to 3 decimal places
   return Math.round((lenMm / 1000) * 1000) / 1000;
 }
@@ -73,7 +88,14 @@ export function calculateCuttingLengthM(
 /**
  * Recalculates all dependent values on a BBS bar item.
  */
-export function recalculateBarItem(item: Partial<BbsBarItem>): BbsBarItem {
+export function recalculateBarItem(
+  item: Partial<BbsBarItem>,
+  options?: {
+    maxStockLengthM?: number;
+    lapLengthMultiplier?: number;
+    hookAllowanceMultiplier?: number;
+  }
+): BbsBarItem {
   const shape = item.shape || 'straight';
   const diameter = item.diameter || 12;
   const dimA = item.dimA || 0;
@@ -81,7 +103,7 @@ export function recalculateBarItem(item: Partial<BbsBarItem>): BbsBarItem {
   const dimC = item.dimC || 0;
   const dimD = item.dimD || 0;
 
-  const cuttingLengthM = calculateCuttingLengthM(shape, diameter, dimA, dimB, dimC, dimD);
+  const cuttingLengthM = calculateCuttingLengthM(shape, diameter, dimA, dimB, dimC, dimD, options);
   const numMembers = Math.max(1, item.numMembers || 1);
   const barsPerMember = Math.max(1, item.barsPerMember || 1);
   const totalBars = numMembers * barsPerMember;
@@ -194,84 +216,145 @@ export function calculateTakeoffTotals(
 
 /**
  * Transforms guided structural member definitions into exact BBS bar items.
- * Handles beams, columns, footings, slabs, multi-floor reductions, and attached plan callouts.
+ * Handles beams, columns, footings, slabs, multi-floor reductions, IS 13920 confinement zones,
+ * stock length lap splices, and attached plan callouts.
  */
 export function generateBbsFromMemberDefinitions(
-  members: StructuralMemberDefinition[]
+  members: StructuralMemberDefinition[],
+  parameters?: Partial<StructuralEstimateState['parameters']>
 ): BbsBarItem[] {
   const result: BbsBarItem[] = [];
+  const lapMult = parameters?.lapLengthMultiplier ?? 50;
+  const hookMult = parameters?.hookAllowanceMultiplier ?? 24;
+  const maxStockLengthM = parameters?.maxStockLengthM ?? 12.0;
+  const calcOpts = { maxStockLengthM, lapLengthMultiplier: lapMult, hookAllowanceMultiplier: hookMult };
 
   for (const m of members) {
     const numMembers = Math.max(1, m.countOnLayout || 1);
-    const cover = m.clearCoverMm || 25;
-    const span = Math.max(500, m.spanMm || 3000);
-    const width = Math.max(100, m.widthMm || 300);
+    const defaultCover =
+      parameters?.defaultCoverMm?.[m.category as keyof typeof parameters.defaultCoverMm] ??
+      (m.category === 'footing' ? 50 : m.category === 'column' ? 40 : m.category === 'beam' ? 25 : 20);
+    const cover = m.clearCoverMm || defaultCover;
+    const span = Math.max(500, m.spanMm || (m.category === 'column' ? parameters?.defaultFloorHeightMm || 3000 : 3000));
+    const width = Math.max(100, m.widthMm || 230);
     const depth = Math.max(100, m.depthMm || 450);
     const thickness = m.thicknessMm || 150;
     const floorLabel = m.floorLevel ? ` [${m.floorLevel}]` : '';
 
     // 1. Beams
     if (m.category === 'beam') {
-      const devLength = 50 * (m.mainBars?.diameter || 16);
+      const mainDia = m.mainBars?.diameter || 16;
+      const devLength = lapMult * mainDia;
 
       // Bottom Main Bars
       if (m.mainBars && m.mainBars.count > 0) {
         result.push(
-          recalculateBarItem({
-            memberId: m.mark,
-            memberType: 'beam',
-            floorLevel: m.floorLevel,
-            mark: `Bottom Main${floorLabel}`,
-            diameter: m.mainBars.diameter,
-            shape: m.mainBars.shape || 'l_bend',
-            dimA: span,
-            dimB: devLength,
-            numMembers,
-            barsPerMember: m.mainBars.count,
-            notes: `Span ${Math.round(span)}mm, b×D ${width}×${depth}mm`,
-          })
+          recalculateBarItem(
+            {
+              memberId: m.mark,
+              memberType: 'beam',
+              floorLevel: m.floorLevel,
+              mark: `Bottom Main${floorLabel}`,
+              diameter: mainDia,
+              shape: m.mainBars.shape || 'l_bend',
+              dimA: span,
+              dimB: devLength,
+              numMembers,
+              barsPerMember: m.mainBars.count,
+              notes: `Span ${Math.round(span)}mm, b×D ${width}×${depth}mm (Ld=${lapMult}d)`,
+            },
+            calcOpts
+          )
         );
       }
 
       // Top Continuous / Anchor Bars
       if (m.secondaryBars && m.secondaryBars.count > 0) {
+        const topDia = m.secondaryBars.diameter || 12;
         result.push(
-          recalculateBarItem({
-            memberId: m.mark,
-            memberType: 'beam',
-            floorLevel: m.floorLevel,
-            mark: `Top Continuous${floorLabel}`,
-            diameter: m.secondaryBars.diameter,
-            shape: m.secondaryBars.shape || 'l_bend',
-            dimA: span,
-            dimB: devLength,
-            numMembers,
-            barsPerMember: m.secondaryBars.count,
-            notes: 'Top anchor bars',
-          })
+          recalculateBarItem(
+            {
+              memberId: m.mark,
+              memberType: 'beam',
+              floorLevel: m.floorLevel,
+              mark: `Top Continuous${floorLabel}`,
+              diameter: topDia,
+              shape: m.secondaryBars.shape || 'l_bend',
+              dimA: span,
+              dimB: lapMult * topDia,
+              numMembers,
+              barsPerMember: m.secondaryBars.count,
+              notes: `Top continuous anchor bars`,
+            },
+            calcOpts
+          )
         );
       }
 
-      // Stirrups
+      // Top Support Extra (Curtailment Bars per IS 13920: 0.25L + Ld at each support)
+      if (m.topSupportExtraBars && m.topSupportExtraBars.count > 0) {
+        const extDia = m.topSupportExtraBars.diameter || 16;
+        const ratio = m.topSupportExtraBars.curtailmentRatio || 0.25;
+        const extLen = Math.round(span * ratio);
+        result.push(
+          recalculateBarItem(
+            {
+              memberId: m.mark,
+              memberType: 'beam',
+              floorLevel: m.floorLevel,
+              mark: `Top Support Extra (2 ends)${floorLabel}`,
+              diameter: extDia,
+              shape: 'l_bend',
+              dimA: extLen,
+              dimB: lapMult * extDia,
+              numMembers,
+              barsPerMember: m.topSupportExtraBars.count * 2,
+              notes: `Curtailed @ ${Math.round(ratio * 100)}% span (${extLen}mm + ${lapMult}d anchorage)`,
+            },
+            calcOpts
+          )
+        );
+      }
+
+      // Stirrups (Supports IS 13920 2-zone confinement + mid-span spacing)
       if (m.stirrups && m.stirrups.spacingMm > 0) {
         const stirrupA = Math.max(80, width - 2 * cover);
         const stirrupB = Math.max(80, depth - 2 * cover);
-        const stirrupCount = Math.max(3, Math.round(span / m.stirrups.spacingMm) + 1);
+        const effDepth = Math.max(150, depth - cover);
+        const suppSpacing =
+          m.stirrups.supportSpacingMm ||
+          m.supportStirrupSpacingMm ||
+          (parameters?.seismicDuctileDetailing ? Math.min(100, Math.round(effDepth / 4)) : 0);
+
+        let stirrupCount = Math.max(3, Math.round(span / m.stirrups.spacingMm) + 1);
+        let spacingNote = `@ ${m.stirrups.spacingMm}mm c/c`;
+
+        if (suppSpacing > 0 && suppSpacing < m.stirrups.spacingMm && span > 4 * effDepth) {
+          const confZoneLen = 2 * effDepth; // 2d at each support face per IS 13920
+          const endCount = 2 * Math.ceil(confZoneLen / suppSpacing);
+          const midLen = Math.max(0, span - 2 * confZoneLen);
+          const midCount = Math.ceil(midLen / m.stirrups.spacingMm) + 1;
+          stirrupCount = endCount + midCount;
+          spacingNote = `IS 13920: @ ${suppSpacing}mm (ends) & ${m.stirrups.spacingMm}mm (mid)`;
+        }
 
         result.push(
-          recalculateBarItem({
-            memberId: m.mark,
-            memberType: 'beam',
-            floorLevel: m.floorLevel,
-            mark: `Stirrups (${m.stirrups.legs || 2}-Legged)${floorLabel}`,
-            diameter: m.stirrups.diameter,
-            shape: 'stirrup_rect',
-            dimA: stirrupA,
-            dimB: stirrupB,
-            numMembers,
-            barsPerMember: stirrupCount,
-            notes: `@ ${m.stirrups.spacingMm}mm c/c across ${Math.round(span)}mm span`,
-          })
+          recalculateBarItem(
+            {
+              memberId: m.mark,
+              memberType: 'beam',
+              floorLevel: m.floorLevel,
+              mark: `Stirrups (${m.stirrups.legs || 2}-Legged)${floorLabel}`,
+              diameter: m.stirrups.diameter,
+              shape: 'stirrup_rect',
+              dimA: stirrupA,
+              dimB: stirrupB,
+              numMembers,
+              barsPerMember: stirrupCount,
+              notes: `${spacingNote} across ${Math.round(span)}mm span`,
+            },
+            calcOpts
+          )
         );
       }
     }
@@ -279,23 +362,26 @@ export function generateBbsFromMemberDefinitions(
     // 2. Columns
     else if (m.category === 'column') {
       const mainDia = m.mainBars?.diameter || 16;
-      const lapLength = 50 * mainDia;
+      const lapLength = lapMult * mainDia;
 
       if (m.mainBars && m.mainBars.count > 0) {
         result.push(
-          recalculateBarItem({
-            memberId: m.mark,
-            memberType: 'column',
-            floorLevel: m.floorLevel,
-            mark: `Vertical Bars${floorLabel}`,
-            diameter: mainDia,
-            shape: m.mainBars.shape || 'l_bend',
-            dimA: span + lapLength,
-            dimB: 300,
-            numMembers,
-            barsPerMember: m.mainBars.count,
-            notes: `Height ${Math.round(span)}mm + ${lapLength}mm lap, size ${width}×${depth}mm`,
-          })
+          recalculateBarItem(
+            {
+              memberId: m.mark,
+              memberType: 'column',
+              floorLevel: m.floorLevel,
+              mark: `Vertical Bars${floorLabel}`,
+              diameter: mainDia,
+              shape: m.mainBars.shape || 'l_bend',
+              dimA: span + lapLength,
+              dimB: 300,
+              numMembers,
+              barsPerMember: m.mainBars.count,
+              notes: `Height ${Math.round(span)}mm + ${lapLength}mm (${lapMult}d) lap, size ${width}×${depth}mm`,
+            },
+            calcOpts
+          )
         );
       }
 
@@ -306,19 +392,22 @@ export function generateBbsFromMemberDefinitions(
         const tieCount = Math.max(3, Math.round(span / m.stirrups.spacingMm) + 1);
 
         result.push(
-          recalculateBarItem({
-            memberId: m.mark,
-            memberType: 'column',
-            floorLevel: m.floorLevel,
-            mark: `Lateral Ties${floorLabel}`,
-            diameter: m.stirrups.diameter,
-            shape: 'stirrup_rect',
-            dimA: tieA,
-            dimB: tieB,
-            numMembers,
-            barsPerMember: tieCount,
-            notes: `Ties @ ${m.stirrups.spacingMm}mm c/c`,
-          })
+          recalculateBarItem(
+            {
+              memberId: m.mark,
+              memberType: 'column',
+              floorLevel: m.floorLevel,
+              mark: `Lateral Ties${floorLabel}`,
+              diameter: m.stirrups.diameter,
+              shape: 'stirrup_rect',
+              dimA: tieA,
+              dimB: tieB,
+              numMembers,
+              barsPerMember: tieCount,
+              notes: `Ties @ ${m.stirrups.spacingMm}mm c/c`,
+            },
+            calcOpts
+          )
         );
       }
     }
@@ -336,37 +425,43 @@ export function generateBbsFromMemberDefinitions(
       const bendH = Math.max(150, fDepth - 2 * cover);
 
       result.push(
-        recalculateBarItem({
-          memberId: m.mark,
-          memberType: 'footing',
-          floorLevel: m.floorLevel,
-          mark: `Bottom Mesh (X-dir)${floorLabel}`,
-          diameter: meshDia,
-          shape: 'u_hook',
-          dimA: fLength - 2 * cover,
-          dimB: bendH,
-          dimC: bendH,
-          numMembers,
-          barsPerMember: countX,
-          notes: `Size ${fLength}×${fWidth}×${fDepth}mm @ ${meshSpacing}mm c/c`,
-        })
+        recalculateBarItem(
+          {
+            memberId: m.mark,
+            memberType: 'footing',
+            floorLevel: m.floorLevel,
+            mark: `Bottom Mesh (X-dir)${floorLabel}`,
+            diameter: meshDia,
+            shape: 'u_hook',
+            dimA: fLength - 2 * cover,
+            dimB: bendH,
+            dimC: bendH,
+            numMembers,
+            barsPerMember: countX,
+            notes: `Size ${fLength}×${fWidth}×${fDepth}mm @ ${meshSpacing}mm c/c`,
+          },
+          calcOpts
+        )
       );
 
       result.push(
-        recalculateBarItem({
-          memberId: m.mark,
-          memberType: 'footing',
-          floorLevel: m.floorLevel,
-          mark: `Bottom Mesh (Y-dir)${floorLabel}`,
-          diameter: meshDia,
-          shape: 'u_hook',
-          dimA: fWidth - 2 * cover,
-          dimB: bendH,
-          dimC: bendH,
-          numMembers,
-          barsPerMember: countY,
-          notes: `Size ${fLength}×${fWidth}×${fDepth}mm @ ${meshSpacing}mm c/c`,
-        })
+        recalculateBarItem(
+          {
+            memberId: m.mark,
+            memberType: 'footing',
+            floorLevel: m.floorLevel,
+            mark: `Bottom Mesh (Y-dir)${floorLabel}`,
+            diameter: meshDia,
+            shape: 'u_hook',
+            dimA: fWidth - 2 * cover,
+            dimB: bendH,
+            dimC: bendH,
+            numMembers,
+            barsPerMember: countY,
+            notes: `Size ${fLength}×${fWidth}×${fDepth}mm @ ${meshSpacing}mm c/c`,
+          },
+          calcOpts
+        )
       );
     }
 
@@ -381,36 +476,65 @@ export function generateBbsFromMemberDefinitions(
       const countY = Math.max(3, Math.round((span - 2 * cover) / spacingY) + 1);
 
       result.push(
-        recalculateBarItem({
-          memberId: m.mark,
-          memberType: 'slab',
-          floorLevel: m.floorLevel,
-          mark: `Short Span Main Bars${floorLabel}`,
-          diameter: mainDia,
-          shape: 'crank',
-          dimA: span - 2 * cover,
-          dimB: 200,
-          dimC: 200,
-          dimD: thickness - 2 * cover,
-          numMembers,
-          barsPerMember: countX,
-          notes: `Thk ${thickness}mm @ ${spacingX}mm c/c`,
-        })
+        recalculateBarItem(
+          {
+            memberId: m.mark,
+            memberType: 'slab',
+            floorLevel: m.floorLevel,
+            mark: `Short Span Main (Cranked)${floorLabel}`,
+            diameter: mainDia,
+            shape: 'crank',
+            dimA: span - 2 * cover,
+            dimB: 200,
+            dimC: 200,
+            dimD: Math.max(60, thickness - 2 * cover),
+            numMembers,
+            barsPerMember: countX,
+            notes: `Thk ${thickness}mm @ ${spacingX}mm c/c`,
+          },
+          calcOpts
+        )
       );
 
       result.push(
-        recalculateBarItem({
-          memberId: m.mark,
-          memberType: 'slab',
-          floorLevel: m.floorLevel,
-          mark: `Long Span Distribution${floorLabel}`,
-          diameter: secDia,
-          shape: 'straight',
-          dimA: depth - 2 * cover,
-          numMembers,
-          barsPerMember: countY,
-          notes: `Distribution @ ${spacingY}mm c/c`,
-        })
+        recalculateBarItem(
+          {
+            memberId: m.mark,
+            memberType: 'slab',
+            floorLevel: m.floorLevel,
+            mark: `Long Span Distribution${floorLabel}`,
+            diameter: secDia,
+            shape: 'straight',
+            dimA: depth - 2 * cover,
+            numMembers,
+            barsPerMember: countY,
+            notes: `Distribution @ ${spacingY}mm c/c`,
+          },
+          calcOpts
+        )
+      );
+
+      // Chair bars (1 per m2 of slab area)
+      const areaM2 = (span / 1000) * (depth / 1000);
+      const chairCount = Math.max(2, Math.ceil(areaM2));
+      result.push(
+        recalculateBarItem(
+          {
+            memberId: m.mark,
+            memberType: 'slab',
+            floorLevel: m.floorLevel,
+            mark: `Chair Bars${floorLabel}`,
+            diameter: Math.max(10, mainDia),
+            shape: 'chair',
+            dimA: 300,
+            dimB: Math.max(50, thickness - 2 * cover - 20),
+            dimC: 400,
+            numMembers,
+            barsPerMember: chairCount,
+            notes: `1 chair per m² (${areaM2.toFixed(1)} m²)`,
+          },
+          calcOpts
+        )
       );
     }
 
@@ -418,18 +542,21 @@ export function generateBbsFromMemberDefinitions(
     else {
       const dia = m.mainBars?.diameter || 12;
       result.push(
-        recalculateBarItem({
-          memberId: m.mark,
-          memberType: m.category,
-          floorLevel: m.floorLevel,
-          mark: `Main Rebar${floorLabel}`,
-          diameter: dia,
-          shape: 'straight',
-          dimA: span,
-          numMembers,
-          barsPerMember: m.mainBars?.count || 4,
-          notes: m.notes || '',
-        })
+        recalculateBarItem(
+          {
+            memberId: m.mark,
+            memberType: m.category,
+            floorLevel: m.floorLevel,
+            mark: `Main Rebar${floorLabel}`,
+            diameter: dia,
+            shape: 'straight',
+            dimA: span,
+            numMembers,
+            barsPerMember: m.mainBars?.count || 4,
+            notes: m.notes || '',
+          },
+          calcOpts
+        )
       );
     }
 
@@ -438,29 +565,119 @@ export function generateBbsFromMemberDefinitions(
       for (const callout of m.extraBars) {
         const extraDia = callout.diameter || 16;
         const extraCount = callout.count || 2;
-        const extraLen = callout.lengthMm || Math.round(span / 3 + 50 * extraDia);
+        const extraLen = callout.lengthMm || Math.round(span / 3 + lapMult * extraDia);
 
         result.push(
-          recalculateBarItem({
-            memberId: m.mark,
-            memberType: m.category,
-            floorLevel: m.floorLevel,
-            mark: `Extra: ${callout.text || callout.role}${floorLabel}`,
-            diameter: extraDia,
-            shape: 'l_bend',
-            dimA: extraLen,
-            dimB: 200,
-            numMembers,
-            barsPerMember: extraCount,
-            sourceTextCoords: callout.coords,
-            notes: `Attached from plan callout: "${callout.text}"`,
-          })
+          recalculateBarItem(
+            {
+              memberId: m.mark,
+              memberType: m.category,
+              floorLevel: m.floorLevel,
+              mark: `Extra: ${callout.text || callout.role}${floorLabel}`,
+              diameter: extraDia,
+              shape: 'l_bend',
+              dimA: extraLen,
+              dimB: 200,
+              numMembers,
+              barsPerMember: extraCount,
+              sourceTextCoords: callout.coords,
+              notes: `Attached from plan callout: "${callout.text}"`,
+            },
+            calcOpts
+          )
         );
       }
     }
   }
 
   return result;
+}
+
+/**
+ * Instant deterministic IS 456:2000 / IS 13920:2016 & Project Constraint Checker.
+ */
+export function runLocalIs456Audit(
+  members: StructuralMemberDefinition[],
+  parameters?: Partial<StructuralEstimateState['parameters']>
+): CivilAuditAnomaly[] {
+  const anomalies: CivilAuditAnomaly[] = [];
+  const allowedSet = new Set(parameters?.allowedDiameters || [8, 10, 12, 16, 20, 25, 28, 32]);
+
+  for (const m of members) {
+    const b = Math.max(100, m.widthMm || 230);
+    const d = Math.max(100, m.depthMm || 450);
+    const grossArea = b * d;
+
+    const checkDia = (role: string, dia?: number) => {
+      if (dia && !allowedSet.has(dia)) {
+        anomalies.push({
+          memberMark: m.mark,
+          severity: 'warning',
+          codeClause: 'Project Constraint',
+          message: `${m.mark}: ${role} bar Φ${dia}mm is outside allowed project diameters (${Array.from(allowedSet).join(', ')}mm)`,
+        });
+      }
+    };
+
+    checkDia('Main', m.mainBars?.diameter);
+    checkDia('Top/Secondary', m.secondaryBars?.diameter);
+    checkDia('Support Extra', m.topSupportExtraBars?.diameter);
+    checkDia('Stirrup', m.stirrups?.diameter);
+
+    const mainCount = m.mainBars?.count || 0;
+    const mainDia = m.mainBars?.diameter || 16;
+    const astMain = mainCount * ((Math.PI * mainDia * mainDia) / 4);
+
+    if (m.category === 'column') {
+      const pt = (astMain / grossArea) * 100;
+      if (pt < 0.8) {
+        anomalies.push({
+          memberMark: m.mark,
+          severity: 'error',
+          codeClause: 'IS 456 Cl. 26.5.3.1',
+          message: `${m.mark} (${b}×${d}): Longitudinal steel is ${pt.toFixed(2)}% (< 0.80% minimum for columns)`,
+        });
+      } else if (pt > 4.0) {
+        anomalies.push({
+          memberMark: m.mark,
+          severity: 'warning',
+          codeClause: 'IS 456 Cl. 26.5.3.1',
+          message: `${m.mark} (${b}×${d}): Longitudinal steel is ${pt.toFixed(2)}% (> 4.0% practical lapped column limit)`,
+        });
+      }
+    } else if (m.category === 'beam') {
+      const pt = (astMain / grossArea) * 100;
+      if (pt < 0.18) {
+        anomalies.push({
+          memberMark: m.mark,
+          severity: 'error',
+          codeClause: 'IS 456 Cl. 26.5.1.1',
+          message: `${m.mark} (${b}×${d}): Tension steel is ${pt.toFixed(2)}% (below IS 456 minimum 0.85/fy)`,
+        });
+      } else if (pt > 2.5) {
+        anomalies.push({
+          memberMark: m.mark,
+          severity: 'warning',
+          codeClause: 'IS 456 Cl. 26.5.1.1b',
+          message: `${m.mark} (${b}×${d}): Tension steel is ${pt.toFixed(2)}% (> 2.5% bar congestion threshold)`,
+        });
+      }
+
+      if (m.stirrups?.spacingMm) {
+        const maxSpacing = Math.min(Math.round(0.75 * (d - (m.clearCoverMm || 25))), 300);
+        if (m.stirrups.spacingMm > maxSpacing) {
+          anomalies.push({
+            memberMark: m.mark,
+            severity: 'error',
+            codeClause: 'IS 456 Cl. 26.5.1.5',
+            message: `${m.mark}: Stirrup spacing ${m.stirrups.spacingMm}mm exceeds max allowed ${maxSpacing}mm`,
+          });
+        }
+      }
+    }
+  }
+
+  return anomalies;
 }
 
 

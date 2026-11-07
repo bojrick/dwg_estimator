@@ -48,9 +48,39 @@ export interface AttachedRebarCallout {
   notes?: string;
 }
 
+export interface BeamCrossSectionInspection {
+  mark?: string;
+  widthMm?: number;
+  depthMm?: number;
+  topBars?: { count: number; diameter: number; notes?: string };
+  bottomBars?: { count: number; diameter: number; notes?: string };
+  stirrups?: { diameter: number; spacingMm: number; legs?: number; notes?: string };
+  sourceText?: string;
+}
+
+export interface PendingSectionMatch {
+  sectionTitle: string;
+  sheetId?: string;
+  confidence: number;
+  status: 'pending' | 'confirmed' | 'rejected';
+  widthMm?: number;
+  depthMm?: number;
+  topBars?: { count: number; diameter: number };
+  topExtraBars?: { count: number; diameter: number; curtailmentRatio?: number };
+  bottomBars?: { count: number; diameter: number };
+  stirrups?: { diameter: number; spacingMm: number; supportSpacingMm?: number; legs?: number };
+}
+
+export interface CivilAuditAnomaly {
+  memberMark: string;
+  severity: 'error' | 'warning';
+  codeClause: string;
+  message: string;
+}
+
 export interface StructuralMemberDefinition {
   id: string;
-  mark: string;                     // e.g. "C1", "B-101", "F1", "S1"
+  mark: string;                     // e.g. "B1-1", "B2-5", "B3-6", "B4-10", "B5-100", "C1"
   category: StructuralMemberType;
   floorLevel?: string;              // e.g. "Ground to 1st", "1st to 2nd", "All Floors"
   countOnLayout: number;            // Number of instances found on framing layout
@@ -59,6 +89,11 @@ export interface StructuralMemberDefinition {
   thicknessMm?: number;             // Slab thickness or footing depth
   spanMm: number;                   // Clear span of beam / slab, or column floor height
   clearCoverMm: number;             // Concrete cover
+  sizeSource?: 'schedule' | 'inline_text' | 'geometry' | 'manual';
+  scheduleConflict?: {
+    scheduleWidthMm: number;
+    scheduleDepthMm: number;
+  };
   mainBars?: {
     count: number;
     diameter: number;
@@ -71,14 +106,21 @@ export interface StructuralMemberDefinition {
     shape?: BarShapeCode;
     notes?: string;
   };
+  topSupportExtraBars?: {
+    count: number;
+    diameter: number;
+    curtailmentRatio?: number;      // e.g. 0.25L per IS 13920
+  };
   stirrups?: {
     diameter: number;
     spacingMm: number;
+    supportSpacingMm?: number;      // Confinement spacing (2d zone) per IS 13920
     legs?: number;                  // 2-legged, 4-legged
     notes?: string;
   };
   extraBars?: AttachedRebarCallout[];
   detectedGeometry?: MemberDetectedGeometry;
+  pendingSectionMatch?: PendingSectionMatch;
   linkedLegendMark?: string;
   isVerifiedInLegend?: boolean;
   layerName?: string;
@@ -165,10 +207,18 @@ export interface StructuralEstimateState {
   members: BbsMemberGroup[];
   scheduleTables: ExtractedCadTable[];
   parameters: {
-    wastagePct: number;        // e.g. 3% - 5%
-    bindingWirePct: number;    // e.g. 1%
-    steelRatePerKg: number;    // e.g. $0.85 or ₹75
-    currency: string;          // e.g. "$", "₹", "€", "£"
+    wastagePct: number;               // e.g. 3% - 5%
+    bindingWirePct: number;           // e.g. 1%
+    steelRatePerKg: number;           // e.g. ₹68 / kg
+    currency: string;                 // e.g. "₹", "$", "AED"
+    maxStockLengthM?: number;         // Commercial bar length (default 12.0 m)
+    allowedDiameters?: number[];      // Project allowed diameters e.g. [8, 10, 12, 16, 20, 25]
+    concreteGrade?: string;           // e.g. "M25", "M30"
+    steelGrade?: string;              // e.g. "Fe500", "Fe500D"
+    lapLengthMultiplier?: number;     // e.g. 50 (50d per IS 456)
+    hookAllowanceMultiplier?: number; // e.g. 24 (24d seismic 135° hooks) or 18 (90° hooks)
+    defaultFloorHeightMm?: number;    // e.g. 3000 mm
+    seismicDuctileDetailing?: boolean;// IS 13920 confinement zones
     defaultCoverMm: {
       footing: number;
       column: number;

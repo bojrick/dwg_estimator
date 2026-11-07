@@ -176,5 +176,8 @@ export function authFetch(path: string, init: RequestInit = {}): Promise<Respons
   if (session?.access_token) {
     headers.set('Authorization', `Bearer ${session.access_token}`);
   }
+  if (init.body && typeof init.body === 'string' && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
   return fetch(apiUrl(path), { ...init, headers });
 }

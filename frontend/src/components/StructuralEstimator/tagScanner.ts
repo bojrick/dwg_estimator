@@ -5,6 +5,7 @@ import type {
   MemberDetectedGeometry,
 } from './types';
 import { detectMemberGeometry } from './cadGeometryEngine.ts';
+import { expandGroupedMemberMarks } from './cadTableParser.ts';
 
 export interface DiscoveredTag {
   mark: string;
@@ -13,6 +14,11 @@ export interface DiscoveredTag {
   layers: string[];
   suggestedWidthMm?: number;
   suggestedDepthMm?: number;
+  sizeSource?: 'schedule' | 'inline_text' | 'geometry' | 'manual';
+  scheduleConflict?: { scheduleWidthMm: number; scheduleDepthMm: number };
+  scheduleMainBars?: { count: number; diameter: number };
+  scheduleSecondaryBars?: { count: number; diameter: number };
+  scheduleStirrups?: { diameter: number; spacingMm: number; legs?: number };
   isVerifiedInLegend: boolean;
   textCoords: [number, number][];
   avgHeight: number;
@@ -153,23 +159,23 @@ export function isLayerRelevantForScope(
 export function getStructuralTagPattern(scope: StructuralMemberType): RegExp {
   switch (scope) {
     case 'beam':
-      // Matches B1, B1-1, B2-5, PB1, PB1-1, TB1, FB1, RB1, CB1, GB1, SB1, B-101, 1B1, B1A, B1-A
-      return /\b((?:[1-9]?[PFTBGRCS]?B|BEAM)-?\d{1,3}(?:[A-Z]|-\d{1,2}|-[A-Z])?)\b/i;
+      // Matches B1, B1-1, B2-5, PB1, PB1-1, TB1, FB1, RB1, CB1, GB1, SB1, B-101, B100..B9999, 1B1, B1A, B1-A
+      return /\b((?:[1-9]?[PFTBGRCS]?B|BEAM)-?\d{1,4}(?:[A-Z]|-\d{1,4}|-[A-Z])?)\b/i;
 
     case 'column':
-      // Matches C1, C1-1, C1A, C-101, SC1, RC1, P1, P-1, 1C1
-      return /\b((?:[1-9]?[SRC]?C|COL|P)-?\d{1,3}(?:[A-Z]|-\d{1,2}|-[A-Z])?)\b/i;
+      // Matches C1, C1-1, C1A, C-101, C100..C9999, SC1, RC1, P1, P-1, 1C1
+      return /\b((?:[1-9]?[SRC]?C|COL|P)-?\d{1,4}(?:[A-Z]|-\d{1,4}|-[A-Z])?)\b/i;
 
     case 'slab':
-      // Matches S1, NS1, SS1, DS1, FS1, TS1, CS1, S-1, S1A, SLAB 1
-      return /\b((?:[NDSTFC]?S|SLAB)-?\d{1,2}(?:[A-Z]|-\d{1,2})?)\b/i;
+      // Matches S1, NS1, SS1, DS1, FS1, TS1, CS1, S-1, S100..S9999, S1A, SLAB 1
+      return /\b((?:[NDSTFC]?S|SLAB)-?\d{1,4}(?:[A-Z]|-\d{1,4})?)\b/i;
 
     case 'footing':
-      // Matches F1, CF1, RF1, PF1, F-101, FTG 1
-      return /\b((?:[CRPF]?F|FTG)-?\d{1,3}(?:[A-Z]|-\d{1,2})?)\b/i;
+      // Matches F1, CF1, RF1, PF1, F-101, F100..F9999, FTG 1
+      return /\b((?:[CRPF]?F|FTG)-?\d{1,4}(?:[A-Z]|-\d{1,4})?)\b/i;
 
     default:
-      return /\b([A-Z]{1,3}-?\d{1,3}[A-Z]?)\b/i;
+      return /\b([A-Z]{1,3}-?\d{1,4}[A-Z]?)\b/i;
   }
 }
 
@@ -198,7 +204,7 @@ export function scanStructuralTagsWithVerification(
   if (!texts || texts.length === 0) return [];
 
   const tagPattern = options?.customPrefix?.trim()
-    ? new RegExp(`\\b(${options.customPrefix.trim()}-?\\d{1,3}[A-Z]?(?:-\\d{1,2})?)\\b`, 'i')
+    ? new RegExp(`\\b(${options.customPrefix.trim()}-?\\d{1,4}[A-Z]?(?:-\\d{1,4})?)\\b`, 'i')
     : getStructuralTagPattern(scope);
 
   // Calculate median text height for consistency check
@@ -211,6 +217,7 @@ export function scanStructuralTagsWithVerification(
       coords: [number, number][];
       layers: Set<string>;
       heights: number[];
+      rawStrings: string[];
     }
   >();
 
@@ -220,31 +227,74 @@ export function scanStructuralTagsWithVerification(
     ? [options.activeLegendTable, ...scheduleTables.filter((t) => t.id !== options.activeLegendTable?.id)]
     : scheduleTables;
 
-  const knownScheduleMarks = new Map<string, { widthMm?: number; depthMm?: number }>();
+  const knownScheduleMarks = new Map<
+    string,
+    {
+      widthMm?: number;
+      depthMm?: number;
+      mainBars?: { count: number; diameter: number };
+      secondaryBars?: { count: number; diameter: number };
+      stirrups?: { diameter: number; spacingMm: number; legs?: number };
+    }
+  >();
   for (const table of tablesToScan) {
     let markCol = 0;
     let sizeCol = -1;
+    let topCol = -1;
+    let btmCol = -1;
+    let mainCol = -1;
+    let tiesCol = -1;
     for (let c = 0; c < table.headers.length; c++) {
-      if (/(mark|id|no|col|beam|footing)/i.test(table.headers[c])) markCol = c;
-      if (/(size|dim|b\s*x\s*d|section)/i.test(table.headers[c])) sizeCol = c;
+      const h = table.headers[c];
+      if (/(mark|id|no|col|beam|footing|member)/i.test(h)) markCol = c;
+      else if (/(size|dim|b\s*x\s*d|section|width)/i.test(h)) sizeCol = c;
+      else if (/(top|hanger)/i.test(h)) topCol = c;
+      else if (/(bottom|btm)/i.test(h)) btmCol = c;
+      else if (/(tie|stirrup|ring|link)/i.test(h)) tiesCol = c;
+      else if (/(main|longitudinal|vertical|reinf|steel)/i.test(h)) mainCol = c;
     }
     for (const r of table.rows) {
-      const mStr = (r[markCol] || '').trim().toUpperCase();
-      if (mStr && !knownScheduleMarks.has(mStr)) {
-        let w: number | undefined;
-        let d: number | undefined;
-        if (sizeCol >= 0 && r[sizeCol]) {
-          const match = r[sizeCol].match(/(\d+)\s*[*xX/×]\s*(\d+)/);
-          if (match) {
-            w = parseInt(match[1], 10);
-            d = parseInt(match[2], 10);
-            if (w <= 36 && d <= 48) {
-              w = Math.round(w * 25.4);
-              d = Math.round(d * 25.4);
-            }
-          }
+      const rawMarkCell = (r[markCol] || '').trim();
+      if (!rawMarkCell) continue;
+      const expandedMarks = expandGroupedMemberMarks(rawMarkCell);
+
+      let w: number | undefined;
+      let d: number | undefined;
+      const sizeCellText = sizeCol >= 0 && r[sizeCol] ? r[sizeCol] : r.join(' ');
+      const match = sizeCellText.match(/(\d{2,4})\s*[*xX/×]\s*(\d{2,4})/);
+      if (match) {
+        w = parseInt(match[1], 10);
+        d = parseInt(match[2], 10);
+        if (w <= 36 && d <= 48) {
+          w = Math.round(w * 25.4);
+          d = Math.round(d * 25.4);
         }
-        knownScheduleMarks.set(mStr, { widthMm: w, depthMm: d });
+      }
+
+      const mainCell = btmCol >= 0 ? r[btmCol] : mainCol >= 0 ? r[mainCol] : '';
+      const topCell = topCol >= 0 ? r[topCol] : '';
+      const tiesCell = tiesCol >= 0 ? r[tiesCol] : '';
+
+      const mMain = (mainCell || '').match(/(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm|[\u03A6\u00D8])?\s*(\d{1,2})/);
+      const mTop = (topCell || '').match(/(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm|[\u03A6\u00D8])?\s*(\d{1,2})/);
+      const mTie = (tiesCell || '').match(/(\d{1,2})\s*(?:[tTyY#]|dia|mm|[\u03A6\u00D8])?\s*(?:@|at)\s*(\d{2,3})/i);
+
+      for (const mStr of expandedMarks) {
+        if (mStr && !knownScheduleMarks.has(mStr)) {
+          knownScheduleMarks.set(mStr, {
+            widthMm: w,
+            depthMm: d,
+            mainBars: mMain ? { count: parseInt(mMain[1], 10), diameter: parseInt(mMain[2], 10) } : undefined,
+            secondaryBars: mTop ? { count: parseInt(mTop[1], 10), diameter: parseInt(mTop[2], 10) } : undefined,
+            stirrups: mTie
+              ? {
+                  diameter: parseInt(mTie[1], 10),
+                  spacingMm: parseInt(mTie[2], 10),
+                  legs: /4\s*l/i.test(tiesCell || '') ? 4 : 2,
+                }
+              : undefined,
+          });
+        }
       }
     }
   }
@@ -252,7 +302,7 @@ export function scanStructuralTagsWithVerification(
   for (const t of texts) {
     if (!t || !t.text) continue;
     const rawStr = String(t.text).trim();
-    if (rawStr.length < 2 || rawStr.length > 30) continue;
+    if (rawStr.length < 2 || rawStr.length > 42) continue;
 
     // Framing Layout ROI Bounding Box Filter
     if (options?.bbox) {
@@ -293,20 +343,70 @@ export function scanStructuralTagsWithVerification(
       coords: [],
       layers: new Set<string>(),
       heights: [],
+      rawStrings: [],
     };
 
     cur.coords.push([t.x, t.y]);
     cur.layers.add(layerName);
     cur.heights.push(ht);
+    cur.rawStrings.push(rawStr);
     tagInstances.set(extractedMark, cur);
   }
 
-  // Pass 4: Build DiscoveredTag results with verification status & CAD geometric element detection
+  // Helper to parse WxD from inline or nearby text within spatial radius of a member tag
+  const findInlineOrNearbySize = (
+    rawStrings: string[],
+    coord: [number, number],
+    searchRadius: number
+  ): { widthMm: number; depthMm: number } | null => {
+    const parseDims = (str: string): { widthMm: number; depthMm: number } | null => {
+      const m = str.match(/(\d{2,4})\s*[*xX/×]\s*(\d{2,4})/);
+      if (!m) return null;
+      let w = parseInt(m[1], 10);
+      let d = parseInt(m[2], 10);
+      if (w <= 36 && d <= 48) {
+        w = Math.round(w * 25.4);
+        d = Math.round(d * 25.4);
+      }
+      if (w >= 100 && w <= 2500 && d >= 100 && d <= 3000) {
+        return { widthMm: w, depthMm: d };
+      }
+      return null;
+    };
+
+    // 1. Check inline string itself, e.g. "B2-5 (230x600)"
+    for (const s of rawStrings) {
+      const parsed = parseDims(s);
+      if (parsed) return parsed;
+    }
+
+    // 2. Check nearby text entities within spatial radius on the plan
+    let bestDistSq = searchRadius * searchRadius;
+    let bestDims: { widthMm: number; depthMm: number } | null = null;
+    for (const t of texts) {
+      if (!t || !t.text) continue;
+      const dx = t.x - coord[0];
+      const dy = t.y - coord[1];
+      const dSq = dx * dx + dy * dy;
+      if (dSq > bestDistSq) continue;
+      const parsed = parseDims(String(t.text));
+      if (parsed) {
+        bestDistSq = dSq;
+        bestDims = parsed;
+      }
+    }
+    return bestDims;
+  };
+
+  // Pass 4: Build DiscoveredTag results with 4-Priority Size Waterfall & CAD geometric element detection
   const results: DiscoveredTag[] = [];
 
   for (const [mark, data] of tagInstances.entries()) {
     const avgH = data.heights.reduce((s, h) => s + h, 0) / data.heights.length;
     const scheduleMatch = knownScheduleMarks.get(mark);
+    const inlineSize = data.coords[0]
+      ? findInlineOrNearbySize(data.rawStrings, data.coords[0], Math.max(avgH * 6, 1.2))
+      : null;
 
     // Compute CAD physical geometry (span line, column boundary, slab panel)
     let detectedGeom: MemberDetectedGeometry | null = null;
@@ -316,8 +416,41 @@ export function scanStructuralTagsWithVerification(
         data.coords[0],
         options.lines || [],
         options.polylines || [],
-        options.scaleToM || 0.001
+        options.scaleToM || 0.001,
+        texts || []
       );
+    }
+
+    let finalWidthMm: number | undefined;
+    let finalDepthMm: number | undefined;
+    let sizeSource: 'schedule' | 'inline_text' | 'geometry' | 'manual' = 'manual';
+    let scheduleConflict: { scheduleWidthMm: number; scheduleDepthMm: number } | undefined;
+
+    if (scheduleMatch?.widthMm && scheduleMatch?.depthMm) {
+      finalWidthMm = scheduleMatch.widthMm;
+      finalDepthMm = scheduleMatch.depthMm;
+      sizeSource = 'schedule';
+      if (
+        inlineSize &&
+        (inlineSize.widthMm !== scheduleMatch.widthMm || inlineSize.depthMm !== scheduleMatch.depthMm)
+      ) {
+        // Inline annotation on plan overrides generic schedule if specific to this beam mark
+        finalWidthMm = inlineSize.widthMm;
+        finalDepthMm = inlineSize.depthMm;
+        sizeSource = 'inline_text';
+        scheduleConflict = {
+          scheduleWidthMm: scheduleMatch.widthMm,
+          scheduleDepthMm: scheduleMatch.depthMm,
+        };
+      }
+    } else if (inlineSize) {
+      finalWidthMm = inlineSize.widthMm;
+      finalDepthMm = inlineSize.depthMm;
+      sizeSource = 'inline_text';
+    } else if (detectedGeom?.widthMm && detectedGeom?.depthMm) {
+      finalWidthMm = detectedGeom.widthMm;
+      finalDepthMm = detectedGeom.depthMm;
+      sizeSource = 'geometry';
     }
 
     results.push({
@@ -325,17 +458,82 @@ export function scanStructuralTagsWithVerification(
       category: scope,
       countOnLayout: data.coords.length,
       layers: Array.from(data.layers),
-      suggestedWidthMm: scheduleMatch?.widthMm || detectedGeom?.widthMm,
-      suggestedDepthMm: scheduleMatch?.depthMm || detectedGeom?.depthMm,
-      isVerifiedInLegend: Boolean(scheduleMatch),
+      suggestedWidthMm: finalWidthMm,
+      suggestedDepthMm: finalDepthMm,
+      sizeSource,
+      scheduleConflict,
+      scheduleMainBars: scheduleMatch?.mainBars,
+      scheduleSecondaryBars: scheduleMatch?.secondaryBars,
+      scheduleStirrups: scheduleMatch?.stirrups,
+      isVerifiedInLegend: Boolean(scheduleMatch || inlineSize),
       textCoords: data.coords,
       avgHeight: Math.round(avgH * 100) / 100,
       detectedGeometry: detectedGeom,
     });
   }
 
-  // Sort by natural alphanumeric order (e.g. B1, B2, B10, B1-1, PB1)
+  // Sort by natural alphanumeric order (e.g. B1-1, B2-5, B3-6, B4-10, B5-100)
   results.sort((a, b) => a.mark.localeCompare(b.mark, undefined, { numeric: true, sensitivity: 'base' }));
 
   return results;
+}
+
+/**
+ * Scans all sheets in fullRawData for General Notes texts and scattered cross-section detail clusters.
+ */
+export function scanGeneralNotesAndSections(fullRawData: any, sheets: any[] = []): {
+  generalNotesTexts: string[];
+  sectionClusters: any[];
+} {
+  const texts: any[] = fullRawData?.texts || [];
+  const generalNotesTexts: string[] = [];
+  const sectionClusters: any[] = [];
+
+  const noteRegex = /\b(concrete\s+grade|steel\s+grade|clear\s+cover|lap\s+length|development\s+length|fe\s*500|fe\s*415|m\s*20|m\s*25|m\s*30|is\s*:\s*456|is\s*:\s*13920)\b/i;
+  const sectionHeaderRegex = /\b(sec(?:tion)?\s*[a-z0-9]{1,3}\s*[-–]\s*[a-z0-9]{1,3}|detail\s+of\s+(?:beam|col|footing)|typical\s+(?:beam|col)\s+sec)\b/i;
+
+  for (const t of texts) {
+    if (!t || !t.text) continue;
+    const str = String(t.text).trim();
+    if (noteRegex.test(str) && generalNotesTexts.length < 60) {
+      generalNotesTexts.push(str);
+    }
+    if (sectionHeaderRegex.test(str) && sectionClusters.length < 30) {
+      const ht = t.height || 0.25;
+      const radius = Math.max(ht * 25, 4.0);
+      const nearby = texts.filter(
+        (nt) => nt && nt.text && Math.abs(nt.x - t.x) <= radius && Math.abs(nt.y - t.y) <= radius
+      );
+      const nearbyStrs = nearby.map((nt) => String(nt.text).trim());
+      const joined = nearbyStrs.join(' ');
+      const dimMatch = joined.match(/(\d{2,4})\s*[*xX/×]\s*(\d{2,4})/);
+      let wMm: number | undefined;
+      let dMm: number | undefined;
+      if (dimMatch) {
+        wMm = parseInt(dimMatch[1], 10);
+        dMm = parseInt(dimMatch[2], 10);
+        if (wMm <= 36 && dMm <= 48) {
+          wMm = Math.round(wMm * 25.4);
+          dMm = Math.round(dMm * 25.4);
+        }
+      }
+      const sheetObj = sheets.find(
+        (s) =>
+          s.bbox &&
+          t.x >= s.bbox.min_x &&
+          t.x <= s.bbox.max_x &&
+          t.y >= s.bbox.min_y &&
+          t.y <= s.bbox.max_y
+      );
+      sectionClusters.push({
+        title: str,
+        sheetId: sheetObj?.id || 'all',
+        widthMm: wMm,
+        depthMm: dMm,
+        texts: nearbyStrs.slice(0, 12),
+      });
+    }
+  }
+
+  return { generalNotesTexts, sectionClusters };
 }

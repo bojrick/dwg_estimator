@@ -15,6 +15,7 @@ import {
   Settings2,
   Sliders,
   Save,
+  Share2,
 } from 'lucide-react';
 import { ExtractedCadTable, BbsBarItem, StructuralMemberType } from './types';
 import { convertScheduleTableToBbsItems, standardizeScheduleHeaders } from './cadTableParser';
@@ -24,6 +25,7 @@ interface ScheduleTableModalProps {
   onClose: () => void;
   onImportToBbs: (items: BbsBarItem[], updatedTable: ExtractedCadTable) => void;
   onSaveTable?: (updatedTable: ExtractedCadTable) => void;
+  onShareToProject?: (table: ExtractedCadTable) => void;
 }
 
 const CATEGORY_ROLE_OPTIONS: Record<StructuralMemberType, string[]> = {
@@ -80,6 +82,7 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
   onClose,
   onImportToBbs,
   onSaveTable,
+  onShareToProject,
 }) => {
   const [table, setTable] = useState<ExtractedCadTable>(initialTable);
   const [memberType, setMemberType] = useState<StructuralMemberType>(
@@ -144,7 +147,6 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
   };
 
   const handleDeleteRow = (rowIndex: number) => {
-    if (table.rows.length <= 1) return;
     setTable((prev) => ({
       ...prev,
       rows: prev.rows.filter((_, idx) => idx !== rowIndex),
@@ -354,6 +356,17 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {onShareToProject && (
+              <button
+                onClick={() => onShareToProject({ ...table, detectedType: memberType })}
+                className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-blue-300 text-xs font-semibold flex items-center gap-1 transition"
+                title="Share this schedule table with all plans in the project"
+              >
+                <Share2 className="w-3.5 h-3.5 text-blue-400" />
+                <span>Share with Project</span>
+              </button>
+            )}
+
             {onSaveTable && (
               <button
                 onClick={handleSaveOnly}
@@ -423,8 +436,8 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
 
         {/* Table View / Editor */}
         <div className="flex-1 overflow-auto p-4">
-          <div className="border border-zinc-800 rounded-xl overflow-hidden bg-zinc-950 shadow-sm">
-            <table className="w-full border-collapse text-xs">
+          <div className="border border-zinc-800 rounded-xl overflow-x-auto bg-zinc-950 shadow-sm max-w-full">
+            <table className="w-full min-w-max border-collapse text-xs">
               <thead>
                 <tr className="bg-zinc-900 border-b border-zinc-800 text-zinc-400">
                   <th className="p-2 text-center font-mono w-16 text-zinc-500">Row</th>

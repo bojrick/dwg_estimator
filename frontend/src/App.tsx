@@ -1105,6 +1105,7 @@ export function App() {
             }
             const res = await authFetch(`/api/plans/${activePlanPayload.plan.id}/structural-estimate`, {
               method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ structural_estimate: estimate }),
             });
             if (res.ok) {
@@ -1118,7 +1119,10 @@ export function App() {
               }));
               fetchVaultPlans();
             } else {
-              throw new Error('Save failed');
+              const errData = await res.json().catch(() => ({}));
+              const msg = errData.detail || errData.message || `Save failed with status ${res.status}`;
+              console.error('Save structural estimate error:', msg);
+              throw new Error(msg);
             }
           }}
           showToast={showToast}

@@ -18,6 +18,76 @@ export interface StandardizedColumnMapping {
 }
 
 /**
+ * Expands schedule table mark cells while strictly preserving compound hyphenated marks
+ * such as B1-1, B2-5, B3-6, B4-10, B5-100.
+ * A hyphen inside a single token (e.g. 'B2-5') is NEVER treated as a range.
+ * Ranges only expand when both endpoints carry the structural prefix (e.g. 'B1-1 TO B1-4' or 'B1 TO B4').
+ */
+export function expandGroupedMemberMarks(
+  rawCell: string,
+  knownLayoutMarks?: string[]
+): string[] {
+  if (!rawCell || !rawCell.trim()) return [];
+
+  let clean = rawCell.trim().toUpperCase();
+  clean = clean.replace(/\(\s*\d+\s*[*X×/]\s*\d+[^)]*\)/g, '').trim();
+
+  const knownSet = new Set((knownLayoutMarks || []).map((m) => m.trim().toUpperCase()));
+  if (knownSet.has(clean)) return [clean];
+
+  const parts = clean.split(/[,;&/]+|\bAND\b/i);
+  const expanded: string[] = [];
+
+  const compoundRangeRe = /^([A-Z]{1,4}\d{1,3})-(\d{1,4})\s*(?:TO|THROUGH|THRU|-|–)\s*\1-(\d{1,4})$/i;
+  const simplePrefixRangeRe = /^([A-Z]{1,4})-?(\d{1,4})\s*(?:TO|THROUGH|THRU|-|–)\s*\1-?(\d{1,4})$/i;
+  const singleMarkRe = /^([1-9]?[A-Z]{1,4}-?\d{1,4}(?:-\d{1,4}|[A-Z]|-[A-Z])?)$/i;
+
+  for (const rawPart of parts) {
+    const p = rawPart.trim();
+    if (!p) continue;
+
+    if (knownSet.has(p)) {
+      expanded.push(p);
+      continue;
+    }
+
+    const mComp = p.match(compoundRangeRe);
+    if (mComp) {
+      const prefix = mComp[1].toUpperCase();
+      const startN = parseInt(mComp[2], 10);
+      const endN = parseInt(mComp[3], 10);
+      if (endN > startN && endN - startN <= 50) {
+        for (let i = startN; i <= endN; i++) expanded.push(`${prefix}-${i}`);
+        continue;
+      }
+    }
+
+    if (/\b(?:TO|THROUGH|THRU)\b|\s+[-–]\s+/i.test(p)) {
+      const mSimp = p.match(simplePrefixRangeRe);
+      if (mSimp) {
+        const prefix = mSimp[1].toUpperCase();
+        const startN = parseInt(mSimp[2], 10);
+        const endN = parseInt(mSimp[3], 10);
+        if (endN > startN && endN - startN <= 50) {
+          for (let i = startN; i <= endN; i++) expanded.push(`${prefix}${i}`);
+          continue;
+        }
+      }
+    }
+
+    const mSingle = p.match(singleMarkRe);
+    if (mSingle) {
+      expanded.push(mSingle[1].toUpperCase());
+    } else {
+      const mLead = p.match(/^([1-9]?[A-Z]{1,4}\d{1,4}-\d{1,4}|[1-9]?[A-Z]{1,4}-?\d{1,4}[A-Z]?)\b/i);
+      if (mLead) expanded.push(mLead[1].toUpperCase());
+    }
+  }
+
+  return Array.from(new Set(expanded));
+}
+
+/**
  * Standardizes raw column headers into civil engineering schedule roles.
  */
 export function standardizeScheduleHeaders(headers: string[]): {
@@ -133,13 +203,14 @@ export function extractTableFromBoundingBox(
 export function autoDetectScheduleTables(
   texts: any[],
   lines: any[] = [],
-  polylines: any[] = []
+  polylines: any[] = [],
+  sheetId?: string
 ): ExtractedCadTable[] {
   if (!texts || texts.length === 0) return [];
 
   const tables: ExtractedCadTable[] = [];
   const scheduleHeaderRegex =
-    /\b(column|beam|footing|foundation|slab|lintel|pile|rebar|reinforcement)\s*(schedule|details|table|specification)\b/i;
+    /\b(column|beam|footing|foundation|slab|lintel|pile|rebar|reinforcement|r\.?c\.?c\.?)\s*(schedule|details|table|specification|of\s+beams|of\s+columns)\b/i;
 
   const avgHeight =
     texts.reduce((sum, t) => sum + (t.height || 0.25), 0) / texts.length || 0.25;
@@ -154,15 +225,15 @@ export function autoDetectScheduleTables(
     const titleX = title.x;
     const ht = title.height || avgHeight;
 
-    // Estimate table search area below title
-    const estWidth = Math.max(10, ht * 60);
-    const estHeight = Math.max(8, ht * 45);
+    // Estimate table search area below title (wider to capture multi-column Indian schedules)
+    const estWidth = Math.max(14, ht * 95);
+    const estHeight = Math.max(10, ht * 65);
 
     const searchBox: BoxCoords = {
-      min_x: titleX - estWidth * 0.15,
+      min_x: titleX - estWidth * 0.25,
       min_y: titleY - estHeight,
       max_x: titleX + estWidth * 0.95,
-      max_y: titleY + ht * 1.5,
+      max_y: titleY + ht * 2.0,
     };
 
     const latticeResult = extractTableViaLattice(lines, polylines, texts, searchBox);
@@ -210,6 +281,7 @@ export function autoDetectScheduleTables(
 
     tables.push({
       id: `table_auto_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      sheetId,
       title: title.text.trim().toUpperCase(),
       headers: normalizedHeaders,
       rows: latticeResult.rows,

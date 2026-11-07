@@ -48,3 +48,13 @@ class Plan(SQLModel, table=True):
 
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class LlmCache(SQLModel, table=True):
+    hash_key: str = Field(primary_key=True)
+    task: str = Field(index=True)
+    model: str = Field(default="")
+    response_json: str = Field(default="{}")
+    tokens_used: int = Field(default=0)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+

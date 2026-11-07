@@ -1,0 +1,5 @@
+[2026-11-07 21:38:23,897] [WARNING] [ezdxf] copy process ignored DIMASSOC(#276C81) - this may cause problems in AutoCAD
+[2026-11-07 21:38:23,898] [WARNING] [ezdxf] copy process ignored DIMASSOC(#276C84) - this may cause problems in AutoCAD
+[2026-11-07 21:38:54,467] [WARNING] [ezdxf] copy process ignored DIMASSOC(#276C81) - this may cause problems in AutoCAD
+[2026-11-07 21:38:54,470] [WARNING] [ezdxf] copy process ignored DIMASSOC(#276C84) - this may cause problems in AutoCAD
+[2026-11-07 21:39:16,440] [WARNING] [planvault] DeepInfra call (is_spec_extractor_v1) fallback to deterministic: HTTP Error 404: Not Found

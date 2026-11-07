@@ -6,6 +6,7 @@ from sqlmodel import SQLModel, Session, create_engine, select
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / "backend" / ".env")
+load_dotenv(BASE_DIR / "backend" / ".env.production")
 load_dotenv(BASE_DIR / ".env")
 
 STORAGE_DIR = Path(os.getenv("STORAGE_DIR", str(BASE_DIR / "storage")))

@@ -42,6 +42,12 @@ from app.services.storage import (
     get_storage_backend_name,
     put_object,
 )
+from app.services.structural_ai import (
+    analyze_sheets_and_specs,
+    associate_sections_and_callouts,
+    audit_bbs_is456,
+    normalize_schedule_tables,
+)
 
 router = APIRouter(prefix="/api", tags=["plans"])
 
@@ -69,6 +75,27 @@ class UpdatePlanRequest(BaseModel):
 
 class SaveStructuralEstimateRequest(BaseModel):
     structural_estimate: Dict[str, Any]
+
+
+class ShareTableRequest(BaseModel):
+    table: Dict[str, Any]
+
+
+class AnalyzeSheetsSpecsRequest(BaseModel):
+    sheets: List[Dict[str, Any]] = []
+    general_notes_texts: List[str] = []
+
+
+class NormalizeTablesRequest(BaseModel):
+    tables: List[Dict[str, Any]] = []
+    known_layout_marks: List[str] = []
+
+
+class MatchSectionsAuditRequest(BaseModel):
+    members: List[Dict[str, Any]] = []
+    section_clusters: List[Dict[str, Any]] = []
+    parameters: Dict[str, Any] = {}
+
 
 
 class AuthPayload(BaseModel):
@@ -971,6 +998,45 @@ def save_structural_estimate(
     }
 
 
+@router.post("/projects/{project_name}/share-table")
+def share_table_with_project(
+    project_name: str,
+    req: ShareTableRequest,
+    session: Session = Depends(get_session),
+    user_id: Optional[str] = Depends(get_current_user_id),
+):
+    query = select(Plan).where(Plan.project_name == project_name)
+    if is_auth_enabled() and user_id:
+        query = query.where(Plan.user_id == user_id)
+    plans = session.exec(query).all()
+    if not plans:
+        raise HTTPException(status_code=404, detail=f"No plans found in project '{project_name}'")
+
+    shared_table = req.table
+    table_id = shared_table.get("id")
+    updated_count = 0
+
+    for plan in plans:
+        est = json.loads(getattr(plan, "structural_estimate_json", "{}") or "{}")
+        tables = est.get("scheduleTables", [])
+        # Merge or replace existing table with same id
+        filtered = [t for t in tables if t.get("id") != table_id]
+        filtered.append(shared_table)
+        est["scheduleTables"] = filtered
+        plan.structural_estimate_json = json.dumps(est)
+        plan.updated_at = datetime.now(timezone.utc)
+        session.add(plan)
+        updated_count += 1
+
+    session.commit()
+    return {
+        "status": "ok",
+        "project_name": project_name,
+        "updated_plans": updated_count,
+        "table_id": table_id,
+    }
+
+
 @router.get("/plans/{plan_id}/file/{kind}")
 def get_plan_file(
     plan_id: int,
@@ -1120,5 +1186,43 @@ def delete_project(
 
     session.commit()
     return {"deleted": True, "project_name": decoded_name, "count": count}
+
+
+@router.post("/plans/{plan_id}/structural-ai/analyze-sheets")
+def api_analyze_sheets_and_specs(
+    plan_id: int,
+    req: AnalyzeSheetsSpecsRequest,
+    session: Session = Depends(get_session),
+):
+    return analyze_sheets_and_specs(session, req.sheets, req.general_notes_texts)
+
+
+@router.post("/plans/{plan_id}/structural-ai/normalize-tables")
+def api_normalize_schedule_tables(
+    plan_id: int,
+    req: NormalizeTablesRequest,
+    session: Session = Depends(get_session),
+):
+    return normalize_schedule_tables(session, req.tables, req.known_layout_marks)
+
+
+@router.post("/plans/{plan_id}/structural-ai/match-and-audit")
+def api_match_sections_and_audit(
+    plan_id: int,
+    req: MatchSectionsAuditRequest,
+    session: Session = Depends(get_session),
+):
+    sec_res = associate_sections_and_callouts(
+        session,
+        req.members,
+        req.section_clusters,
+        req.parameters.get("allowedDiameters"),
+    )
+    audit_res = audit_bbs_is456(session, req.members, req.parameters)
+    return {
+        "matches": sec_res.get("matches", []),
+        "audit": audit_res,
+    }
+
 
 
