@@ -19,6 +19,7 @@ import {
   BeamCrossSectionInspection,
 } from './types';
 import { STANDARD_DIAMETERS } from './bbsMath';
+import { AiBadge } from '../ui/AiBadge';
 
 interface ReinforcementLinkStepProps {
   scope: StructuralMemberType;
@@ -302,10 +303,10 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
                 onClick={onMatchSectionsAi}
                 disabled={isMatchingSectionsAi}
                 className="px-3 py-1 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-[11px] font-medium flex items-center gap-1.5 transition disabled:opacity-50"
-                title="Find scattered cross-sections across sheets and propose matches for confirmation"
+                title="Uses AI to find cross-sections across sheets and propose matches for human review"
               >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{isMatchingSectionsAi ? 'Matching...' : 'Match scattered sections'}</span>
+                <AiBadge label="AI" className="bg-black/10 text-zinc-900 border-zinc-900/30" />
+                <span>{isMatchingSectionsAi ? 'Matching with AI...' : 'Match scattered sections'}</span>
               </button>
             )}
           </div>

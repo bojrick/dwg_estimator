@@ -572,3 +572,145 @@ def audit_bbs_is456(
         "anomalyCount": len(anomalies),
         "anomalies": anomalies,
     }
+
+
+def _sanitize_display_name(raw_str: str, fallback: str = "") -> str:
+    txt = re.sub(r"\.(dwg|dxf|pdf)$", "", str(raw_str or ""), flags=re.I)
+    txt = re.sub(r"[_]+", " ", txt)
+    txt = re.sub(r"\s+", " ", txt).strip(" -.")
+    if not txt:
+        return fallback
+    if txt.isupper() or txt.islower():
+        txt = " ".join(w if (w.isupper() and len(w) <= 3 and any(c.isdigit() for c in w)) else w.capitalize() for w in txt.split())
+    return txt
+
+
+def _infer_sheet_title_from_texts(box_texts: List[str]) -> Optional[str]:
+    title_kw = re.compile(
+        r"\b(plan|layout|schedule|section|elevation|detail|details|diagram|riser|footing|column|beam|slab|floor|terrace|roof|basement|ground|plumbing|electrical|fire|sprinkler|framing)\b",
+        re.I,
+    )
+    best: Optional[str] = None
+    best_score = 0
+    for raw in box_texts:
+        t = re.sub(r"\s+", " ", str(raw or "")).strip(" -:_.")
+        if len(t) < 4 or len(t) > 56 or re.fullmatch(r"[\d\W]+", t):
+            continue
+        if re.search(r"\b(note|notes|scale|date|drawn|checked|approved|client|architect|consultant|dwg\s*no)\b", t, re.I):
+            continue
+        matches = len(title_kw.findall(t))
+        if matches > 0:
+            score = matches * 10 + (6 if len(t) <= 36 else 0)
+            if score > best_score:
+                best_score = score
+                best = t
+    return _sanitize_display_name(best, "") if best else None
+
+
+def clean_names_and_sheets_ai(
+    session: Optional[Session],
+    filename: str,
+    sheets: List[Dict[str, Any]],
+    candidate_texts: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    On-demand AI assistant to clean raw filenames, standardize sheet names, and infer disciplines.
+    Uses per-sheet bounding-box texts when provided so sheet names reflect actual layout content.
+    Falls back to deterministic regex + CAD title-block keyword extraction if AI API is unavailable.
+    """
+    valid_disciplines = {"architectural", "electrical", "structural", "plumbing", "fire"}
+    stem = re.sub(r"\.(dwg|dxf|pdf)$", "", filename or "drawing", flags=re.I)
+    cleaned_stem = re.sub(r"[_.\-]+", " ", stem)
+    cleaned_stem = re.sub(r"\b(rev\s*\d+|final|working|cad|drawing)\b", "", cleaned_stem, flags=re.I).strip()
+    cleaned_title = _sanitize_display_name(cleaned_stem, "Architectural Drawing")
+
+    all_sheet_texts: List[str] = list(candidate_texts or [])
+    for s in sheets:
+        for st in (s.get("candidate_texts") or [])[:15]:
+            all_sheet_texts.append(str(st))
+
+    # Infer discipline
+    disc = "architectural"
+    combined_probe = f"{filename} {' '.join(all_sheet_texts[:40])}".lower()
+    if re.search(r"\b(elec|power|light|switch|conduit|db)\b", combined_probe):
+        disc = "electrical"
+    elif re.search(r"\b(struct|beam|col|footing|rcc|slab|rebar)\b", combined_probe):
+        disc = "structural"
+    elif re.search(r"\b(plumb|drain|pipe|sewer|phe|sanitary)\b", combined_probe):
+        disc = "plumbing"
+    elif re.search(r"\b(fire|sprinkler|hydrant|extinguisher)\b", combined_probe):
+        disc = "fire"
+
+    cleaned_sheets: List[Dict[str, Any]] = []
+    for idx, s in enumerate(sheets):
+        sid = s.get("id") or f"sheet_{idx + 1}"
+        orig_name = str(s.get("name") or f"Sheet {idx + 1}").strip()
+        box_texts = [str(x) for x in (s.get("candidate_texts") or []) if x]
+        inferred_from_box = _infer_sheet_title_from_texts(box_texts) if box_texts else None
+        is_generic = bool(re.fullmatch(r"(sheet|view|frame|layout|window)\s*#?\d*", orig_name, re.I))
+        if is_generic and inferred_from_box:
+            s_clean = inferred_from_box
+        else:
+            s_clean = _sanitize_display_name(re.sub(r"[_.\-]+", " ", orig_name), inferred_from_box or f"Sheet {idx + 1}")
+        cleaned_sheets.append({"id": sid, "name": s_clean or f"Sheet {idx + 1}"})
+
+    fallback_result = {
+        "cleaned_title": cleaned_title,
+        "discipline": disc,
+        "sheets": cleaned_sheets,
+    }
+
+    system_prompt = (
+        "You are an AEC CAD drawing organizer. Given a raw CAD filename, existing sheets (with optional text snippets "
+        "extracted from inside each sheet's layout box), and general drawing text snippets, "
+        "return a clean, professional, human-readable plan title (no underscores or file extensions), "
+        "the most appropriate discipline (one of 'architectural', 'electrical', 'structural', 'plumbing', 'fire'), "
+        "and concise, descriptive names for each sheet based on its layout box texts and title block (never leave underscores). "
+        "Return strict JSON matching: "
+        '{"cleaned_title": string, "discipline": string, "sheets": [{"id": string, "name": string}]}'
+    )
+
+    user_payload = {
+        "filename": filename,
+        "current_sheets": [
+            {
+                "id": s.get("id") or f"sheet_{i+1}",
+                "name": s.get("name"),
+                "box_texts": [str(x) for x in (s.get("candidate_texts") or [])[:25]],
+            }
+            for i, s in enumerate(sheets)
+        ],
+        "candidate_texts": (candidate_texts or [])[:40],
+    }
+
+    ai_result = _call_deepinfra_json(
+        session=session,
+        task_name="clean_names_and_sheets",
+        model=MODEL_TIER1_FAST,
+        system_prompt=system_prompt,
+        user_payload=user_payload,
+        max_tokens=600,
+    )
+
+    if ai_result and isinstance(ai_result, dict) and "cleaned_title" in ai_result:
+        ai_sheets_map = {
+            item.get("id"): _sanitize_display_name(str(item.get("name") or ""), "")
+            for item in (ai_result.get("sheets") or [])
+            if isinstance(item, dict) and item.get("id")
+        }
+        final_sheets = []
+        for s in cleaned_sheets:
+            sid = s["id"]
+            candidate_name = ai_sheets_map.get(sid) or s["name"]
+            final_sheets.append({"id": sid, "name": candidate_name})
+        ai_disc = str(ai_result.get("discipline") or disc).lower().strip()
+        if ai_disc not in valid_disciplines:
+            ai_disc = disc
+        return {
+            "cleaned_title": _sanitize_display_name(str(ai_result.get("cleaned_title") or ""), cleaned_title),
+            "discipline": ai_disc,
+            "sheets": final_sheets,
+        }
+
+    return fallback_result
+

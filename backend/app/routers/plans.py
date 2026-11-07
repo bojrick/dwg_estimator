@@ -46,6 +46,7 @@ from app.services.structural_ai import (
     analyze_sheets_and_specs,
     associate_sections_and_callouts,
     audit_bbs_is456,
+    clean_names_and_sheets_ai,
     normalize_schedule_tables,
 )
 
@@ -74,7 +75,11 @@ class UpdatePlanRequest(BaseModel):
 
 
 class SaveStructuralEstimateRequest(BaseModel):
-    structural_estimate: Dict[str, Any]
+    structural_estimate: Optional[Dict[str, Any]] = None
+    architectural_estimate: Optional[Dict[str, Any]] = None
+    electrical_estimate: Optional[Dict[str, Any]] = None
+    plumbing_estimate: Optional[Dict[str, Any]] = None
+    fire_estimate: Optional[Dict[str, Any]] = None
 
 
 class ShareTableRequest(BaseModel):
@@ -95,6 +100,18 @@ class MatchSectionsAuditRequest(BaseModel):
     members: List[Dict[str, Any]] = []
     section_clusters: List[Dict[str, Any]] = []
     parameters: Dict[str, Any] = {}
+
+
+class CleanNamesRequest(BaseModel):
+    filename: Optional[str] = ""
+    current_title: Optional[str] = None
+    discipline: Optional[str] = None
+    sheets: List[Dict[str, Any]] = []
+    candidate_texts: List[str] = []
+    apply: Optional[bool] = False
+    custom_title: Optional[str] = None
+    custom_discipline: Optional[str] = None
+    custom_sheets: Optional[List[Dict[str, Any]]] = None
 
 
 
@@ -125,6 +142,8 @@ def _build_summary(cleaned_raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _serialize_plan(plan: Plan) -> Dict[str, Any]:
+    est_blob = json.loads(getattr(plan, "structural_estimate_json", "{}") or "{}")
+    disciplines_map = est_blob.get("_disciplines", {}) if isinstance(est_blob, dict) else {}
     return {
         "id": plan.id,
         "name": plan.name,
@@ -140,7 +159,17 @@ def _serialize_plan(plan: Plan) -> Dict[str, Any]:
         "match_reason": plan.match_reason,
         "sheets": json.loads(plan.sheets_json or "[]"),
         "summary": json.loads(plan.summary_json or "{}"),
-        "structural_estimate": json.loads(getattr(plan, "structural_estimate_json", "{}") or "{}"),
+        "structural_estimate": est_blob,
+        "architectural_estimate": disciplines_map.get("architectural_estimate", {}),
+        "electrical_estimate": disciplines_map.get("electrical_estimate", {}),
+        "plumbing_estimate": disciplines_map.get("plumbing_estimate", {}),
+        "fire_estimate": disciplines_map.get("fire_estimate", {}),
+        "discipline_estimates": {
+            "architectural": disciplines_map.get("architectural_estimate", {}),
+            "electrical": disciplines_map.get("electrical_estimate", {}),
+            "plumbing": disciplines_map.get("plumbing_estimate", {}),
+            "fire": disciplines_map.get("fire_estimate", {}),
+        },
         "unit_name": plan.unit_name,
         "scale_to_m": plan.scale_to_m,
         "storage_backend": plan.storage_backend,
@@ -718,22 +747,29 @@ async def create_plan(
         session.commit()
         raise HTTPException(status_code=400, detail=str(exc))
 
-    return {
-        "plan": _serialize_plan(plan),
-        "raw": cleaned_raw,
-    }
+    return _load_plan_payload(plan, preloaded_raw=cleaned_raw)
 
 
-def _load_plan_payload(plan: Plan) -> Dict[str, Any]:
-    raw_data = None
-    if plan.parsed_json_key:
+def _load_plan_payload(plan: Plan, preloaded_raw: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    raw_data = preloaded_raw
+    if raw_data is None and plan.parsed_json_key:
         try:
             raw_data = json.loads(get_object_bytes(plan.parsed_json_key).decode("utf-8"))
         except Exception:
             raw_data = None
+    full_raw_data = None
+    if plan.full_parsed_json_key:
+        if plan.full_parsed_json_key == plan.parsed_json_key and raw_data is not None:
+            full_raw_data = raw_data
+        else:
+            try:
+                full_raw_data = json.loads(get_object_bytes(plan.full_parsed_json_key).decode("utf-8"))
+            except Exception:
+                full_raw_data = None
     return {
         "plan": _serialize_plan(plan),
         "raw": raw_data,
+        "fullRaw": full_raw_data or raw_data,
     }
 
 
@@ -807,10 +843,7 @@ async def attach_or_replace_pdf(
     session.add(plan)
     session.commit()
     session.refresh(plan)
-    return {
-        "plan": _serialize_plan(plan),
-        "raw": cleaned_raw,
-    }
+    return _load_plan_payload(plan, preloaded_raw=cleaned_raw)
 
 
 @router.post("/plans/{plan_id}/dwg")
@@ -851,10 +884,7 @@ async def attach_or_replace_dwg(
     session.add(plan)
     session.commit()
     session.refresh(plan)
-    return {
-        "plan": _serialize_plan(plan),
-        "raw": cleaned_raw,
-    }
+    return _load_plan_payload(plan, preloaded_raw=cleaned_raw)
 
 
 @router.post("/plans/{plan_id}/generate-pdf")
@@ -949,13 +979,7 @@ def update_plan_view_or_units(
     session.commit()
     session.refresh(plan)
 
-    if cleaned_raw is None and plan.parsed_json_key:
-        cleaned_raw = json.loads(get_object_bytes(plan.parsed_json_key).decode("utf-8"))
-
-    return {
-        "plan": _serialize_plan(plan),
-        "raw": cleaned_raw,
-    }
+    return _load_plan_payload(plan, preloaded_raw=cleaned_raw)
 
 
 @router.get("/plans/{plan_id}/structural-estimate")
@@ -985,15 +1009,35 @@ def save_structural_estimate(
     user_id: Optional[str] = Depends(get_current_user_id),
 ):
     plan = _get_owned_plan(session, plan_id, user_id)
-    plan.structural_estimate_json = json.dumps(req.structural_estimate)
+    existing_blob = json.loads(getattr(plan, "structural_estimate_json", "{}") or "{}")
+    if not isinstance(existing_blob, dict):
+        existing_blob = {}
+    disciplines_map = dict(existing_blob.get("_disciplines") or {})
+
+    if req.structural_estimate is not None:
+        existing_blob = dict(req.structural_estimate)
+    for key in ("architectural_estimate", "electrical_estimate", "plumbing_estimate", "fire_estimate"):
+        val = getattr(req, key, None)
+        if val is not None:
+            disciplines_map[key] = val
+    if disciplines_map:
+        existing_blob["_disciplines"] = disciplines_map
+
+    plan.structural_estimate_json = json.dumps(existing_blob)
     plan.updated_at = datetime.now(timezone.utc)
     session.add(plan)
     session.commit()
     session.refresh(plan)
+    serialized = _serialize_plan(plan)
     return {
         "status": "ok",
         "plan_id": plan.id,
-        "structural_estimate": json.loads(plan.structural_estimate_json or "{}"),
+        "structural_estimate": serialized["structural_estimate"],
+        "architectural_estimate": serialized["architectural_estimate"],
+        "electrical_estimate": serialized["electrical_estimate"],
+        "plumbing_estimate": serialized["plumbing_estimate"],
+        "fire_estimate": serialized["fire_estimate"],
+        "discipline_estimates": serialized["discipline_estimates"],
         "updated_at": plan.updated_at.isoformat(),
     }
 
@@ -1223,6 +1267,99 @@ def api_match_sections_and_audit(
         "matches": sec_res.get("matches", []),
         "audit": audit_res,
     }
+
+
+def _extract_sheet_context_texts(raw_blob: Dict[str, Any], sheets: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], List[str]]:
+    all_texts = raw_blob.get("texts") or []
+    sorted_texts = sorted(all_texts, key=lambda t: -(float(t.get("height") or 0)))
+    general_texts = [str(t.get("text") or "").strip() for t in sorted_texts if t.get("text")][:45]
+    enriched_sheets: List[Dict[str, Any]] = []
+    for s in sheets:
+        s_copy = dict(s)
+        if not s_copy.get("candidate_texts") and isinstance(s_copy.get("bbox"), dict):
+            b = s_copy["bbox"]
+            min_x, max_x = float(b.get("min_x", -1e9)), float(b.get("max_x", 1e9))
+            min_y, max_y = float(b.get("min_y", -1e9)), float(b.get("max_y", 1e9))
+            in_box = [
+                str(t.get("text") or "").strip()
+                for t in sorted_texts
+                if t.get("text")
+                and min_x <= float(t.get("x", 0)) <= max_x
+                and min_y <= float(t.get("y", 0)) <= max_y
+            ][:25]
+            if in_box:
+                s_copy["candidate_texts"] = in_box
+        enriched_sheets.append(s_copy)
+    return enriched_sheets, general_texts
+
+
+@router.post("/plans/{plan_id}/ai-clean-names")
+def api_clean_names_and_sheets_for_plan(
+    plan_id: int,
+    req: CleanNamesRequest,
+    session: Session = Depends(get_session),
+    user_id: Optional[str] = Depends(get_current_user_id),
+):
+    plan = _get_owned_plan(session, plan_id, user_id)
+    existing_sheets = json.loads(plan.sheets_json or "[]")
+
+    if req.apply:
+        if req.custom_title and req.custom_title.strip():
+            plan.name = req.custom_title.strip()
+        if req.custom_discipline and req.custom_discipline.strip().lower() in VALID_DISCIPLINES:
+            plan.discipline = req.custom_discipline.strip().lower()
+        if req.custom_sheets is not None:
+            name_map = {str(s.get("id")): str(s.get("name")).strip() for s in req.custom_sheets if s.get("id") and s.get("name")}
+            merged_sheets = [{**s, "name": name_map.get(str(s.get("id")), s.get("name"))} for s in existing_sheets]
+            plan.sheets_json = json.dumps(merged_sheets)
+            if plan.active_sheet_id and plan.active_sheet_id in name_map:
+                plan.active_sheet_name = name_map[plan.active_sheet_id]
+            if plan.full_parsed_json_key:
+                try:
+                    full_raw = json.loads(get_object_bytes(plan.full_parsed_json_key).decode("utf-8"))
+                    full_raw["sheets"] = merged_sheets
+                    plan.full_parsed_json_key = put_object(
+                        f"plans/plan_{plan.id}/full_parsed.json",
+                        json.dumps(full_raw).encode("utf-8"),
+                        content_type="application/json",
+                    )
+                except Exception:
+                    pass
+        plan.updated_at = datetime.now(timezone.utc)
+        session.add(plan)
+        session.commit()
+        session.refresh(plan)
+        return {
+            "applied": True,
+            "cleaned_title": plan.name,
+            "discipline": plan.discipline,
+            "sheets": json.loads(plan.sheets_json or "[]"),
+            "plan": _serialize_plan(plan),
+        }
+
+    filename = req.filename or plan.dwg_filename or plan.name or "drawing.dwg"
+    sheets = req.sheets or existing_sheets
+    candidate_texts = list(req.candidate_texts or [])
+    raw_key = plan.full_parsed_json_key or plan.parsed_json_key
+    if raw_key:
+        try:
+            raw_blob = json.loads(get_object_bytes(raw_key).decode("utf-8"))
+            sheets, fallback_texts = _extract_sheet_context_texts(raw_blob, sheets)
+            if not candidate_texts:
+                candidate_texts = fallback_texts
+        except Exception:
+            pass
+    return clean_names_and_sheets_ai(session, filename, sheets, candidate_texts)
+
+
+@router.post("/plans/ai-clean-names")
+def api_clean_names_and_sheets_general(
+    req: CleanNamesRequest,
+    session: Session = Depends(get_session),
+):
+    filename = req.filename or req.current_title or "drawing.dwg"
+    return clean_names_and_sheets_ai(session, filename, req.sheets, req.candidate_texts)
+
 
 
 

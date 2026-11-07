@@ -1,36 +1,47 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Cloud,
-  Upload,
-  FileCode2,
-  Ruler,
-  Share2,
-  Trash2,
-  Search,
   Plus,
   CheckCircle2,
-  Layers,
   RefreshCw,
-  X,
-  Download,
+  Search,
   FolderKanban,
-  FolderInput,
-  FolderPlus,
   Pencil,
-  Clock,
-  LogOut,
-  Lock,
-  Settings,
-  Compass,
-  ArrowRight,
+  Trash2,
 } from 'lucide-react';
 import { OpenCadViewer } from './components/OpenCadViewer';
 import { StructuralEstimatorPage } from './components/StructuralEstimator/StructuralEstimatorPage';
+import { ArchitecturalEstimatorPage } from './components/estimators/ArchitecturalEstimator/ArchitecturalEstimatorPage';
+import { ElectricalEstimatorPage } from './components/estimators/ElectricalEstimator/ElectricalEstimatorPage';
+import { PlumbingEstimatorPage } from './components/estimators/PlumbingEstimator/PlumbingEstimatorPage';
+import { FireEstimatorPage } from './components/estimators/FireEstimator/FireEstimatorPage';
 import { SheetSelectorModal, SheetConfig, cropRawDataToSheet } from './components/SheetSelectorModal';
+import { AppHeader } from './components/dashboard/AppHeader';
+import { GuestLandingView } from './components/dashboard/GuestLandingView';
+import { ProjectSidebar } from './components/dashboard/ProjectSidebar';
+import { PlanCard } from './components/dashboard/PlanCard';
+import { AuthModal } from './components/modals/AuthModal';
+import { ProfileModal } from './components/modals/ProfileModal';
+import { UploadPlanModal } from './components/modals/UploadPlanModal';
+import {
+  RenameProjectModal,
+  DeleteProjectModal,
+  MovePlanModal,
+  RenamePlanModal,
+  CreateProjectModal,
+  ConfirmDeletePlanModal,
+} from './components/modals/ProjectPlanModals';
+import { AiNameCleanupModal } from './components/modals/AiNameCleanupModal';
+import { UploadProgressOverlay } from './components/ui/UploadProgressOverlay';
+import {
+  PlanDiscipline,
+  DISCIPLINES,
+  UploadProgressState,
+  inferDisciplineFromFilename,
+  inferProjectFromFilename,
+} from './types/plan';
 import {
   AuthConfig,
   AuthSession,
-  UserProfile,
   apiUrl,
   authFetch,
   fetchAuthConfig,
@@ -40,129 +51,7 @@ import {
   signInWithEmail,
   signOutSession,
   signUpWithEmail,
-  updateUserProfile,
 } from './auth';
-
-export type PlanDiscipline = 'architectural' | 'electrical' | 'structural' | 'plumbing' | 'fire';
-
-export const DISCIPLINES: {
-  id: PlanDiscipline;
-  label: string;
-  badgeClass: string;
-  pillActiveClass: string;
-}[] = [
-  {
-    id: 'architectural',
-    label: 'Architectural',
-    badgeClass: 'bg-white/5 border-white/10 text-zinc-300',
-    pillActiveClass: 'bg-zinc-100 text-zinc-900 border-zinc-100',
-  },
-  {
-    id: 'electrical',
-    label: 'Electrical',
-    badgeClass: 'bg-white/5 border-white/10 text-zinc-300',
-    pillActiveClass: 'bg-zinc-100 text-zinc-900 border-zinc-100',
-  },
-  {
-    id: 'structural',
-    label: 'Structural',
-    badgeClass: 'bg-blue-500/15 border-blue-500/35 text-zinc-300',
-    pillActiveClass: 'bg-zinc-100 text-zinc-900 border-zinc-100',
-  },
-  {
-    id: 'plumbing',
-    label: 'Plumbing',
-    badgeClass: 'bg-white/5 border-white/10 text-zinc-300',
-    pillActiveClass: 'bg-zinc-100 text-zinc-900 border-zinc-100',
-  },
-  {
-    id: 'fire',
-    label: 'Fire',
-    badgeClass: 'bg-white/5 border-white/10 text-zinc-300',
-    pillActiveClass: 'bg-zinc-100 text-zinc-900 border-zinc-100',
-  },
-];
-
-function inferDisciplineFromFilename(...names: (string | undefined | null)[]): PlanDiscipline {
-  const s = names.filter(Boolean).join(' ').toLowerCase();
-  if (/(?:^|[\s_\-.])(elec\w*|power|lighting|conduit|wiring|panel|switch\w*|sldb|mddb)(?:$|[\s_\-.])/.test(s)) {
-    return 'electrical';
-  }
-  if (/(?:^|[\s_\-.])(struct\w*|column\w*|col|beam\w*|footing\w*|foundation\w*|rcc|slab|khunt|centerline|lintel|plinth)(?:$|[\s_\-.])/.test(s)) {
-    return 'structural';
-  }
-  if (/(?:^|[\s_\-.])(plumb\w*|sanitary|drain\w*|sewer\w*|water|pipe\w*|phe|stp|ugt|oht)(?:$|[\s_\-.])/.test(s)) {
-    return 'plumbing';
-  }
-  if (/(?:^|[\s_\-.])(fire\w*|sprinkler\w*|hydrant\w*|smoke|alarm\w*|hose|fhc)(?:$|[\s_\-.])/.test(s)) {
-    return 'fire';
-  }
-  return 'architectural';
-}
-
-function inferProjectFromFilename(filename: string, existingProjects: string[]): string {
-  const stem = filename.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
-  const stopMatch = stem.match(
-    /\b(block|working|plan|layout|ground|first|second|third|fourth|1st|2nd|3rd|4th|terrace|typical|floor|sheet|elec\w*|struct\w*|plumb\w*|fire\w*|arch\w*|section\w*|elevation\w*|detail\w*|centerline|column\w*|footing\w*)\b/i
-  );
-  const prefix = (stopMatch && stopMatch.index !== undefined ? stem.slice(0, stopMatch.index) : stem)
-    .replace(/\s+/g, ' ')
-    .trim();
-  if (!prefix) return '';
-  const titled = prefix
-    .split(' ')
-    .map((w) => (w === w.toUpperCase() && w.length > 1 ? w : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()))
-    .join(' ');
-  const low = titled.toLowerCase();
-  for (const p of existingProjects) {
-    if (p && p !== 'Default Project') {
-      const pl = p.toLowerCase();
-      if (pl === low || pl.startsWith(low + ' ') || low.startsWith(pl + ' ')) {
-        return p;
-      }
-    }
-  }
-  return titled;
-}
-
-interface UploadProgressState {
-  pct: number;
-  stage: string;
-  elapsedSec: number;
-  remainingSec: number;
-}
-
-function UploadProgressOverlay({ progress }: { progress: UploadProgressState | null }) {
-  if (!progress) return null;
-  return (
-    <div className="fixed inset-0 z-[70] bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-3 shadow-2xl">
-        <div className="flex items-center justify-between text-xs font-medium text-white">
-          <span className="flex items-center gap-2">
-            <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
-            {progress.stage}
-          </span>
-          <span className="text-blue-400 font-mono">{progress.pct}%</span>
-        </div>
-        <div className="w-full h-2.5 bg-zinc-800 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-blue-500 transition-all duration-300"
-            style={{ width: `${progress.pct}%` }}
-          />
-        </div>
-        <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono">
-          <span>Elapsed: {progress.elapsedSec}s</span>
-          <span className="text-zinc-300 flex items-center gap-1">
-            <Clock className="w-3 h-3" />
-            {progress.remainingSec > 0
-              ? `~${progress.remainingSec}s remaining`
-              : 'Finishing up...'}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 const isIosBrowser =
   typeof navigator !== 'undefined' &&
@@ -180,28 +69,35 @@ export function App() {
   const [authNotice, setAuthNotice] = useState<string | null>(null);
 
   const [plans, setPlans] = useState<any[]>([]);
-  const [storageBackend, setStorageBackend] = useState<string>('cloud-vault');
+  const [, setStorageBackend] = useState<string>('cloud-vault');
   const [loadingVault, setLoadingVault] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedProject, setSelectedProject] = useState<string>('ALL');
   const [selectedDiscipline, setSelectedDiscipline] = useState<string>('ALL');
 
   // Active opened plan state
-  const [activePlanPayload, setActivePlanPayload] = useState<{ plan: any; raw: any; fullRaw?: any; isGuest?: boolean } | null>(null);
+  const [activePlanPayload, setActivePlanPayload] = useState<{
+    plan: any;
+    raw: any;
+    fullRaw?: any;
+    isGuest?: boolean;
+  } | null>(null);
   const [guestDwgFile, setGuestDwgFile] = useState<File | null>(null);
   const [viewerInitialMeasure, setViewerInitialMeasure] = useState<boolean>(false);
   const [openingPlan, setOpeningPlan] = useState<boolean>(false);
+
+  // Estimator Routing State
+  const [activeEstimatorDiscipline, setActiveEstimatorDiscipline] = useState<PlanDiscipline | null>(null);
   const [isStructuralEstimatorOpen, setIsStructuralEstimatorOpen] = useState<boolean>(false);
 
   // Auth modal & profile state
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [showProfileModal, setShowProfileModal] = useState<boolean>(false);
-  const [savingGuestPlan, setSavingGuestPlan] = useState<boolean>(false);
+  const [, setSavingGuestPlan] = useState<boolean>(false);
 
   // Upload modal state
   const [showUploadModal, setShowUploadModal] = useState<boolean>(false);
   const [uploadDwgFiles, setUploadDwgFiles] = useState<File[]>([]);
-  const uploadDwgFile = uploadDwgFiles[0] || null;
   const [uploadTitle, setUploadTitle] = useState<string>('');
   const [uploadProject, setUploadProject] = useState<string>('');
   const [uploadDiscipline, setUploadDiscipline] = useState<PlanDiscipline>('architectural');
@@ -209,6 +105,7 @@ export function App() {
   const [uploading, setUploading] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressState | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isAiCleaningTitle, setIsAiCleaningTitle] = useState<boolean>(false);
 
   // Sheet Window Selector state
   const [sheetSelectorData, setSheetSelectorData] = useState<{
@@ -227,6 +124,19 @@ export function App() {
   const [movePlanModal, setMovePlanModal] = useState<{ plan: any; targetProject: string; customProject: string } | null>(null);
   const [renamePlanModal, setRenamePlanModal] = useState<{ plan: any; newName: string } | null>(null);
   const [createProjectModal, setCreateProjectModal] = useState<{ name: string } | null>(null);
+
+  // AI Name Cleanup Modal State
+  const [aiCleanupTarget, setAiCleanupTarget] = useState<{
+    planId?: number;
+    originalTitle: string;
+    originalDiscipline: PlanDiscipline;
+    originalSheets: { id: string; name: string }[];
+    proposal: {
+      cleaned_title: string;
+      discipline: PlanDiscipline;
+      sheets: { id: string; name: string }[];
+    };
+  } | null>(null);
 
   // Toast & PWA install prompt
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -267,7 +177,7 @@ export function App() {
   }, []);
 
   const openPlanById = useCallback(
-    async (planId: number, startMeasure = false) => {
+    async (planId: number, startMeasure = false, skipHistoryPush = false) => {
       setOpeningPlan(true);
       setViewerInitialMeasure(startMeasure);
       try {
@@ -275,11 +185,20 @@ export function App() {
         if (res.ok) {
           const data = await res.json();
           setActivePlanPayload(data);
+          if (!skipHistoryPush) {
+            const params = new URLSearchParams(window.location.search);
+            params.set('planId', String(planId));
+            params.delete('view');
+            window.history.pushState({ planId }, '', `?${params.toString()}`);
+          }
+          return data;
         } else {
           showToast('Failed to load plan');
+          return null;
         }
       } catch (err: any) {
         showToast(err.message || 'Error opening plan');
+        return null;
       } finally {
         setOpeningPlan(false);
       }
@@ -287,7 +206,94 @@ export function App() {
     [showToast]
   );
 
-  // Initialize Auth & check for ?share=<token> on initial load
+  // Sync browser Back/Forward (popstate) and iOS mobile / standalone PWA left-edge swipe back
+  useEffect(() => {
+    const onPopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const viewParam = params.get('view') as PlanDiscipline | null;
+      const planIdParam = params.get('planId');
+      const shareParam = params.get('share');
+
+      if (viewParam) {
+        setActiveEstimatorDiscipline(viewParam);
+        setIsStructuralEstimatorOpen(viewParam === 'structural');
+      } else {
+        setActiveEstimatorDiscipline(null);
+        setIsStructuralEstimatorOpen(false);
+      }
+
+      if (!planIdParam && !shareParam) {
+        setActivePlanPayload(null);
+      } else if (planIdParam && !activePlanPayload) {
+        openPlanById(Number(planIdParam), false, true);
+      }
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [activePlanPayload, openPlanById]);
+
+  useEffect(() => {
+    let edgeTouchStart: { x: number; y: number; t: number } | null = null;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) {
+        edgeTouchStart = null;
+        return;
+      }
+      const x = e.touches[0].clientX;
+      if (x <= 24) {
+        edgeTouchStart = { x, y: e.touches[0].clientY, t: Date.now() };
+      } else {
+        edgeTouchStart = null;
+      }
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!edgeTouchStart || e.changedTouches.length === 0) return;
+      const dx = e.changedTouches[0].clientX - edgeTouchStart.x;
+      const dy = Math.abs(e.changedTouches[0].clientY - edgeTouchStart.y);
+      const dt = Date.now() - edgeTouchStart.t;
+      edgeTouchStart = null;
+
+      // Trigger back navigation in installed standalone PWA (or browsers that don't handle edge-pop themselves)
+      const isStandalonePwa =
+        (navigator as any).standalone === true ||
+        window.matchMedia?.('(display-mode: standalone)')?.matches;
+      if (!isStandalonePwa) return;
+
+      if (dx >= 68 && dy < 56 && dt < 700) {
+        if (activeEstimatorDiscipline || isStructuralEstimatorOpen) {
+          setActiveEstimatorDiscipline(null);
+          setIsStructuralEstimatorOpen(false);
+          const params = new URLSearchParams(window.location.search);
+          params.delete('view');
+          const nextUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
+          window.history.replaceState({}, '', nextUrl);
+        } else if (activePlanPayload) {
+          window.history.replaceState({}, '', window.location.pathname);
+          setActivePlanPayload(null);
+          setGuestDwgFile(null);
+          if (authSession) fetchVaultPlans();
+        }
+      }
+    };
+
+    window.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchend', onTouchEnd, { passive: true });
+    return () => {
+      window.removeEventListener('touchstart', onTouchStart);
+      window.removeEventListener('touchend', onTouchEnd);
+    };
+  }, [
+    activeEstimatorDiscipline,
+    isStructuralEstimatorOpen,
+    activePlanPayload,
+    authSession,
+    fetchVaultPlans,
+  ]);
+
+  // Initialize Auth & check for ?share=<token> / ?planId= on initial load
   useEffect(() => {
     let active = true;
     (async () => {
@@ -310,6 +316,8 @@ export function App() {
       const params = new URLSearchParams(window.location.search);
       const shareToken = params.get('share');
       const planIdParam = params.get('planId');
+      const viewParam = params.get('view') as PlanDiscipline | null;
+
       if (shareToken) {
         setOpeningPlan(true);
         fetch(apiUrl(`/api/plans/share/${encodeURIComponent(shareToken)}`))
@@ -317,8 +325,9 @@ export function App() {
           .then((data) => {
             if (active && data) {
               setActivePlanPayload(data);
-              if (params.get('view') === 'structural') {
-                setIsStructuralEstimatorOpen(true);
+              if (viewParam) {
+                setActiveEstimatorDiscipline(viewParam);
+                if (viewParam === 'structural') setIsStructuralEstimatorOpen(true);
               }
             }
           })
@@ -332,8 +341,9 @@ export function App() {
           .then((data) => {
             if (active && data) {
               setActivePlanPayload(data);
-              if (params.get('view') === 'structural') {
-                setIsStructuralEstimatorOpen(true);
+              if (viewParam) {
+                setActiveEstimatorDiscipline(viewParam);
+                if (viewParam === 'structural') setIsStructuralEstimatorOpen(true);
               }
             }
           })
@@ -375,7 +385,7 @@ export function App() {
     }
   };
 
-  const handleDwgFilesSelected = (files: FileList | File[] | null) => {
+  const handleDwgFilesSelected = (files: FileList | null) => {
     if (!files) return;
     const arr = Array.from(files).filter((f) => {
       const ext = f.name.toLowerCase();
@@ -406,7 +416,6 @@ export function App() {
       const startTime = Date.now();
       const sizeMB = dwgFile ? dwgFile.size / (1024 * 1024) : 0.2;
       const isDwg = dwgFile?.name.toLowerCase().endsWith('.dwg');
-      // Calibrated to optimized LibreDWG + single-pass ezdxf pipeline (~12-14s for 1.7MB DWG)
       const estTotalSec = !dwgFile
         ? 3
         : isDwg
@@ -565,11 +574,7 @@ export function App() {
         await fetchVaultPlans();
         showToast('Signed in');
       } else {
-        const { session } = await signUpWithEmail(
-          cfg,
-          authEmail.trim(),
-          authPassword
-        );
+        const { session } = await signUpWithEmail(cfg, authEmail.trim(), authPassword);
         if (session) {
           setAuthSession(session);
           setAuthPassword('');
@@ -599,7 +604,6 @@ export function App() {
     setSheetSelectorData(null);
 
     if (isGuest) {
-      // If user selected multiple sheets (from 1 or multiple DWG files), merge them into a unified plan
       if (configuredSheets.length > 1 || dwgFiles.length > 1) {
         setUploading(true);
         try {
@@ -637,7 +641,6 @@ export function App() {
         return;
       }
 
-      // Single sheet selected from 1 DWG file: isolate and crop tightly to discard all clutter immediately
       const targetSheet = configuredSheets[0];
       const croppedRaw = cropRawDataToSheet(sheetSelectorData.parsed?.raw_data, targetSheet);
       setGuestDwgFile(dwgFiles[0]);
@@ -656,7 +659,7 @@ export function App() {
           summary: sheetSelectorData.parsed?.summary,
         },
         raw: croppedRaw,
-        fullRaw: croppedRaw,
+        fullRaw: sheetSelectorData.parsed?.raw_data || croppedRaw,
         isGuest: true,
       });
       showToast(`Isolated view: ${targetSheet?.name || 'Selected Sheet'}`);
@@ -685,6 +688,9 @@ export function App() {
       await fetchVaultPlans();
       setViewerInitialMeasure(false);
       setActivePlanPayload(data);
+      if (data?.plan?.id) {
+        window.history.pushState({ planId: data.plan.id }, '', `?planId=${data.plan.id}`);
+      }
       showToast(dwgFiles.length > 1 ? 'Merged plan saved' : 'Plan saved');
     } catch (err: any) {
       showToast(err.message || 'Failed to save plan');
@@ -694,12 +700,9 @@ export function App() {
     }
   };
 
-  const handleGuestCadPreview = async (files: File | File[] | FileList) => {
-    const fileList = Array.isArray(files)
-      ? files
-      : 'length' in files
-      ? Array.from(files)
-      : [files];
+  const handleGuestCadPreview = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const fileList = Array.from(files);
     const valid = fileList.filter((f) => {
       const ext = f.name.toLowerCase();
       return ext.endsWith('.dwg') || ext.endsWith('.dxf');
@@ -787,21 +790,6 @@ export function App() {
     showToast('Signed out');
   };
 
-  const handleQuickUpdateMeta = async (
-    planId: number,
-    patch: { discipline?: string; project_name?: string }
-  ) => {
-    const res = await authFetch(`/api/plans/${planId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    });
-    if (res.ok) {
-      await fetchVaultPlans();
-      showToast('Plan organization updated!');
-    }
-  };
-
   const handleSharePlan = async (plan: any) => {
     const shareUrl = `${window.location.origin}/?share=${plan.share_token}`;
     if (navigator.share) {
@@ -813,7 +801,7 @@ export function App() {
         });
         return;
       } catch {
-        // Fallback to clipboard copy if user cancels or share fails
+        // Fallback
       }
     }
     try {
@@ -943,6 +931,151 @@ export function App() {
     setCreateProjectModal(null);
   };
 
+  // AI Name Cleanup Handlers
+  const handleTriggerAiClean = async (plan: any) => {
+    try {
+      const res = await authFetch(`/api/plans/${plan.id}/ai-clean-names`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apply: false }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAiCleanupTarget({
+          planId: plan.id,
+          originalTitle: plan.name,
+          originalDiscipline: plan.discipline || 'architectural',
+          originalSheets: (plan.sheets || []).map((s: any) => ({ id: s.id, name: s.name })),
+          proposal: {
+            cleaned_title: data.cleaned_title,
+            discipline: data.discipline,
+            sheets: data.sheets || [],
+          },
+        });
+      } else {
+        showToast('AI name suggestion failed');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error calling AI service');
+    }
+  };
+
+  const handleApplyAiClean = async (applied: {
+    title: string;
+    discipline: PlanDiscipline;
+    sheets: { id: string; name: string }[];
+  }) => {
+    if (!aiCleanupTarget) return;
+    const { planId } = aiCleanupTarget;
+    setAiCleanupTarget(null);
+    if (!planId) return;
+
+    try {
+      const res = await authFetch(`/api/plans/${planId}/ai-clean-names`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apply: true,
+          custom_title: applied.title,
+          custom_discipline: applied.discipline,
+          custom_sheets: applied.sheets,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (activePlanPayload?.plan?.id === planId && data?.plan) {
+          setActivePlanPayload((prev: any) => (prev ? { ...prev, plan: data.plan } : prev));
+        }
+        await fetchVaultPlans();
+        showToast('Plan & sheet names updated via AI cleanup!');
+      } else {
+        showToast('Failed to apply cleanup');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Error applying clean names');
+    }
+  };
+
+  const handleUploadCleanTitleAi = async () => {
+    const firstFile = uploadDwgFiles[0];
+    if (!firstFile && !uploadTitle) return;
+    setIsAiCleaningTitle(true);
+    try {
+      const res = await authFetch('/api/plans/ai-clean-names', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: firstFile?.name || '',
+          current_title: uploadTitle,
+          discipline: uploadDiscipline,
+          apply: false,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.cleaned_title) {
+          setUploadTitle(data.cleaned_title);
+        }
+        if (data.discipline) {
+          setUploadDiscipline(data.discipline);
+        }
+        showToast('AI cleaned drawing title & discipline');
+      }
+    } catch {
+      showToast('AI name cleanup unavailable');
+    } finally {
+      setIsAiCleaningTitle(false);
+    }
+  };
+
+  const handleOpenPlanCardEstimator = (plan: any) => {
+    openPlanById(plan.id, false, true).then((loaded) => {
+      if (loaded) {
+        const disc = (plan.discipline as PlanDiscipline) || 'structural';
+        setActiveEstimatorDiscipline(disc);
+        if (disc === 'structural') setIsStructuralEstimatorOpen(true);
+        const params = new URLSearchParams(window.location.search);
+        params.set('planId', String(plan.id));
+        params.set('view', disc);
+        window.history.pushState({ planId: plan.id, view: disc }, '', `?${params.toString()}`);
+      }
+    });
+  };
+
+  const handleSaveDisciplineEstimate = async (estimateKey: string, estimateData: any) => {
+    if (!activePlanPayload) return;
+    const normalized =
+      estimateData && typeof estimateData === 'object' && estimateKey in estimateData
+        ? estimateData[estimateKey]
+        : estimateData;
+    if (activePlanPayload.isGuest) {
+      setActivePlanPayload((prev: any) => ({
+        ...prev,
+        plan: {
+          ...prev.plan,
+          [estimateKey]: normalized,
+        },
+      }));
+      return;
+    }
+    const res = await authFetch(`/api/plans/${activePlanPayload.plan.id}/structural-estimate`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [estimateKey]: normalized }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setActivePlanPayload((prev: any) => ({
+        ...prev,
+        plan: {
+          ...prev.plan,
+          ...data,
+        },
+      }));
+      fetchVaultPlans();
+    }
+  };
+
   const projectScopedPlans = plans.filter((p) => {
     if (selectedProject !== 'ALL' && (p.project_name || 'Default Project') !== selectedProject) {
       return false;
@@ -965,113 +1098,19 @@ export function App() {
     );
   });
 
-  const groupedByProject: Record<string, any[]> = {};
-  for (const p of filteredPlans) {
-    const proj = p.project_name || 'Default Project';
-    if (!groupedByProject[proj]) groupedByProject[proj] = [];
-    groupedByProject[proj].push(p);
-  }
-  const projectGroupKeys = Object.keys(groupedByProject).sort();
+  // Render Discipline Estimators
+  const estimatorDiscipline = activeEstimatorDiscipline || (isStructuralEstimatorOpen ? 'structural' : null);
 
-  const authModal = showAuthModal && (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-5 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center shrink-0">
-              <Lock className="w-4 h-4 text-blue-400" />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold text-white">
-                {authMode === 'signin' ? 'Sign In to PlanVault' : 'Create account'}
-              </h3>
-              <p className="text-[11px] text-zinc-400">
-                {authMode === 'signin'
-                  ? 'Access and sync your private vault'
-                  : 'Save DWG plans & customize your measurement units'}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowAuthModal(false)}
-            className="p-1 rounded-lg text-zinc-400 hover:text-white"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+  if (activePlanPayload && estimatorDiscipline) {
+    const handleEstimatorBack = () => {
+      setActiveEstimatorDiscipline(null);
+      setIsStructuralEstimatorOpen(false);
+      const params = new URLSearchParams(window.location.search);
+      params.delete('view');
+      const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
+      window.history.replaceState({}, '', newUrl);
+    };
 
-        <form onSubmit={handleAuthSubmit} className="space-y-3.5">
-          <div>
-            <label className="block text-xs font-medium text-zinc-300 mb-1">Email</label>
-            <input
-              type="email"
-              required
-              value={authEmail}
-              onChange={(e) => setAuthEmail(e.target.value)}
-              placeholder="you@example.com"
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-zinc-300 mb-1">Password</label>
-            <input
-              type="password"
-              required
-              minLength={6}
-              value={authPassword}
-              onChange={(e) => setAuthPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-            />
-          </div>
-
-          {authError && (
-            <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-200">
-              {authError}
-            </div>
-          )}
-
-          {authNotice && (
-            <div className="p-2.5 rounded-xl bg-zinc-900 border border-blue-500/40 text-xs text-blue-200">
-              {authNotice}
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={authBusy}
-            className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-medium text-white shadow-lg transition"
-          >
-            {authBusy
-              ? 'Please wait...'
-              : authMode === 'signin'
-              ? 'Sign In'
-              : 'Create Account & Save'}
-          </button>
-        </form>
-
-        <div className="text-center pt-2 border-t border-zinc-800">
-          <button
-            type="button"
-            onClick={() => {
-              setAuthMode((m) => (m === 'signin' ? 'signup' : 'signin'));
-              setAuthError(null);
-              setAuthNotice(null);
-            }}
-            className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
-          >
-            {authMode === 'signin'
-              ? "Don't have an account? Sign up"
-              : 'Already have an account? Sign in'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-
-  // If Structural Estimator is open
-  if (activePlanPayload && isStructuralEstimatorOpen) {
     return (
       <div className="h-[100dvh] flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden">
         {toastMsg && (
@@ -1080,58 +1119,71 @@ export function App() {
             <span>{toastMsg}</span>
           </div>
         )}
-        <StructuralEstimatorPage
-          plan={activePlanPayload.plan}
-          rawData={activePlanPayload.raw}
-          fullRawData={activePlanPayload.fullRaw}
-          isGuest={activePlanPayload.isGuest}
-          onBack={() => {
-            setIsStructuralEstimatorOpen(false);
-            const params = new URLSearchParams(window.location.search);
-            params.delete('view');
-            const newUrl = params.toString() ? `?${params.toString()}` : window.location.pathname;
-            window.history.replaceState({}, '', newUrl);
-          }}
-          onSaveEstimate={async (estimate) => {
-            if (activePlanPayload.isGuest) {
-              setActivePlanPayload((prev: any) => ({
-                ...prev,
-                plan: {
-                  ...prev.plan,
-                  structural_estimate: estimate,
-                },
-              }));
-              return;
-            }
-            const res = await authFetch(`/api/plans/${activePlanPayload.plan.id}/structural-estimate`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ structural_estimate: estimate }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              setActivePlanPayload((prev: any) => ({
-                ...prev,
-                plan: {
-                  ...prev.plan,
-                  structural_estimate: data.structural_estimate,
-                },
-              }));
-              fetchVaultPlans();
-            } else {
-              const errData = await res.json().catch(() => ({}));
-              const msg = errData.detail || errData.message || `Save failed with status ${res.status}`;
-              console.error('Save structural estimate error:', msg);
-              throw new Error(msg);
-            }
-          }}
-          showToast={showToast}
-        />
+
+        {estimatorDiscipline === 'structural' && (
+          <StructuralEstimatorPage
+            plan={activePlanPayload.plan}
+            rawData={activePlanPayload.raw}
+            fullRawData={activePlanPayload.fullRaw || activePlanPayload.raw}
+            isGuest={activePlanPayload.isGuest}
+            onBack={handleEstimatorBack}
+            onSaveEstimate={(est) => handleSaveDisciplineEstimate('structural_estimate', est)}
+            showToast={showToast}
+          />
+        )}
+
+        {estimatorDiscipline === 'architectural' && (
+          <ArchitecturalEstimatorPage
+            plan={activePlanPayload.plan}
+            rawData={activePlanPayload.raw}
+            fullRawData={activePlanPayload.fullRaw || activePlanPayload.raw}
+            isGuest={activePlanPayload.isGuest}
+            onBack={handleEstimatorBack}
+            onSaveEstimate={(est) => handleSaveDisciplineEstimate('architectural_estimate', est)}
+            showToast={showToast}
+          />
+        )}
+
+        {estimatorDiscipline === 'electrical' && (
+          <ElectricalEstimatorPage
+            plan={activePlanPayload.plan}
+            rawData={activePlanPayload.raw}
+            fullRawData={activePlanPayload.fullRaw || activePlanPayload.raw}
+            isGuest={activePlanPayload.isGuest}
+            onBack={handleEstimatorBack}
+            onSaveEstimate={(est) => handleSaveDisciplineEstimate('electrical_estimate', est)}
+            showToast={showToast}
+          />
+        )}
+
+        {estimatorDiscipline === 'plumbing' && (
+          <PlumbingEstimatorPage
+            plan={activePlanPayload.plan}
+            rawData={activePlanPayload.raw}
+            fullRawData={activePlanPayload.fullRaw || activePlanPayload.raw}
+            isGuest={activePlanPayload.isGuest}
+            onBack={handleEstimatorBack}
+            onSaveEstimate={(est) => handleSaveDisciplineEstimate('plumbing_estimate', est)}
+            showToast={showToast}
+          />
+        )}
+
+        {estimatorDiscipline === 'fire' && (
+          <FireEstimatorPage
+            plan={activePlanPayload.plan}
+            rawData={activePlanPayload.raw}
+            fullRawData={activePlanPayload.fullRaw || activePlanPayload.raw}
+            isGuest={activePlanPayload.isGuest}
+            onBack={handleEstimatorBack}
+            onSaveEstimate={(est) => handleSaveDisciplineEstimate('fire_estimate', est)}
+            showToast={showToast}
+          />
+        )}
       </div>
     );
   }
 
-  // If a Plan is open in the viewer, show full-screen mobile-first Viewer
+  // If a Plan is open in CAD Viewer
   if (activePlanPayload) {
     const p = activePlanPayload.plan;
     return (
@@ -1148,7 +1200,18 @@ export function App() {
           rawData={activePlanPayload.raw}
           initialMeasure={viewerInitialMeasure}
           isGuest={activePlanPayload.isGuest}
+          onOpenEstimator={(discipline) => {
+            setActiveEstimatorDiscipline(discipline);
+            if (discipline === 'structural') setIsStructuralEstimatorOpen(true);
+            const params = new URLSearchParams(window.location.search);
+            params.set('view', discipline);
+            if (activePlanPayload.plan?.id) {
+              params.set('planId', String(activePlanPayload.plan.id));
+            }
+            window.history.pushState({}, '', `?${params.toString()}`);
+          }}
           onOpenStructuralEstimator={() => {
+            setActiveEstimatorDiscipline('structural');
             setIsStructuralEstimatorOpen(true);
             const params = new URLSearchParams(window.location.search);
             params.set('view', 'structural');
@@ -1169,9 +1232,8 @@ export function App() {
               : undefined
           }
           onBack={() => {
-            if (window.location.search.includes('share=')) {
-              window.history.replaceState({}, '', '/');
-            }
+            window.history.replaceState({}, '', window.location.pathname);
+            setActiveEstimatorDiscipline(null);
             setIsStructuralEstimatorOpen(false);
             setActivePlanPayload(null);
             setGuestDwgFile(null);
@@ -1247,7 +1309,9 @@ export function App() {
           }}
           onUploadDwg={async (file) => {
             if (activePlanPayload.isGuest) {
-              await handleGuestCadPreview(file);
+              const dt = new DataTransfer();
+              dt.items.add(file);
+              await handleGuestCadPreview(dt.files);
               return;
             }
             const form = new FormData();
@@ -1283,7 +1347,20 @@ export function App() {
             }
           }}
         />
-        {authModal}
+        <AuthModal
+          isOpen={showAuthModal}
+          onClose={() => setShowAuthModal(false)}
+          authMode={authMode}
+          setAuthMode={setAuthMode}
+          authEmail={authEmail}
+          setAuthEmail={setAuthEmail}
+          authPassword={authPassword}
+          setAuthPassword={setAuthPassword}
+          authBusy={authBusy}
+          authError={authError}
+          authNotice={authNotice}
+          onSubmit={handleAuthSubmit}
+        />
       </div>
     );
   }
@@ -1297,6 +1374,7 @@ export function App() {
         </div>
       )}
 
+      {/* Mobile Floating Action Button */}
       {authSession && !loadingVault && (
         <div className="sm:hidden fixed bottom-0 inset-x-0 z-30 bg-zinc-900/95 backdrop-blur-md border-t border-white/10 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
           <button
@@ -1312,299 +1390,62 @@ export function App() {
         </div>
       )}
 
-      {/* Top Mobile-First App Bar */}
-      <header className="sticky top-0 z-30 bg-zinc-900/95 backdrop-blur-md border-b border-zinc-800 px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))] flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm shrink-0">
-            <Cloud className="w-5 h-5 text-white" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-base font-semibold tracking-tight text-white">PlanVault</h1>
-              {!authSession && <span className="text-[11px] text-zinc-400">Guest</span>}
-            </div>
-            <p className="text-[11px] text-zinc-400 truncate hidden sm:block">
-              Plans by project and discipline
-            </p>
-          </div>
-        </div>
+      {/* Top App Header */}
+      <AppHeader
+        authSession={authSession}
+        username={username}
+        userEmail={userEmail}
+        userInitial={userInitial}
+        onOpenAuth={(mode) => {
+          setAuthMode(mode);
+          setAuthError(null);
+          setShowAuthModal(true);
+        }}
+        onOpenProfile={() => setShowProfileModal(true)}
+        onSignOut={handleSignOut}
+        onOpenUpload={() => {
+          if (selectedProject !== 'ALL') setUploadProject(selectedProject);
+          setShowUploadModal(true);
+        }}
+        installPrompt={installPrompt}
+        onInstallApp={async () => {
+          if (installPrompt) {
+            installPrompt.prompt();
+            await installPrompt.userChoice;
+            setInstallPrompt(null);
+          }
+        }}
+        isIosBrowser={isIosBrowser}
+        showToast={showToast}
+      />
 
-        <div className="flex items-center gap-2 shrink-0">
-          {authSession ? (
-            <div className="flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 rounded-xl px-2 py-1 sm:px-2.5 sm:py-1.5 text-xs">
-              <div className="w-5 h-5 rounded-md bg-blue-600/20 text-blue-400 flex items-center justify-center text-[10px] font-semibold shrink-0">
-                {userInitial}
-              </div>
-              <span
-                className="text-zinc-300 font-mono truncate max-w-[70px] sm:max-w-[140px]"
-                title={userEmail}
-              >
-                {username}
-              </span>
-              <button
-                onClick={() => setShowProfileModal(true)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-blue-400 transition"
-                title="Preferences & Units"
-              >
-                <Settings className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={handleSignOut}
-                className="p-1 rounded-lg text-zinc-400 hover:text-rose-400 transition"
-                title="Sign Out"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setAuthMode('signin');
-                  setAuthError(null);
-                  setShowAuthModal(true);
-                }}
-                className="px-3 py-1.5 rounded-xl text-xs font-medium text-zinc-300 hover:text-white transition"
-              >
-                Sign In
-              </button>
-              <button
-                onClick={() => {
-                  setAuthMode('signup');
-                  setAuthError(null);
-                  setShowAuthModal(true);
-                }}
-                className="px-3.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shadow transition"
-              >
-                Sign Up
-              </button>
-            </div>
-          )}
-
-          {installPrompt && (
-            <button
-              onClick={async () => {
-                installPrompt.prompt();
-                await installPrompt.userChoice;
-                setInstallPrompt(null);
-              }}
-              className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium flex items-center gap-1.5 border border-zinc-700"
-            >
-              <Download className="w-3.5 h-3.5 text-zinc-300" />
-              <span className="hidden sm:inline">Install App</span>
-            </button>
-          )}
-
-          {!installPrompt && isIosBrowser && (
-            <button
-              onClick={() => showToast('Tap Share, then Add to Home Screen')}
-              className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium flex items-center gap-1.5 border border-zinc-700"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Install</span>
-            </button>
-          )}
-
-          {authSession && (
-            <button
-              onClick={() => {
-                if (selectedProject !== 'ALL') setUploadProject(selectedProject);
-                setShowUploadModal(true);
-              }}
-              className="hidden sm:flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shadow-lg transition"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Upload plan</span>
-            </button>
-          )}
-        </div>
-      </header>
-
-      {/* Guest Landing Page Hero when not signed in */}
+      {/* Guest Landing Hero when not signed in */}
       {!authSession ? (
-        <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8 sm:py-12 flex flex-col justify-center space-y-8">
-          <div className="text-center space-y-3">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold">
-              <Compass className="w-3.5 h-3.5" />
-              <span>FOSS CAD Takeoff & Sheet Organizer</span>
-            </div>
-            <h2 className="text-2xl sm:text-4xl font-semibold text-white tracking-tight">
-              Open and measure DWG drawings in your browser
-            </h2>
-            <p className="text-sm sm:text-base text-zinc-400 max-w-xl mx-auto leading-relaxed">
-              Open DWG and DXF files on desktop or phone, then measure distances and room areas. Nothing to install.
-            </p>
-          </div>
-
-          {/* Guest CAD Upload Card */}
-          <div className="max-w-lg w-full mx-auto bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8 space-y-6 shadow-2xl">
-            <div className="text-center space-y-1">
-              <h3 className="text-base font-medium text-white">Try the viewer</h3>
-              <p className="text-xs text-zinc-400">
-                Upload a DWG or DXF file to view and measure immediately as a guest.
-              </p>
-            </div>
-
-            <label className="flex flex-col items-center justify-center border-2 border-dashed border-zinc-700 hover:border-blue-500/50 rounded-2xl p-6 cursor-pointer bg-zinc-950/60 transition group">
-              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:scale-105 transition mb-3">
-                <Upload className="w-6 h-6" />
-              </div>
-              <span className="text-sm font-medium text-white">Tap to choose DWG or DXF files</span>
-              <span className="text-xs text-zinc-400 mt-1">Free instant preview • Upload one or multiple drawings</span>
-              <input
-                type="file"
-                accept=".dwg,.dxf"
-                multiple
-                className="hidden"
-                disabled={uploading}
-                onChange={(e) => {
-                  if (e.target.files && e.target.files.length > 0) {
-                    handleGuestCadPreview(e.target.files);
-                  }
-                }}
-              />
-            </label>
-
-            {uploading && (
-              <div className="flex items-center justify-center gap-2 text-xs font-medium text-blue-400 animate-pulse py-2">
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Parsing and cleaning CAD entities...</span>
-              </div>
-            )}
-
-            <div className="border-t border-zinc-800 pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-              <span className="text-zinc-400 text-center sm:text-left">
-                Need to save plans, organize projects & sync?
-              </span>
-              <button
-                onClick={() => {
-                  setAuthMode('signup');
-                  setShowAuthModal(true);
-                }}
-                className="w-full sm:w-auto px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-medium flex items-center justify-center gap-1.5 transition"
-              >
-                <span>Create account</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Feature Highlights Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto pt-4">
-            <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-4 space-y-1.5">
-              <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
-                <Ruler className="w-4 h-4" />
-              </div>
-              <h4 className="text-xs font-medium text-white">Distance and area</h4>
-              <p className="text-[11px] text-zinc-400 leading-relaxed">
-                Measure distances, room areas, and perimeter polygons with customizable units (m, mm, ft, in).
-              </p>
-            </div>
-            <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-4 space-y-1.5">
-              <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-zinc-300">
-                <Layers className="w-4 h-4" />
-              </div>
-              <h4 className="text-xs font-medium text-white">Sheet isolation</h4>
-              <p className="text-[11px] text-zinc-400 leading-relaxed">
-                Isolates each floor plan from drawing borders and title blocks.
-              </p>
-            </div>
-            <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-4 space-y-1.5">
-              <div className="w-8 h-8 rounded-lg bg-zinc-500/10 flex items-center justify-center text-zinc-400">
-                <Cloud className="w-4 h-4" />
-              </div>
-              <h4 className="text-xs font-medium text-white">Save and share</h4>
-              <p className="text-[11px] text-zinc-400 leading-relaxed">
-                Save plans privately to your vault and generate instant shareable links for client review.
-              </p>
-            </div>
-          </div>
-        </main>
+        <GuestLandingView
+          uploading={uploading}
+          onSelectFiles={handleGuestCadPreview}
+          onOpenSignUp={() => {
+            setAuthMode('signup');
+            setShowAuthModal(true);
+          }}
+        />
       ) : (
-      /* Unslop AEC Drafting-Station App Shell */
-      <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-3 sm:py-4 flex flex-col md:flex-row gap-3 sm:gap-5 items-start">
-        {/* Mobile Horizontal Projects Bar */}
-        <div className="md:hidden w-full flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-3 px-3">
-          <button
-            onClick={() => setSelectedProject('ALL')}
-            className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
-              selectedProject === 'ALL'
-                ? 'bg-zinc-100 text-zinc-950 border-white'
-                : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-            }`}
-          >
-            <FolderKanban className="w-3 h-3 opacity-75 shrink-0" />
-            <span>All</span>
-            <span className="text-[10px] tabular-nums font-mono opacity-80">({plans.length})</span>
-          </button>
-          {distinctProjects.map((proj) => {
-            const count = plans.filter((p) => (p.project_name || 'Default Project') === proj).length;
-            const isSelected = selectedProject === proj;
-            return (
-              <button
-                key={proj}
-                onClick={() => setSelectedProject(proj)}
-                className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
-                  isSelected
-                    ? 'bg-zinc-100 text-zinc-950 border-white'
-                    : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                }`}
-              >
-                <span className="truncate max-w-[130px]">{proj}</span>
-                <span className="text-[10px] tabular-nums font-mono opacity-80">({count})</span>
-              </button>
-            );
-          })}
-          <button
-            onClick={() => setCreateProjectModal({ name: '' })}
-            className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white shrink-0"
-            title="Create new project"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Desktop Left Sidebar: Projects Navigation */}
-        <aside className="hidden md:block w-64 shrink-0 bg-zinc-900/80 border border-zinc-800 rounded-2xl p-3 space-y-3">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-[11px] font-medium text-zinc-400 flex items-center gap-1.5">
-              <FolderKanban className="w-3.5 h-3.5 text-blue-400" />
-              Projects ({distinctProjects.length})
-            </span>
-            <button
-              onClick={() => setCreateProjectModal({ name: '' })}
-              className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
-              title="Create new project"
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Vertical Projects Navigation */}
-          <div className="space-y-1">
+        /* Authenticated Drafting Station Shell */
+        <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-3 sm:py-4 flex flex-col md:flex-row gap-3 sm:gap-5 items-start">
+          {/* Mobile Horizontal Projects Bar */}
+          <div className="md:hidden w-full flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-3 px-3">
             <button
               onClick={() => setSelectedProject('ALL')}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
                 selectedProject === 'ALL'
-                  ? 'bg-zinc-100 text-zinc-950 shadow-xs'
-                  : 'text-zinc-300 hover:bg-zinc-800/70 hover:text-white'
+                  ? 'bg-zinc-100 text-zinc-950 border-white'
+                  : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
               }`}
             >
-              <div className="flex items-center gap-2 truncate">
-                <FolderKanban className="w-4 h-4 opacity-70 shrink-0" />
-                <span className="truncate">All Plans</span>
-              </div>
-              <span
-                className={`px-2 py-0.5 rounded-full text-[10px] tabular-nums font-mono ${
-                  selectedProject === 'ALL'
-                    ? 'bg-black/20 text-zinc-900 font-semibold'
-                    : 'bg-zinc-800 text-zinc-400'
-                }`}
-              >
-                {plans.length}
-              </span>
+              <FolderKanban className="w-3 h-3 opacity-75 shrink-0" />
+              <span>All</span>
+              <span className="text-[10px] tabular-nums font-mono opacity-80">({plans.length})</span>
             </button>
-
             {distinctProjects.map((proj) => {
               const count = plans.filter((p) => (p.project_name || 'Default Project') === proj).length;
               const isSelected = selectedProject === proj;
@@ -1612,1020 +1453,254 @@ export function App() {
                 <button
                   key={proj}
                   onClick={() => setSelectedProject(proj)}
-                  title={proj}
-                  className={`group w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs transition text-left ${
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
                     isSelected
-                      ? 'bg-zinc-800 text-white font-medium border border-zinc-700/60'
-                      : 'text-zinc-300 hover:bg-zinc-900 hover:text-white'
+                      ? 'bg-zinc-100 text-zinc-950 border-white'
+                      : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
                   }`}
                 >
-                  <div className="flex items-center gap-2 truncate flex-1 min-w-0">
-                    <FolderKanban
-                      className={`w-3.5 h-3.5 shrink-0 ${
-                        isSelected ? 'text-blue-400' : 'text-zinc-500 group-hover:text-zinc-400'
-                      }`}
-                    />
-                    <span className="truncate">{proj}</span>
-                  </div>
-                  <span
-                    className={`ml-1.5 shrink-0 px-1.5 py-0.5 rounded-full text-[10px] tabular-nums font-mono ${
-                      isSelected ? 'bg-zinc-700 text-zinc-200' : 'bg-zinc-950 text-zinc-400'
-                    }`}
-                  >
-                    {count}
-                  </span>
+                  <span className="truncate max-w-[130px]">{proj}</span>
+                  <span className="text-[10px] tabular-nums font-mono opacity-80">({count})</span>
                 </button>
               );
             })}
-          </div>
-        </aside>
-
-        {/* Right Main Content Pane */}
-        <div className="flex-1 w-full space-y-3 sm:space-y-4 min-w-0">
-          {/* Compact Active Project Scope Header */}
-          <div className="bg-zinc-900/90 border border-zinc-800 rounded-xl px-3 py-2 sm:px-4 sm:py-3 flex items-center justify-between gap-2.5">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
-                <FolderKanban className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              </div>
-              <div className="flex items-center gap-2 min-w-0">
-                <h2 className="text-sm sm:text-base font-semibold text-white truncate">
-                  {selectedProject === 'ALL' ? 'All Plans' : selectedProject}
-                </h2>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums bg-zinc-800 text-zinc-300 shrink-0">
-                  {projectScopedPlans.length} {projectScopedPlans.length === 1 ? 'plan' : 'plans'}
-                </span>
-                {selectedProject !== 'ALL' && (
-                  <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 shrink-0 ml-1">
-                    <button
-                      onClick={() =>
-                        setRenameProjectModal({
-                          oldName: selectedProject,
-                          newName: selectedProject,
-                        })
-                      }
-                      className="p-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-blue-400 inline-flex items-center gap-1 transition"
-                      title="Rename project"
-                    >
-                      <Pencil className="w-3 h-3" />
-                      <span className="hidden sm:inline">Rename</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        const count = plans.filter(
-                          (p) => (p.project_name || 'Default Project') === selectedProject
-                        ).length;
-                        setDeleteProjectModal({ name: selectedProject, count });
-                      }}
-                      className="p-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-rose-400 inline-flex items-center gap-1 transition"
-                      title="Delete project"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                      <span className="hidden sm:inline">Delete</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-
             <button
-              onClick={() => {
-                if (selectedProject !== 'ALL') setUploadProject(selectedProject);
-                setShowUploadModal(true);
-              }}
-              className="hidden sm:inline-flex px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium items-center gap-1.5 shadow-sm transition shrink-0"
+              onClick={() => setCreateProjectModal({ name: '' })}
+              className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white shrink-0"
+              title="Create new project"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Upload plan</span>
             </button>
           </div>
 
-          {/* Filter Bar: Search + Discipline Pills */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search plans..."
-                className="w-full bg-zinc-900 border border-zinc-800 focus:border-blue-500 rounded-xl pl-10 pr-4 py-2 text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none"
-              />
-            </div>
+          {/* Desktop Left Sidebar */}
+          <ProjectSidebar
+            distinctProjects={distinctProjects}
+            selectedProject={selectedProject}
+            onSelectProject={setSelectedProject}
+            onOpenCreateProject={() => setCreateProjectModal({ name: '' })}
+            plans={plans}
+          />
 
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-3 px-3 sm:mx-0 sm:px-0">
-              <button
-                onClick={() => setSelectedDiscipline('ALL')}
-                className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 ${
-                  selectedDiscipline === 'ALL'
-                    ? 'bg-zinc-200 text-zinc-950 border-white'
-                    : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                }`}
-              >
-                All ({projectScopedPlans.length})
-              </button>
-              {DISCIPLINES.map((d) => {
-                const count = projectScopedPlans.filter(
-                  (p) => (p.discipline || 'architectural') === d.id
-                ).length;
-                const active = selectedDiscipline === d.id;
-                return (
-                  <button
-                    key={d.id}
-                    onClick={() => setSelectedDiscipline(d.id)}
-                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 flex items-center gap-1 ${
-                      active
-                        ? d.pillActiveClass
-                        : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700'
-                    }`}
-                  >
-                    <span>{d.label}</span>
-                    <span className="opacity-75 text-[10px] font-mono">({count})</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          {/* Right Main Content Pane */}
+          <div className="flex-1 w-full space-y-3 sm:space-y-4 min-w-0">
+            {/* Active Project Scope Header */}
+            <div className="bg-zinc-900/90 border border-zinc-800 rounded-xl px-3 py-2 sm:px-4 sm:py-3 flex items-center justify-between gap-2.5">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                  <FolderKanban className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <h2 className="text-sm sm:text-base font-semibold text-white truncate">
+                    {selectedProject === 'ALL' ? 'All Plans' : selectedProject}
+                  </h2>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums bg-zinc-800 text-zinc-300 shrink-0">
+                    {projectScopedPlans.length} {projectScopedPlans.length === 1 ? 'plan' : 'plans'}
+                  </span>
+                  {selectedProject !== 'ALL' && (
+                    <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 shrink-0 ml-1">
+                      <button
+                        onClick={() =>
+                          setRenameProjectModal({
+                            oldName: selectedProject,
+                            newName: selectedProject,
+                          })
+                        }
+                        className="p-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-blue-400 inline-flex items-center gap-1 transition"
+                        title="Rename project"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        <span className="hidden sm:inline">Rename</span>
+                      </button>
+                      <button
+                        onClick={() => {
+                          const count = plans.filter(
+                            (p) => (p.project_name || 'Default Project') === selectedProject
+                          ).length;
+                          setDeleteProjectModal({ name: selectedProject, count });
+                        }}
+                        className="p-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-rose-400 inline-flex items-center gap-1 transition"
+                        title="Delete project"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span className="hidden sm:inline">Delete</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
 
-          {/* Loading or Plan Cards Grid */}
-          {loadingVault || openingPlan ? (
-            <div className="py-20 flex flex-col items-center justify-center gap-3 text-zinc-400">
-              <RefreshCw className="w-7 h-7 text-blue-400 animate-spin" />
-              <div className="text-sm font-semibold text-zinc-200">
-                {openingPlan ? 'Opening Cleaned Plan View...' : 'Loading Cloud Plan Vault...'}
-              </div>
-            </div>
-          ) : filteredPlans.length === 0 ? (
-            <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-8 text-center space-y-4">
-              <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto">
-                <Upload className="w-6 h-6 text-blue-400" />
-              </div>
-              <div className="space-y-1 max-w-md mx-auto">
-                <h3 className="text-sm font-medium text-white">
-                  {plans.length === 0 ? 'Your Cloud Plan Vault is Empty' : 'No Matching Plans Found'}
-                </h3>
-                <p className="text-xs text-zinc-400">
-                  {plans.length === 0
-                    ? 'Upload a DWG/DXF plan to view, isolate sheet views, and measure distances.'
-                    : 'Try changing your search query or discipline filter.'}
-                </p>
-              </div>
               <button
                 onClick={() => {
                   if (selectedProject !== 'ALL') setUploadProject(selectedProject);
                   setShowUploadModal(true);
                 }}
-                className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium inline-flex items-center gap-2 shadow-lg"
+                className="hidden sm:inline-flex px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium items-center gap-1.5 shadow-sm transition shrink-0"
               >
-                <Plus className="w-4 h-4" />
-                Upload plan
+                <Plus className="w-3.5 h-3.5" />
+                <span>Upload plan</span>
               </button>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-              {filteredPlans.map((plan) => {
-                const s = plan.summary || {};
-                const totalSheets = s.total_sheets_in_dwg || (plan.sheets?.length ?? 0);
-                const discObj =
-                  DISCIPLINES.find((d) => d.id === (plan.discipline || 'architectural')) ||
-                  DISCIPLINES[0];
 
-                return (
-                  <div
-                    key={plan.id}
-                    className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between gap-3 transition shadow-xs overflow-hidden"
-                  >
-                    <div className="space-y-2">
-                      {/* Row 1: Discipline Tag + Project (Left) & Actions (Right) */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span
-                            className={`px-2 py-0.5 rounded-md border text-[10px] font-medium shrink-0 ${discObj.badgeClass}`}
-                          >
-                            {discObj.label}
-                          </span>
-                          {selectedProject === 'ALL' && (
-                            <span className="text-[10px] font-mono text-zinc-400 flex items-center gap-1 truncate min-w-0">
-                              <FolderKanban className="w-2.5 h-2.5 opacity-60 shrink-0" />
-                              <span className="truncate max-w-[110px] sm:max-w-[150px]">
-                                {plan.project_name || 'Default Project'}
-                              </span>
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Row 1 Right: Quiet Action Icons */}
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            onClick={() =>
-                              setMovePlanModal({
-                                plan,
-                                targetProject: plan.project_name || 'Default Project',
-                                customProject: '',
-                              })
-                            }
-                            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition"
-                            title="Move to another project"
-                          >
-                            <FolderInput className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setRenamePlanModal({ plan, newName: plan.name })}
-                            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition"
-                            title="Rename plan"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleSharePlan(plan)}
-                            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-blue-600 text-zinc-400 hover:text-white transition"
-                            title="Share Plan Link"
-                          >
-                            <Share2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => setConfirmDeletePlan(plan)}
-                            className="p-1.5 rounded-lg bg-zinc-800 hover:bg-rose-600 text-zinc-400 hover:text-white transition"
-                            title="Delete Plan"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-
-                      {/* Row 2: Full-width Plan Title (no overflow) */}
-                      <button
-                        onClick={() => openPlanById(plan.id, false)}
-                        className="text-left group block w-full min-w-0"
-                        title={`Open ${plan.name}`}
-                      >
-                        <h3 className="text-sm font-medium text-white group-hover:text-blue-400 transition line-clamp-2 break-words">
-                          {plan.name}
-                        </h3>
-                      </button>
-
-                      {/* Row 3: Metadata row (without redundant storage/filename path) */}
-                      <div className="text-[11px] text-zinc-400 bg-zinc-950/70 rounded-xl px-3 py-2 border border-zinc-800/80 font-mono space-y-1">
-                        {totalSheets > 1 && (
-                          <div className="text-zinc-300 flex items-center gap-1.5 min-w-0">
-                            <span className="text-blue-400 shrink-0">Sheet:</span>
-                            <span className="truncate">{plan.active_sheet_name || '1'}</span>
-                            <span className="text-zinc-400 shrink-0 tabular-nums">({totalSheets})</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2 text-zinc-400 flex-wrap tabular-nums">
-                          <span>
-                            {s.cleaned_primitives ? s.cleaned_primitives.toLocaleString() : 0} entities
-                          </span>
-                          <span>·</span>
-                          <span>{s.layers_count || 0} layers</span>
-                          <span>·</span>
-                          <span>{plan.unit_name || 'm'}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Row 4: Action Buttons (Open DWG & Measure) */}
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      <button
-                        onClick={() => openPlanById(plan.id, false)}
-                        className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition"
-                      >
-                        <FileCode2 className="w-3.5 h-3.5" />
-                        <span>Open DWG</span>
-                      </button>
-                      <button
-                        onClick={() => openPlanById(plan.id, true)}
-                        className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-blue-600/15 hover:bg-blue-600/25 border border-blue-500/30 text-blue-300 text-xs font-medium transition"
-                      >
-                        <Ruler className="w-3.5 h-3.5" />
-                        <span>Measure</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </main>
-      )}
-
-      {/* Project & Plan Management Modals */}
-      {renameProjectModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setRenameProjectModal(null)}
-        >
-          <div
-            className="w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-4 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-white flex items-center gap-2">
-                <Pencil className="w-4 h-4 text-blue-400" />
-                Rename Project
-              </h3>
-              <button
-                onClick={() => setRenameProjectModal(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleRenameProject(renameProjectModal.oldName, renameProjectModal.newName);
-              }}
-              className="space-y-4"
-            >
-              <div>
-                <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                  Project Name
-                </label>
+            {/* Filter Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  autoFocus
-                  value={renameProjectModal.newName}
-                  onChange={(e) =>
-                    setRenameProjectModal({
-                      ...renameProjectModal,
-                      newName: e.target.value,
-                    })
-                  }
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setRenameProjectModal(null)}
-                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-300 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!renameProjectModal.newName.trim()}
-                  className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-medium text-white transition"
-                >
-                  Save
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {deleteProjectModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setDeleteProjectModal(null)}
-        >
-          <div
-            className="w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-4 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0">
-                  <Trash2 className="w-4 h-4 text-rose-400" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-medium text-white">Delete Project?</h3>
-                  <p className="text-[11px] text-zinc-400">{deleteProjectModal.name}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setDeleteProjectModal(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              Are you sure you want to delete project{' '}
-              <strong className="text-white">{deleteProjectModal.name}</strong>? This will
-              permanently delete all <strong className="text-white">{deleteProjectModal.count} plan(s)</strong> and
-              associated CAD drawings inside it from the cloud vault.
-            </p>
-            <div className="text-[11px] text-zinc-400 bg-zinc-950/80 border border-zinc-800 rounded-xl p-2.5">
-              Tip: If you want to keep any drawings, move them to another project before deleting.
-            </div>
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setDeleteProjectModal(null)}
-                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDeleteProject(deleteProjectModal.name)}
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-medium text-white flex items-center gap-1.5 transition"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete Project & Plans</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {movePlanModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setMovePlanModal(null)}
-        >
-          <div
-            className="w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-4 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-white flex items-center gap-2">
-                <FolderInput className="w-4 h-4 text-blue-400" />
-                Move Plan to Project
-              </h3>
-              <button
-                onClick={() => setMovePlanModal(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <p className="text-xs text-zinc-300">
-              Moving <strong className="text-white">{movePlanModal.plan.name}</strong> from{' '}
-              <span className="font-mono text-zinc-400">
-                {movePlanModal.plan.project_name || 'Default Project'}
-              </span>
-            </p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const target =
-                  movePlanModal.targetProject === '__NEW__'
-                    ? movePlanModal.customProject
-                    : movePlanModal.targetProject;
-                handleMovePlan(movePlanModal.plan.id, target);
-              }}
-              className="space-y-3.5"
-            >
-              <div>
-                <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                  Destination Project
-                </label>
-                <select
-                  value={movePlanModal.targetProject}
-                  onChange={(e) =>
-                    setMovePlanModal({
-                      ...movePlanModal,
-                      targetProject: e.target.value,
-                    })
-                  }
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
-                >
-                  {distinctProjects.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                  <option value="__NEW__">+ Create new project...</option>
-                </select>
-              </div>
-              {movePlanModal.targetProject === '__NEW__' && (
-                <div>
-                  <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                    New Project Name
-                  </label>
-                  <input
-                    type="text"
-                    autoFocus
-                    placeholder="e.g. Tower 2"
-                    value={movePlanModal.customProject}
-                    onChange={(e) =>
-                      setMovePlanModal({
-                        ...movePlanModal,
-                        customProject: e.target.value,
-                      })
-                    }
-                    className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
-              )}
-              <div className="flex items-center justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setMovePlanModal(null)}
-                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-300 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={
-                    movePlanModal.targetProject === '__NEW__' &&
-                    !movePlanModal.customProject.trim()
-                  }
-                  className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-medium text-white transition"
-                >
-                  Move Plan
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {renamePlanModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setRenamePlanModal(null)}
-        >
-          <div
-            className="w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-4 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-white flex items-center gap-2">
-                <Pencil className="w-4 h-4 text-blue-400" />
-                Rename Plan
-              </h3>
-              <button
-                onClick={() => setRenamePlanModal(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleRenamePlan(renamePlanModal.plan.id, renamePlanModal.newName);
-              }}
-              className="space-y-4"
-            >
-              <div>
-                <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                  Plan Display Name
-                </label>
-                <input
-                  type="text"
-                  autoFocus
-                  value={renamePlanModal.newName}
-                  onChange={(e) =>
-                    setRenamePlanModal({
-                      ...renamePlanModal,
-                      newName: e.target.value,
-                    })
-                  }
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setRenamePlanModal(null)}
-                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-300 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!renamePlanModal.newName.trim()}
-                  className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-medium text-white transition"
-                >
-                  Save
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {createProjectModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setCreateProjectModal(null)}
-        >
-          <div
-            className="w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-4 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-white flex items-center gap-2">
-                <FolderPlus className="w-4 h-4 text-blue-400" />
-                New Project
-              </h3>
-              <button
-                onClick={() => setCreateProjectModal(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleCreateProject(createProjectModal.name);
-              }}
-              className="space-y-4"
-            >
-              <div>
-                <label className="block text-xs font-medium text-zinc-300 mb-1.5">
-                  Project Name
-                </label>
-                <input
-                  type="text"
-                  autoFocus
-                  placeholder="e.g. 1086 Mansa Tower B"
-                  value={createProjectModal.name}
-                  onChange={(e) => setCreateProjectModal({ name: e.target.value })}
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCreateProjectModal(null)}
-                  className="px-3 py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-300 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!createProjectModal.name.trim()}
-                  className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-medium text-white transition"
-                >
-                  Create & Upload
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {confirmDeletePlan && (
-        <div
-          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4"
-          onClick={() => setConfirmDeletePlan(null)}
-        >
-          <div
-            className="w-full max-w-sm bg-zinc-900 border border-zinc-700 rounded-2xl p-5 space-y-4 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center shrink-0">
-                  <Trash2 className="w-4 h-4 text-rose-400" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-medium text-white">Delete Plan?</h3>
-                  <p className="text-[11px] text-zinc-400">
-                    {confirmDeletePlan.project_name || 'Default Project'}
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setConfirmDeletePlan(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <p className="text-xs text-zinc-300 leading-relaxed">
-              Are you sure you want to delete{' '}
-              <strong className="text-white">{confirmDeletePlan.name}</strong>? This will
-              permanently remove its DWG drawing and parsed data from Cloud Vault.
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setConfirmDeletePlan(null)}
-                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDeletePlan(confirmDeletePlan.id)}
-                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-medium text-white flex items-center gap-1.5 transition"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete Plan</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Upload Modal / Bottom Sheet */}
-      {showUploadModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="w-full sm:max-w-lg bg-zinc-900 border-t sm:border border-zinc-700 rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl max-h-[92dvh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-medium text-white flex items-center gap-2">
-                  <Upload className="w-4 h-4 text-blue-400" />
-                  Upload CAD Drawing to Cloud Vault
-                </h3>
-                <p className="text-[11px] text-zinc-400 mt-0.5">
-                  Organize by project & discipline; multi-sheet DWGs auto-clean to match your view.
-                </p>
-              </div>
-              <button
-                onClick={() => !uploading && setShowUploadModal(false)}
-                disabled={uploading}
-                className="p-1.5 rounded-lg text-zinc-400 hover:text-white disabled:opacity-40"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleUploadSubmit} className="space-y-3.5">
-              {/* 1. DWG / DXF Input */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-medium text-zinc-200">
-                    1. CAD Drawing File(s) (.DWG or .DXF)
-                  </label>
-                  {uploadDwgFiles.length > 1 && (
-                    <span className="text-[10px] font-semibold text-blue-400">
-                      {uploadDwgFiles.length} files selected — will merge into 1 plan
-                    </span>
-                  )}
-                </div>
-                <label className="flex items-center justify-between gap-2 p-3 rounded-xl bg-zinc-950 border border-dashed border-zinc-700 hover:border-blue-500 cursor-pointer transition">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <FileCode2 className="w-5 h-5 text-blue-400 shrink-0" />
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-white truncate">
-                        {uploadDwgFiles.length === 0
-                          ? 'Choose one or multiple .DWG / .DXF files'
-                          : `${uploadDwgFiles.length} CAD file${uploadDwgFiles.length > 1 ? 's' : ''} selected`}
-                      </div>
-                      <div className="text-[10px] text-zinc-400">
-                        {uploadDwgFiles.length > 1
-                          ? 'All selected drawings will be merged into a single multi-sheet plan'
-                          : 'Select multiple DWGs to merge all floor plans into one master sheet list'}
-                      </div>
-                    </div>
-                  </div>
-                  <span className="px-2.5 py-1 rounded-lg bg-zinc-800 text-[11px] font-medium text-zinc-200 shrink-0">
-                    {uploadDwgFiles.length > 0 ? '+ Add More' : 'Browse'}
-                  </span>
-                  <input
-                    type="file"
-                    accept=".dwg,.dxf"
-                    multiple
-                    disabled={uploading}
-                    onChange={(e) => handleDwgFilesSelected(e.target.files)}
-                    className="hidden"
-                  />
-                </label>
-
-                {/* File chips list if multiple files selected */}
-                {uploadDwgFiles.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {uploadDwgFiles.map((file) => (
-                      <span
-                        key={file.name}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-800 text-xs font-medium text-zinc-200 border border-zinc-700"
-                      >
-                        <span className="truncate max-w-[200px]">{file.name}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeDwgFile(file.name)}
-                          className="text-zinc-400 hover:text-rose-400 p-0.5"
-                          title="Remove file"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 2. Project Name */}
-              <div>
-                <label className="block text-xs font-medium text-zinc-200 mb-1">
-                  2. Project Name (Select existing or type new)
-                </label>
-                <input
-                  type="text"
-                  list="existing-projects-list"
-                  value={uploadProject}
-                  disabled={uploading}
-                  onChange={(e) => setUploadProject(e.target.value)}
-                  placeholder="e.g., 1086 Mansa (auto-detected from filename if left blank)"
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
-                />
-                <datalist id="existing-projects-list">
-                  {distinctProjects.map((proj) => (
-                    <option key={proj} value={proj} />
-                  ))}
-                </datalist>
-              </div>
-
-              {/* 3. Plan Discipline Type */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-medium text-zinc-200">
-                    3. Plan Type / Discipline
-                  </label>
-                  {disciplineAutoDetected && (
-                    <span className="text-[10px] font-semibold text-zinc-300">
-                      Auto-detected from file name (click to change)
-                    </span>
-                  )}
-                </div>
-                <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
-                  {DISCIPLINES.map((d) => {
-                    const active = uploadDiscipline === d.id;
-                    return (
-                      <button
-                        key={d.id}
-                        type="button"
-                        disabled={uploading}
-                        onClick={() => {
-                          setUploadDiscipline(d.id);
-                          setDisciplineAutoDetected(false);
-                        }}
-                        className={`py-2 px-2 rounded-xl text-[11px] font-medium border transition text-center truncate ${
-                          active
-                            ? d.pillActiveClass
-                            : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-zinc-200'
-                        }`}
-                      >
-                        {d.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 4. Optional Plan Title */}
-              <div>
-                <label className="block text-xs font-medium text-zinc-200 mb-1">
-                  4. Plan Title (Optional — auto-detected from sheet title)
-                </label>
-                <input
-                  type="text"
-                  value={uploadTitle}
-                  disabled={uploading}
-                  onChange={(e) => setUploadTitle(e.target.value)}
-                  placeholder="e.g., Ground Floor Working Plan (Block A+B)"
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search plans..."
+                  className="w-full bg-zinc-900 border border-zinc-800 focus:border-blue-500 rounded-xl pl-10 pr-4 py-2 text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none"
                 />
               </div>
 
-              {/* Live Progress Bar & Estimated Time Remaining */}
-              {uploading && uploadProgress && (
-                <div className="p-3.5 rounded-xl bg-zinc-950 border border-blue-500/40 space-y-2.5">
-                  <div className="flex items-center justify-between gap-2 text-xs font-medium">
-                    <span className="text-white flex items-center gap-2 truncate">
-                      <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
-                      <span className="truncate">{uploadProgress.stage}</span>
-                    </span>
-                    <span className="text-blue-400 font-mono shrink-0">{uploadProgress.pct}%</span>
-                  </div>
-                  <div className="w-full h-2.5 bg-zinc-800 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-blue-500 transition-all duration-300"
-                      style={{ width: `${uploadProgress.pct}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono">
-                    <span>Elapsed: {uploadProgress.elapsedSec}s</span>
-                    <span className="text-zinc-300 flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
-                      {uploadProgress.remainingSec > 0
-                        ? `Est. ~${uploadProgress.remainingSec}s remaining`
-                        : 'Almost done (<2s)...'}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {uploadError && (
-                <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-200">
-                  {uploadError}
-                </div>
-              )}
-
-              <div className="flex items-center justify-end gap-2 pt-1">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-3 px-3 sm:mx-0 sm:px-0">
                 <button
-                  type="button"
-                  onClick={() => setShowUploadModal(false)}
-                  disabled={uploading}
-                  className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-xs font-medium text-zinc-300"
+                  onClick={() => setSelectedDiscipline('ALL')}
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 ${
+                    selectedDiscipline === 'ALL'
+                      ? 'bg-zinc-200 text-zinc-950 border-white'
+                      : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                  }`}
                 >
-                  Cancel
+                  All ({projectScopedPlans.length})
                 </button>
-                <button
-                  type="submit"
-                  disabled={uploading}
-                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-medium text-white flex items-center gap-2"
-                >
-                  {uploading ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      <span>Processing ({uploadProgress?.pct ?? 0}%)...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Upload className="w-4 h-4" />
-                      <span>Upload & Clean Plan</span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Floating Auth Modal for Sign In / Sign Up */}
-      {authModal}
-
-      {/* User Preferences & Unit Customization Modal */}
-      {showProfileModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center shrink-0">
-                  <Settings className="w-4 h-4 text-blue-400" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-white">Profile Preferences</h3>
-                  <p className="text-[11px] text-zinc-400">{authSession?.user?.email}</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowProfileModal(false)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <label className="block text-xs font-medium text-zinc-300">
-                Default Takeoff Measurement Unit
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'm', label: 'Meters (m)', desc: 'Metric standard' },
-                  { id: 'mm', label: 'Millimeters (mm)', desc: 'Architectural details' },
-                  { id: 'ft', label: 'Feet (ft)', desc: 'Imperial standard' },
-                  { id: 'in', label: 'Inches (in)', desc: 'Imperial engineering' },
-                ].map((u) => {
-                  const active = (authSession?.user?.default_unit || 'm') === u.id;
+                {DISCIPLINES.map((d) => {
+                  const count = projectScopedPlans.filter(
+                    (p) => (p.discipline || 'architectural') === d.id
+                  ).length;
+                  const active = selectedDiscipline === d.id;
                   return (
                     <button
-                      key={u.id}
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          const updated = await updateUserProfile(u.id as any);
-                          setAuthSession((s) => (s ? { ...s, user: updated } : null));
-                          showToast(`Default unit set to ${u.label}`);
-                        } catch {
-                          showToast('Failed to update unit preference');
-                        }
-                      }}
-                      className={`p-3 rounded-2xl border text-left transition ${
+                      key={d.id}
+                      onClick={() => setSelectedDiscipline(d.id)}
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 flex items-center gap-1 ${
                         active
-                          ? 'bg-blue-600/20 border-blue-500 text-white'
-                          : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white'
+                          ? d.pillActiveClass
+                          : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700'
                       }`}
                     >
-                      <div className="text-xs font-medium">{u.label}</div>
-                      <div className="text-[10px] text-zinc-400">{u.desc}</div>
+                      <span>{d.label}</span>
+                      <span className="opacity-75 text-[10px] font-mono">({count})</span>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            <div className="pt-2 border-t border-zinc-800 flex justify-end">
-              <button
-                onClick={() => setShowProfileModal(false)}
-                className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-medium transition"
-              >
-                Done
-              </button>
-            </div>
+            {/* Loading or Plan Cards Grid */}
+            {loadingVault || openingPlan ? (
+              <div className="py-20 flex flex-col items-center justify-center gap-3 text-zinc-400">
+                <RefreshCw className="w-7 h-7 text-blue-400 animate-spin" />
+                <div className="text-sm font-semibold text-zinc-200">
+                  {openingPlan ? 'Opening Cleaned Plan View...' : 'Loading Cloud Plan Vault...'}
+                </div>
+              </div>
+            ) : filteredPlans.length === 0 ? (
+              <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-8 text-center space-y-4">
+                <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto">
+                  <Plus className="w-6 h-6 text-blue-400" />
+                </div>
+                <div className="space-y-1 max-w-md mx-auto">
+                  <h3 className="text-sm font-medium text-white">
+                    {plans.length === 0 ? 'Your Cloud Plan Vault is Empty' : 'No Matching Plans Found'}
+                  </h3>
+                  <p className="text-xs text-zinc-400">
+                    {plans.length === 0
+                      ? 'Upload a DWG/DXF plan to view, isolate sheet views, and calculate discipline estimates.'
+                      : 'Try changing your search query or discipline filter.'}
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    if (selectedProject !== 'ALL') setUploadProject(selectedProject);
+                    setShowUploadModal(true);
+                  }}
+                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium inline-flex items-center gap-2 shadow-lg"
+                >
+                  <Plus className="w-4 h-4" />
+                  Upload plan
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {filteredPlans.map((plan) => (
+                  <PlanCard
+                    key={plan.id}
+                    plan={plan}
+                    selectedProject={selectedProject}
+                    onOpenPlan={() => openPlanById(plan.id)}
+                    onOpenEstimator={() => handleOpenPlanCardEstimator(plan)}
+                    onMovePlan={(p) =>
+                      setMovePlanModal({
+                        plan: p,
+                        targetProject: p.project_name || distinctProjects[0] || 'Default Project',
+                        customProject: '',
+                      })
+                    }
+                    onRenamePlan={(p) => setRenamePlanModal({ plan: p, newName: p.name })}
+                    onSharePlan={handleSharePlan}
+                    onDeletePlan={(p) => setConfirmDeletePlan(p)}
+                    onCleanTitleAi={handleTriggerAiClean}
+                  />
+                ))}
+              </div>
+            )}
           </div>
-        </div>
+        </main>
       )}
 
-      {/* Global Upload Progress Overlay */}
-      <UploadProgressOverlay progress={uploadProgress} />
+      {/* Upload Plan Modal (Single progress bar within modal) */}
+      <UploadPlanModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
+        uploadDwgFiles={uploadDwgFiles}
+        onSelectDwgFiles={handleDwgFilesSelected}
+        onRemoveDwgFile={removeDwgFile}
+        uploadProject={uploadProject}
+        onChangeProject={setUploadProject}
+        distinctProjects={distinctProjects}
+        uploadDiscipline={uploadDiscipline}
+        onChangeDiscipline={setUploadDiscipline}
+        disciplineAutoDetected={disciplineAutoDetected}
+        uploadTitle={uploadTitle}
+        onChangeTitle={setUploadTitle}
+        uploading={uploading}
+        uploadProgress={uploadProgress}
+        uploadError={uploadError}
+        onSubmit={handleUploadSubmit}
+        onCleanTitleAi={handleUploadCleanTitleAi}
+        isAiCleaningTitle={isAiCleaningTitle}
+      />
+
+      {/* Floating Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        authMode={authMode}
+        setAuthMode={setAuthMode}
+        authEmail={authEmail}
+        setAuthEmail={setAuthEmail}
+        authPassword={authPassword}
+        setAuthPassword={setAuthPassword}
+        authBusy={authBusy}
+        authError={authError}
+        authNotice={authNotice}
+        onSubmit={handleAuthSubmit}
+      />
+
+      {/* User Preferences & Unit Customization Modal */}
+      <ProfileModal
+        isOpen={showProfileModal}
+        onClose={() => setShowProfileModal(false)}
+        authSession={authSession}
+        setAuthSession={setAuthSession}
+        showToast={showToast}
+      />
+
+      {/* Global Upload Progress Overlay (Only active when Upload modal is NOT open) */}
+      {!showUploadModal && <UploadProgressOverlay progress={uploadProgress} />}
 
       {/* Sheet Window Selector & Configuration Modal */}
       {sheetSelectorData && (
@@ -2639,6 +1714,69 @@ export function App() {
           onCancel={() => setSheetSelectorData(null)}
         />
       )}
+
+      {/* AI Name & Sheet Cleanup Confirmation Modal */}
+      {aiCleanupTarget && (
+        <AiNameCleanupModal
+          originalTitle={aiCleanupTarget.originalTitle}
+          originalDiscipline={aiCleanupTarget.originalDiscipline}
+          originalSheets={aiCleanupTarget.originalSheets}
+          proposal={aiCleanupTarget.proposal}
+          onApply={handleApplyAiClean}
+          onClose={() => setAiCleanupTarget(null)}
+        />
+      )}
+
+      {/* Project & Plan Management Modals */}
+      <RenameProjectModal
+        modal={renameProjectModal}
+        onClose={() => setRenameProjectModal(null)}
+        onSave={handleRenameProject}
+        onChangeName={(newName) =>
+          setRenameProjectModal((prev) => (prev ? { ...prev, newName } : null))
+        }
+      />
+
+      <DeleteProjectModal
+        modal={deleteProjectModal}
+        onClose={() => setDeleteProjectModal(null)}
+        onConfirm={handleDeleteProject}
+      />
+
+      <MovePlanModal
+        modal={movePlanModal}
+        distinctProjects={distinctProjects}
+        onClose={() => setMovePlanModal(null)}
+        onConfirm={handleMovePlan}
+        onChangeTargetProject={(targetProject) =>
+          setMovePlanModal((prev) => (prev ? { ...prev, targetProject } : null))
+        }
+        onChangeCustomProject={(customProject) =>
+          setMovePlanModal((prev) => (prev ? { ...prev, customProject } : null))
+        }
+      />
+
+      <RenamePlanModal
+        modal={renamePlanModal}
+        onClose={() => setRenamePlanModal(null)}
+        onSave={handleRenamePlan}
+        onChangeName={(newName) =>
+          setRenamePlanModal((prev) => (prev ? { ...prev, newName } : null))
+        }
+      />
+
+      <CreateProjectModal
+        modal={createProjectModal}
+        onClose={() => setCreateProjectModal(null)}
+        onCreate={handleCreateProject}
+        onChangeName={(name) => setCreateProjectModal({ name })}
+      />
+
+      <ConfirmDeletePlanModal
+        plan={confirmDeletePlan}
+        onClose={() => setConfirmDeletePlan(null)}
+        onConfirm={handleDeletePlan}
+      />
     </div>
   );
 }

@@ -14,6 +14,8 @@ import {
   Files,
   CheckSquare,
 } from 'lucide-react';
+import { AiBadge } from './ui/AiBadge';
+import { authFetch } from '../auth';
 
 export interface SheetConfig {
   id: string;
@@ -190,6 +192,120 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
 
   // Mode: 'pan' or 'draw-window'
   const [mode, setMode] = useState<'pan' | 'draw-window'>('pan');
+  const [isAiCleaning, setIsAiCleaning] = useState(false);
+  const [sheetSuggestions, setSheetSuggestions] = useState<Record<string, string>>({});
+  const [suggestingIds, setSuggestingIds] = useState<Record<string, boolean>>({});
+  const [sheetSnapshots, setSheetSnapshots] = useState<Record<string, string>>({});
+  const suggestedAttemptedRef = useRef<Set<string>>(new Set());
+
+  const getRawForSheet = useCallback(
+    (s: SheetConfig) => {
+      if (hasMultipleFiles && normalizedFiles && s.file_id) {
+        const found = normalizedFiles.find((f) => f.fileId === s.file_id);
+        if (found?.rawData) return found.rawData;
+      }
+      return currentRawData;
+    },
+    [hasMultipleFiles, normalizedFiles, currentRawData]
+  );
+
+  const extractTextsInBox = useCallback((raw: any, bbox: SheetConfig['bbox']): string[] => {
+    if (!raw?.texts || !bbox) return [];
+    const matched = raw.texts.filter(
+      (t: any) =>
+        t.text &&
+        t.x >= bbox.min_x &&
+        t.x <= bbox.max_x &&
+        t.y >= bbox.min_y &&
+        t.y <= bbox.max_y
+    );
+    matched.sort((a: any, b: any) => (Number(b.height) || 0) - (Number(a.height) || 0));
+    return matched
+      .map((t: any) => String(t.text || '').trim())
+      .filter(Boolean)
+      .slice(0, 25);
+  }, []);
+
+  const suggestSheetNameInBackground = useCallback(
+    async (sheet: SheetConfig) => {
+      if (!sheet || suggestedAttemptedRef.current.has(sheet.id)) return;
+      suggestedAttemptedRef.current.add(sheet.id);
+      const raw = getRawForSheet(sheet);
+      const boxTexts = extractTextsInBox(raw, sheet.bbox);
+      if (boxTexts.length === 0 && !sheet.source_file && !dwgFilename) return;
+
+      setSuggestingIds((prev) => ({ ...prev, [sheet.id]: true }));
+      try {
+        const res = await authFetch('/api/plans/ai-clean-names', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: sheet.source_file || currentFilename || dwgFilename || 'plan.dwg',
+            sheets: [{ id: sheet.id, name: sheet.name, candidate_texts: boxTexts }],
+            candidate_texts: boxTexts,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const suggested = data.sheets?.[0]?.name?.trim();
+          if (suggested) {
+            setSheetSuggestions((prev) => ({ ...prev, [sheet.id]: suggested }));
+          }
+        }
+      } catch {
+        // silent background helper
+      } finally {
+        setSuggestingIds((prev) => ({ ...prev, [sheet.id]: false }));
+      }
+    },
+    [getRawForSheet, extractTextsInBox, currentFilename, dwgFilename]
+  );
+
+  const handleAutoNameSheetsAi = async () => {
+    setIsAiCleaning(true);
+    try {
+      const candidateTexts = (currentRawData?.texts || [])
+        .slice()
+        .sort((a: any, b: any) => (Number(b.height) || 0) - (Number(a.height) || 0))
+        .map((t: any) => String(t.text || '').trim())
+        .filter(Boolean)
+        .slice(0, 45);
+
+      const res = await authFetch('/api/plans/ai-clean-names', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: currentFilename || dwgFilename || 'plan.dwg',
+          sheets: sheets.map((s) => ({
+            id: s.id,
+            name: s.name,
+            candidate_texts: extractTextsInBox(getRawForSheet(s), s.bbox),
+          })),
+          candidate_texts: candidateTexts,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.cleaned_title) {
+          setPlanTitle(data.cleaned_title);
+        }
+        if (data.sheets && Array.isArray(data.sheets)) {
+          const map = new Map(data.sheets.map((s: any) => [s.id, s.name]));
+          setSheets((prev) =>
+            prev.map((s) => ({
+              ...s,
+              name: (map.get(s.id) as string) || s.name,
+            }))
+          );
+        }
+      }
+    } catch (err) {
+      console.warn('AI clean names fallback:', err);
+    } finally {
+      setIsAiCleaning(false);
+    }
+  };
 
   // Dragging / Window drawing refs
   const dragRef = useRef<{
@@ -505,10 +621,10 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
       for (const t of currentRawData.texts) {
         if (t.x < cullMinX || t.x > cullMaxX || t.y < cullMinY || t.y > cullMaxY) continue;
         const pxHeight = (t.height || 0.2) * zoom;
-        // Cull tiny text that would smear into unreadable clumps
-        if (pxHeight < 5.5) continue;
+        // Clean LOD: hide small text until user zooms in so text never balloons into blobs
+        if (pxHeight < 7.5) continue;
         const [sx, sy] = worldToScreen(t.x, t.y);
-        const fontPx = Math.min(32, Math.max(7.5, pxHeight));
+        const fontPx = Math.min(26, pxHeight);
         ctx.font = `${fontPx > 12 ? '600' : '400'} ${fontPx.toFixed(1)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
         ctx.fillStyle = getEntityColor(t.color);
         if (t.rotation) {
@@ -687,6 +803,46 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
     handleMouseUp();
   };
 
+  const captureBoxSnapshot = useCallback(
+    (bbox: SheetConfig['bbox']): string | null => {
+      const src = canvasRef.current;
+      if (!src) return null;
+      const [sx1, sy1] = worldToScreen(bbox.min_x, bbox.max_y);
+      const [sx2, sy2] = worldToScreen(bbox.max_x, bbox.min_y);
+      const dpr = window.devicePixelRatio || 1;
+      const rx = Math.max(0, Math.floor(Math.min(sx1, sx2) * dpr));
+      const ry = Math.max(0, Math.floor(Math.min(sy1, sy2) * dpr));
+      const rw = Math.min(src.width - rx, Math.floor(Math.abs(sx2 - sx1) * dpr));
+      const rh = Math.min(src.height - ry, Math.floor(Math.abs(sy2 - sy1) * dpr));
+      if (rw < 8 || rh < 8) return null;
+      try {
+        const off = document.createElement('canvas');
+        off.width = 200;
+        off.height = 120;
+        const octx = off.getContext('2d');
+        if (!octx) return null;
+        octx.fillStyle = '#09090b';
+        octx.fillRect(0, 0, 200, 120);
+        const scale = Math.min(200 / rw, 120 / rh);
+        const dw = rw * scale;
+        const dh = rh * scale;
+        octx.drawImage(src, rx, ry, rw, rh, (200 - dw) / 2, (120 - dh) / 2, dw, dh);
+        return off.toDataURL('image/png');
+      } catch {
+        return null;
+      }
+    },
+    [worldToScreen]
+  );
+
+  // Trigger background name suggestion when selecting a generic-named sheet
+  useEffect(() => {
+    if (!activeSheet) return;
+    if (/^(sheet|view|frame|layout|window|main plan view)/i.test(activeSheet.name) || /[_]/.test(activeSheet.name)) {
+      suggestSheetNameInBackground(activeSheet);
+    }
+  }, [activeSheet, suggestSheetNameInBackground]);
+
   const handleMouseUp = () => {
     if (!dragRef.current.active) return;
     dragRef.current.active = false;
@@ -701,26 +857,32 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
 
       if (width > 0.1 && height > 0.1) {
         const newId = `sheet_${Date.now()}`;
+        const bboxObj = {
+          min_x: round3(minX),
+          min_y: round3(minY),
+          max_x: round3(maxX),
+          max_y: round3(maxY),
+          width: round3(width),
+          height: round3(height),
+        };
+        const snap = captureBoxSnapshot(bboxObj);
+        if (snap) {
+          setSheetSnapshots((prev) => ({ ...prev, [newId]: snap }));
+        }
         const newSheet: SheetConfig = {
           id: newId,
           name: `View ${sheets.length + 1}`,
           description: `Custom window from ${currentFilename}`,
           file_id: activeFileId,
           source_file: currentFilename,
-          bbox: {
-            min_x: round3(minX),
-            min_y: round3(minY),
-            max_x: round3(maxX),
-            max_y: round3(maxY),
-            width: round3(width),
-            height: round3(height),
-          },
+          bbox: bboxObj,
           is_custom_window: true,
         };
         setSheets((prev) => [...prev, newSheet]);
         setActiveSheetId(newId);
         setSelectedSheetIds((prev) => (multiSelectMode ? new Set([...prev, newId]) : new Set([newId])));
         setMode('pan');
+        suggestSheetNameInBackground(newSheet);
       }
       setDrawingBox(null);
     }
@@ -1019,6 +1181,16 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                 >
                   Reset
                 </button>
+                <button
+                  type="button"
+                  onClick={handleAutoNameSheetsAi}
+                  disabled={isAiCleaning}
+                  className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium transition flex items-center gap-1 border border-zinc-700"
+                  title="Uses AI to scan CAD title blocks and standardize sheet names"
+                >
+                  <AiBadge label="AI" />
+                  <span>{isAiCleaning ? 'Naming...' : 'Auto-name'}</span>
+                </button>
               </div>
             </div>
 
@@ -1130,8 +1302,8 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                   )}
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
+                <div className="space-y-1.5">
+                  <label className="block text-[11px] font-semibold text-zinc-400">
                     Sheet Name
                   </label>
                   <input
@@ -1141,6 +1313,65 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                     className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
                     placeholder="e.g. Ground Floor Plan"
                   />
+                  {suggestingIds[activeSheet.id] && (
+                    <div className="text-[10px] text-zinc-400 flex items-center gap-1.5">
+                      <AiBadge />
+                      <span>Inspecting selected box layout for name suggestion...</span>
+                    </div>
+                  )}
+                  {sheetSuggestions[activeSheet.id] &&
+                    sheetSuggestions[activeSheet.id] !== activeSheet.name && (
+                      <div className="flex items-center justify-between gap-2 p-2 rounded-lg bg-blue-500/10 border border-blue-500/25 text-[11px]">
+                        <div className="min-w-0 flex items-center gap-1.5">
+                          <AiBadge />
+                          <span className="text-zinc-200 truncate" title={sheetSuggestions[activeSheet.id]}>
+                            Rename to <strong>{sheetSuggestions[activeSheet.id]}</strong>?
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              updateActiveSheet({ name: sheetSuggestions[activeSheet.id] });
+                              setSheetSuggestions((prev) => {
+                                const next = { ...prev };
+                                delete next[activeSheet.id];
+                                return next;
+                              });
+                            }}
+                            className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-500 text-white font-medium text-[10px]"
+                          >
+                            Apply
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSheetSuggestions((prev) => {
+                                const next = { ...prev };
+                                delete next[activeSheet.id];
+                                return next;
+                              })
+                            }
+                            className="p-0.5 text-zinc-400 hover:text-white"
+                            title="Dismiss suggestion"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  {sheetSnapshots[activeSheet.id] && (
+                    <div className="flex items-center gap-2 p-1.5 rounded-lg bg-zinc-900/80 border border-zinc-800">
+                      <img
+                        src={sheetSnapshots[activeSheet.id]}
+                        alt="Selected layout reference"
+                        className="w-16 h-10 object-contain rounded border border-zinc-800 bg-zinc-950 shrink-0"
+                      />
+                      <span className="text-[10px] text-zinc-400">
+                        Captured layout box reference
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div>

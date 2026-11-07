@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { apiUrl } from '../auth';
+import { apiUrl, authFetch } from '../auth';
 import {
   ArrowLeft,
   Ruler,
@@ -20,7 +20,10 @@ import {
   Edit2,
   Check,
   FileSpreadsheet,
+  ChevronDown,
 } from 'lucide-react';
+import { PlanDiscipline, DISCIPLINES } from '../types/plan';
+import { AiBadge } from './ui/AiBadge';
 
 export type ViewerTabMode = 'dwg';
 type ToolMode = 'pan' | 'measure';
@@ -98,6 +101,7 @@ interface OpenCadViewerProps {
   onOpenAuth?: (mode: 'signin' | 'signup') => void;
   onUpdateMetadata?: (patch: { name?: string; sheets?: any[] }) => Promise<void>;
   onOpenStructuralEstimator?: () => void;
+  onOpenEstimator?: (discipline: PlanDiscipline) => void;
   isGuest?: boolean;
 }
 
@@ -123,6 +127,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   onOpenAuth,
   onUpdateMetadata,
   onOpenStructuralEstimator,
+  onOpenEstimator,
   isGuest = false,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -139,7 +144,11 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
   const [showLayersSheet, setShowLayersSheet] = useState<boolean>(false);
   const [showDownloadMenu, setShowDownloadMenu] = useState<boolean>(false);
+  const [showEstimatorMenu, setShowEstimatorMenu] = useState<boolean>(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+
+  const currentDiscipline: PlanDiscipline = (plan.discipline as PlanDiscipline) || 'structural';
+  const currentDisciplineInfo = DISCIPLINES.find((d) => d.id === currentDiscipline) || DISCIPLINES[2];
 
   // Measurement state
   const [measureSubMode, setMeasureSubMode] = useState<MeasureSubMode>('distance');
@@ -155,6 +164,9 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   const [editingSheetMeta, setEditingSheetMeta] = useState(false);
   const [tempSheetName, setTempSheetName] = useState('');
   const [tempSheetDesc, setTempSheetDesc] = useState('');
+  const [sheetAiSuggestion, setSheetAiSuggestion] = useState<string | null>(null);
+  const [sheetAiBusy, setSheetAiBusy] = useState(false);
+  const [sheetPreviewUrl, setSheetPreviewUrl] = useState<string | null>(null);
 
   // Pointer & touch gesture tracking
   const dragRef = useRef<{
@@ -675,9 +687,9 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
         if (!isLayerVisible(t.layer)) continue;
         if (t.x < cullMinX || t.x > cullMaxX || t.y < cullMinY || t.y > cullMaxY) continue;
         const pxHeight = (t.height || 0.2) * zoom;
-        if (pxHeight < 5.5) continue;
+        if (pxHeight < 7.5) continue;
         const [sx, sy] = worldToScreen(t.x, t.y);
-        const fontPx = Math.min(32, Math.max(7.5, pxHeight));
+        const fontPx = Math.min(26, pxHeight);
         ctx.font = `${fontPx > 12 ? '600' : '400'} ${fontPx.toFixed(1)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
         ctx.fillStyle = getEntityColor(t.color);
         if (t.rotation) {
@@ -1012,6 +1024,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
         startZoom: zoom,
       };
     } else if (e.touches.length === 1) {
+      if (e.touches[0].clientX <= 22) return;
       const sx = e.touches[0].clientX - rect.left;
       const sy = e.touches[0].clientY - rect.top;
       dragRef.current = {
@@ -1212,15 +1225,67 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
             </button>
           )}
 
-          {plan.discipline === 'structural' && onOpenStructuralEstimator && (
-            <button
-              onClick={onOpenStructuralEstimator}
-              className="flex items-center gap-1.5 px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow transition"
-              title="Open Bar Bending Schedule (BBS) & Structural Estimator"
-            >
-              <FileSpreadsheet className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">BBS Estimator</span>
-            </button>
+          {/* Multi-discipline Estimator Launcher */}
+          {(onOpenEstimator || onOpenStructuralEstimator) && (
+            <div className="relative">
+              <div className="flex items-center rounded-lg bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700 overflow-hidden shadow-sm">
+                <button
+                  onClick={() => {
+                    if (onOpenEstimator) {
+                      onOpenEstimator(currentDiscipline);
+                    } else if (onOpenStructuralEstimator) {
+                      onOpenStructuralEstimator();
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 text-zinc-100 hover:text-white text-xs font-medium transition"
+                  title={`Open ${currentDisciplineInfo.estimatorLabel}`}
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="hidden sm:inline font-mono text-[11px] uppercase tracking-wider text-zinc-400 mr-0.5">
+                    {currentDiscipline}
+                  </span>
+                  <span className="hidden sm:inline">{currentDisciplineInfo.estimatorLabel}</span>
+                  <span className="sm:hidden">Estimator</span>
+                </button>
+                {onOpenEstimator && (
+                  <button
+                    onClick={() => setShowEstimatorMenu((v) => !v)}
+                    className="p-1.5 sm:py-1.5 border-l border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition"
+                    title="Switch discipline estimator"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {showEstimatorMenu && onOpenEstimator && (
+                <div className="absolute right-0 mt-1.5 w-64 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1.5 z-40 text-xs space-y-1">
+                  <div className="px-2.5 py-1 text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
+                    Select Estimator
+                  </div>
+                  {DISCIPLINES.map((d) => (
+                    <button
+                      key={d.id}
+                      onClick={() => {
+                        setShowEstimatorMenu(false);
+                        onOpenEstimator(d.id);
+                      }}
+                      className={`w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left transition ${
+                        d.id === currentDiscipline
+                          ? 'bg-blue-600/15 border border-blue-500/30 text-blue-200'
+                          : 'hover:bg-zinc-800 text-zinc-300'
+                      }`}
+                    >
+                      <FileSpreadsheet className="w-4 h-4 mt-0.5 shrink-0 text-zinc-400" />
+                      <div>
+                        <div className="font-medium text-zinc-200">{d.estimatorLabel}</div>
+                        <div className="text-[11px] text-zinc-400 leading-tight">{d.estimatorDesc}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           <button
@@ -1307,7 +1372,36 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                     if (cur) {
                       setTempSheetName(cur.name || '');
                       setTempSheetDesc(cur.description || '');
+                      setSheetAiSuggestion(null);
+                      try {
+                        setSheetPreviewUrl(canvasRef.current ? canvasRef.current.toDataURL('image/png') : null);
+                      } catch {
+                        setSheetPreviewUrl(null);
+                      }
                       setEditingSheetMeta(true);
+                      const sheetTexts = (rawData?.texts || [])
+                        .slice()
+                        .sort((a: any, b: any) => (Number(b.height) || 0) - (Number(a.height) || 0))
+                        .map((t: any) => String(t.text || '').trim())
+                        .filter(Boolean)
+                        .slice(0, 25);
+                      setSheetAiBusy(true);
+                      authFetch('/api/plans/ai-clean-names', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          filename: plan.dwg_filename || plan.name || 'plan.dwg',
+                          sheets: [{ id: cur.id, name: cur.name, candidate_texts: sheetTexts }],
+                          candidate_texts: sheetTexts,
+                        }),
+                      })
+                        .then((r) => (r.ok ? r.json() : null))
+                        .then((d) => {
+                          const sName = d?.sheets?.[0]?.name?.trim();
+                          if (sName) setSheetAiSuggestion(sName);
+                        })
+                        .catch(() => {})
+                        .finally(() => setSheetAiBusy(false));
                     }
                   }}
                   className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition"
@@ -1351,6 +1445,8 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
               </div>
             ) : (
               <>
+                {/* Native iOS left-edge swipe guard so touch-none on canvas does not block edge back gesture */}
+                <div className="absolute inset-y-0 left-0 w-5 z-10 sm:hidden" />
                 <canvas
                   ref={canvasRef}
                   onMouseDown={handleMouseDown}
@@ -1673,8 +1769,8 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-zinc-300 mb-1">Sheet Name</label>
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-zinc-300">Sheet Name</label>
               <input
                 type="text"
                 value={tempSheetName}
@@ -1682,6 +1778,44 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                 className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
                 placeholder="e.g. Ground Floor Plan"
               />
+              {sheetAiBusy && (
+                <div className="text-[11px] text-zinc-400 flex items-center gap-1.5">
+                  <AiBadge />
+                  <span>Reading sheet layout context for name suggestion...</span>
+                </div>
+              )}
+              {sheetAiSuggestion && sheetAiSuggestion !== tempSheetName && (
+                <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-blue-500/10 border border-blue-500/25 text-xs">
+                  <div className="min-w-0 flex items-center gap-1.5">
+                    <AiBadge />
+                    <span className="text-zinc-200 truncate">
+                      Suggested: <strong>{sheetAiSuggestion}</strong>
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTempSheetName(sheetAiSuggestion);
+                      setSheetAiSuggestion(null);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-[11px] shrink-0"
+                  >
+                    Apply
+                  </button>
+                </div>
+              )}
+              {sheetPreviewUrl && (
+                <div className="flex items-center gap-2.5 p-2 rounded-xl bg-zinc-950 border border-zinc-800">
+                  <img
+                    src={sheetPreviewUrl}
+                    alt="Current sheet layout reference"
+                    className="w-20 h-12 object-contain rounded border border-zinc-800 bg-black shrink-0"
+                  />
+                  <span className="text-[11px] text-zinc-400">
+                    Active sheet layout reference used to infer title
+                  </span>
+                </div>
+              )}
             </div>
             <div>
               <label className="block text-xs font-semibold text-zinc-300 mb-1">
