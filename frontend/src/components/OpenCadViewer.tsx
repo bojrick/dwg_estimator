@@ -206,7 +206,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
     try {
       const raw = localStorage.getItem(storageKey);
       if (raw) return JSON.parse(raw);
-    } catch { }
+    } catch {}
     return [];
   });
   const [focusedMeasurementId, setFocusedMeasurementId] = useState<string | null>(null);
@@ -263,9 +263,9 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
       setSavedMeasurements(next);
       try {
         localStorage.setItem(storageKey, JSON.stringify(next));
-      } catch { }
+      } catch {}
       if (onUpdateMetadata) {
-        onUpdateMetadata({ measurements: next }).catch(() => { });
+        onUpdateMetadata({ measurements: next }).catch(() => {});
       }
     },
     [storageKey, onUpdateMetadata]
@@ -1759,8 +1759,8 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
     measureSubMode === 'area-pick'
       ? (selectedAreaShape || hoverAreaShape)?.pts || []
       : measureSubMode === 'area-points'
-        ? measurePts
-        : [];
+      ? measurePts
+      : [];
   const activeAreaMetrics =
     activeAreaPts.length >= 3 ? computePolygonAreaAndPerimeter(activeAreaPts) : null;
   const activeAreaFormatted =
@@ -1823,7 +1823,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
       {/* Header: row 1 = back, title, actions; row 2 = view switcher, sheet selector */}
       <div className="bg-zinc-900 border-b border-zinc-800 px-3 pb-2 pt-[max(8px,env(safe-area-inset-top))] shrink-0 space-y-2">
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
             <button
               onClick={onBack}
               className="p-2.5 sm:p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition shrink-0"
@@ -1890,140 +1890,141 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
               </div>
             </div>
           </div>
-
-
+  
+  
           <div className="flex items-center gap-1.5 shrink-0">
-            {onOpenAuth && (
-              <>
-                <button
-                  onClick={() => onOpenAuth('signin')}
-                  className="hidden sm:inline-flex px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
-                >
-                  Sign In
-                </button>
-                {!isGuest && (
-                  <button
-                    onClick={() => onOpenAuth('signup')}
-                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shadow transition"
-                  >
-                    Sign Up
-                  </button>
-                )}
-              </>
-            )}
-            {isGuest && onSavePlan && (
+          {onOpenAuth && (
+            <>
               <button
-                onClick={onSavePlan}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shadow transition"
+                onClick={() => onOpenAuth('signin')}
+                className="hidden sm:inline-flex px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
               >
-                <Upload className="w-3.5 h-3.5" />
-                <span>{onOpenAuth ? 'Sign Up & Save' : 'Save Plan'}</span>
+                Sign In
               </button>
-            )}
+              {!isGuest && (
+                <button
+                  onClick={() => onOpenAuth('signup')}
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shadow transition"
+                >
+                  Sign Up
+                </button>
+              )}
+            </>
+          )}
+          {isGuest && onSavePlan && (
+            <button
+              onClick={onSavePlan}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shadow transition"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>{onOpenAuth ? 'Sign Up & Save' : 'Save Plan'}</span>
+            </button>
+          )}
 
-            {/* Multi-discipline Estimator Launcher */}
-            {(onOpenEstimator || onOpenStructuralEstimator) && (
-              <div className="relative">
-                <div className="flex items-center rounded-lg bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700 overflow-hidden shadow-sm">
+          {/* Multi-discipline Estimator Launcher */}
+          {(onOpenEstimator || onOpenStructuralEstimator) && (
+            <div className="relative">
+              <div className="flex items-center rounded-lg bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700 overflow-hidden shadow-sm">
+                <button
+                  onClick={() => {
+                    if (onOpenEstimator) {
+                      onOpenEstimator(currentDiscipline);
+                    } else if (onOpenStructuralEstimator) {
+                      onOpenStructuralEstimator();
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 text-zinc-100 hover:text-white text-xs font-medium transition"
+                  title={`Open ${currentDisciplineInfo.estimatorLabel}`}
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-blue-400" />
+                  <span className="hidden sm:inline font-mono text-[11px] uppercase tracking-wider text-zinc-400 mr-0.5">
+                    {currentDiscipline}
+                  </span>
+                  <span className="hidden sm:inline">{currentDisciplineInfo.estimatorLabel}</span>
+                  <span className="sm:hidden">Estimator</span>
+                </button>
+                {onOpenEstimator && (
                   <button
-                    onClick={() => {
-                      if (onOpenEstimator) {
-                        onOpenEstimator(currentDiscipline);
-                      } else if (onOpenStructuralEstimator) {
-                        onOpenStructuralEstimator();
-                      }
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 text-zinc-100 hover:text-white text-xs font-medium transition"
-                    title={`Open ${currentDisciplineInfo.estimatorLabel}`}
+                    onClick={() => setShowEstimatorMenu((v) => !v)}
+                    className="p-1.5 sm:py-1.5 border-l border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition"
+                    title="Switch discipline estimator"
                   >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-blue-400" />
-                    <span className="hidden sm:inline font-mono text-[11px] uppercase tracking-wider text-zinc-400 mr-0.5">
-                      {currentDiscipline}
-                    </span>
-                    <span className="hidden sm:inline">{currentDisciplineInfo.estimatorLabel}</span>
-                    <span className="sm:hidden">Estimator</span>
+                    <ChevronDown className="w-3.5 h-3.5" />
                   </button>
-                  {onOpenEstimator && (
-                    <button
-                      onClick={() => setShowEstimatorMenu((v) => !v)}
-                      className="p-1.5 sm:py-1.5 border-l border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition"
-                      title="Switch discipline estimator"
-                    >
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {showEstimatorMenu && onOpenEstimator && (
-                  <div className="absolute right-0 mt-1.5 w-64 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1.5 z-40 text-xs space-y-1">
-                    <div className="px-2.5 py-1 text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
-                      Select Estimator
-                    </div>
-                    {DISCIPLINES.map((d) => (
-                      <button
-                        key={d.id}
-                        onClick={() => {
-                          setShowEstimatorMenu(false);
-                          onOpenEstimator(d.id);
-                        }}
-                        className={`w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left transition ${d.id === currentDiscipline
-                            ? 'bg-blue-600/15 border border-blue-500/30 text-blue-200'
-                            : 'hover:bg-zinc-800 text-zinc-300'
-                          }`}
-                      >
-                        <FileSpreadsheet className="w-4 h-4 mt-0.5 shrink-0 text-zinc-400" />
-                        <div>
-                          <div className="font-medium text-zinc-200">{d.estimatorLabel}</div>
-                          <div className="text-[11px] text-zinc-400 leading-tight">{d.estimatorDesc}</div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
                 )}
               </div>
-            )}
 
-            <button
-              onClick={() => onShare(plan)}
-              className="flex items-center gap-1.5 px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition"
-            >
-              <Share2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Share</span>
-            </button>
-
-            <div className="relative">
-              <button
-                onClick={() => setShowDownloadMenu((v) => !v)}
-                className="p-2.5 sm:p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition"
-                title="Download or Update Plan Files"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-              {showDownloadMenu && (
-                <div className="absolute right-0 mt-1.5 w-52 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1.5 z-40 text-xs space-y-1">
-                  {plan.has_dwg && (
-                    <>
-                      <a
-                        href={apiUrl(`/api/plans/${plan.id}/file/dxf?share=${encodeURIComponent(plan.share_token || '')}`)}
-                        download
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-200"
-                      >
-                        <Download className="w-3.5 h-3.5 text-zinc-300" />
-                        Download Cleaned .DXF
-                      </a>
-                      <a
-                        href={apiUrl(`/api/plans/${plan.id}/file/dwg?share=${encodeURIComponent(plan.share_token || '')}`)}
-                        download
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-200"
-                      >
-                        <Download className="w-3.5 h-3.5 text-blue-400" />
-                        Download Original .DWG
-                      </a>
-                    </>
-                  )}
+              {showEstimatorMenu && onOpenEstimator && (
+                <div className="absolute right-0 mt-1.5 w-64 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1.5 z-40 text-xs space-y-1">
+                  <div className="px-2.5 py-1 text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
+                    Select Estimator
+                  </div>
+                  {DISCIPLINES.map((d) => (
+                    <button
+                      key={d.id}
+                      onClick={() => {
+                        setShowEstimatorMenu(false);
+                        onOpenEstimator(d.id);
+                      }}
+                      className={`w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left transition ${
+                        d.id === currentDiscipline
+                          ? 'bg-blue-600/15 border border-blue-500/30 text-blue-200'
+                          : 'hover:bg-zinc-800 text-zinc-300'
+                      }`}
+                    >
+                      <FileSpreadsheet className="w-4 h-4 mt-0.5 shrink-0 text-zinc-400" />
+                      <div>
+                        <div className="font-medium text-zinc-200">{d.estimatorLabel}</div>
+                        <div className="text-[11px] text-zinc-400 leading-tight">{d.estimatorDesc}</div>
+                      </div>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
+          )}
+
+          <button
+            onClick={() => onShare(plan)}
+            className="flex items-center gap-1.5 px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition"
+          >
+            <Share2 className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Share</span>
+          </button>
+
+          <div className="relative">
+            <button
+              onClick={() => setShowDownloadMenu((v) => !v)}
+              className="p-2.5 sm:p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition"
+              title="Download or Update Plan Files"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            {showDownloadMenu && (
+              <div className="absolute right-0 mt-1.5 w-52 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1.5 z-40 text-xs space-y-1">
+                {plan.has_dwg && (
+                  <>
+                    <a
+                      href={apiUrl(`/api/plans/${plan.id}/file/dxf?share=${encodeURIComponent(plan.share_token || '')}`)}
+                      download
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-200"
+                    >
+                      <Download className="w-3.5 h-3.5 text-zinc-300" />
+                      Download Cleaned .DXF
+                    </a>
+                    <a
+                      href={apiUrl(`/api/plans/${plan.id}/file/dwg?share=${encodeURIComponent(plan.share_token || '')}`)}
+                      download
+                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-200"
+                    >
+                      <Download className="w-3.5 h-3.5 text-blue-400" />
+                      Download Original .DWG
+                    </a>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -2100,185 +2101,276 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
           ref={containerRef}
           className="relative flex-1 overflow-hidden bg-zinc-950"
         >
-          {!rawData ? (
-            <div className="h-full flex flex-col items-center justify-center p-6 text-center gap-3">
-              <FileCode2 className="w-10 h-10 text-zinc-500" />
-              <div className="text-sm font-medium text-white">No DWG File Attached Yet</div>
-              <p className="text-xs text-zinc-400 max-w-xs">
-                Upload the .DWG or .DXF file for this plan to clean up the view and measure distances.
-              </p>
-              <button
-                onClick={() => dwgInputRef.current?.click()}
-                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-2"
-              >
-                <Upload className="w-4 h-4" /> Upload .DWG / .DXF
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* Native iOS left-edge swipe guard so touch-none on canvas does not block edge back gesture */}
-              <div className="absolute inset-y-0 left-0 w-5 z-10 sm:hidden" />
-              <canvas
-                ref={canvasRef}
-                onMouseDown={handleMouseDown}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-                onWheel={handleWheel}
-                onTouchStart={handleTouchStart}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
-                className={`w-full h-full block touch-none select-none ${toolMode === 'measure' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+            {!rawData ? (
+              <div className="h-full flex flex-col items-center justify-center p-6 text-center gap-3">
+                <FileCode2 className="w-10 h-10 text-zinc-500" />
+                <div className="text-sm font-medium text-white">No DWG File Attached Yet</div>
+                <p className="text-xs text-zinc-400 max-w-xs">
+                  Upload the .DWG or .DXF file for this plan to clean up the view and measure distances.
+                </p>
+                <button
+                  onClick={() => dwgInputRef.current?.click()}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-2"
+                >
+                  <Upload className="w-4 h-4" /> Upload .DWG / .DXF
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Native iOS left-edge swipe guard so touch-none on canvas does not block edge back gesture */}
+                <div className="absolute inset-y-0 left-0 w-5 z-10 sm:hidden" />
+                <canvas
+                  ref={canvasRef}
+                  onMouseDown={handleMouseDown}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onWheel={handleWheel}
+                  onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
+                  onTouchEnd={handleTouchEnd}
+                  className={`w-full h-full block touch-none select-none ${
+                    toolMode === 'measure' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
                   }`}
-              />
+                />
 
-              {/* Focused Measurement Mode Top Banner */}
-              {focusedMeasurement && (
-                <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2.5 bg-zinc-900/95 backdrop-blur-md border border-emerald-500/50 px-4 py-2 rounded-2xl shadow-2xl max-w-[94vw]">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-white truncate">
-                      {focusedMeasurement.name}
+                {/* Focused Measurement Mode Top Banner */}
+                {focusedMeasurement && (
+                  <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2.5 bg-zinc-900/95 backdrop-blur-md border border-emerald-500/50 px-4 py-2 rounded-2xl shadow-2xl max-w-[94vw]">
+                    <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs font-semibold text-white truncate">
+                        {focusedMeasurement.name}
+                      </div>
+                      <div className="text-[11px] font-mono text-emerald-300 truncate">
+                        {focusedMeasurement.formattedPrimary}{' '}
+                        <span className="text-zinc-400">({focusedMeasurement.formattedSecondary})</span>
+                      </div>
                     </div>
-                    <div className="text-[11px] font-mono text-emerald-300 truncate">
-                      {focusedMeasurement.formattedPrimary}{' '}
-                      <span className="text-zinc-400">({focusedMeasurement.formattedSecondary})</span>
-                    </div>
+                    <div className="h-5 w-px bg-zinc-700 mx-1 shrink-0" />
+                    <button
+                      onClick={() => setFocusedMeasurementId(null)}
+                      className="px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition shrink-0"
+                      title="Exit focus and show all (Esc)"
+                    >
+                      Show All (Esc)
+                    </button>
                   </div>
-                  <div className="h-5 w-px bg-zinc-700 mx-1 shrink-0" />
-                  <button
-                    onClick={() => setFocusedMeasurementId(null)}
-                    className="px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition shrink-0"
-                    title="Exit focus and show all (Esc)"
-                  >
-                    Show All (Esc)
-                  </button>
-                </div>
-              )}
+                )}
 
-              {/* Top Floating Measurement HUD Banner */}
-              {toolMode === 'measure' && (
-                <div className="absolute top-0 inset-x-0 z-20 bg-zinc-900/95 backdrop-blur-md border-b border-white/10 px-3 py-2 space-y-1.5">
-                  {/* Sub-mode switcher: Distance | Area: Pick Closed | Area: Points + Ortho lock */}
-                  <div className="flex items-center gap-1.5">
-                    <div className="grid grid-cols-3 gap-1 flex-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
-                      {(
-                        [
-                          { id: 'distance', label: 'Distance' },
-                          { id: 'area-pick', label: 'Room area' },
-                          { id: 'area-points', label: 'Trace area' },
-                        ] as { id: MeasureSubMode; label: string }[]
-                      ).map((m) => (
-                        <button
-                          key={m.id}
-                          onClick={() => {
-                            setMeasureSubMode(m.id);
-                            setMeasurePts([]);
-                            setSelectedAreaShape(null);
-                            setHoverAreaShape(null);
-                            setOrthoGuideRay(null);
-                          }}
-                          className={`py-2 px-1 rounded-lg text-[11px] font-medium transition active:scale-95 truncate ${measureSubMode === m.id
-                              ? 'bg-blue-600 text-white shadow-xs'
-                              : 'text-zinc-400 hover:text-zinc-200'
+                {/* Top Floating Measurement HUD Banner */}
+                {toolMode === 'measure' && (
+                  <div className="absolute top-0 inset-x-0 z-20 bg-zinc-900/95 backdrop-blur-md border-b border-white/10 px-3 py-2 space-y-1.5">
+                    {/* Sub-mode switcher: Distance | Area: Pick Closed | Area: Points + Ortho lock */}
+                    <div className="flex items-center gap-1.5">
+                      <div className="grid grid-cols-3 gap-1 flex-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+                        {(
+                          [
+                            { id: 'distance', label: 'Distance' },
+                            { id: 'area-pick', label: 'Room area' },
+                            { id: 'area-points', label: 'Trace area' },
+                          ] as { id: MeasureSubMode; label: string }[]
+                        ).map((m) => (
+                          <button
+                            key={m.id}
+                            onClick={() => {
+                              setMeasureSubMode(m.id);
+                              setMeasurePts([]);
+                              setSelectedAreaShape(null);
+                              setHoverAreaShape(null);
+                              setOrthoGuideRay(null);
+                            }}
+                            className={`py-2 px-1 rounded-lg text-[11px] font-medium transition active:scale-95 truncate ${
+                              measureSubMode === m.id
+                                ? 'bg-blue-600 text-white shadow-xs'
+                                : 'text-zinc-400 hover:text-zinc-200'
                             }`}
-                        >
-                          {m.label}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      onClick={() => setIsOrthoLocked((v) => !v)}
-                      className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[11px] font-medium transition active:scale-95 shrink-0 border ${isOrthoLocked
-                          ? 'bg-cyan-600 border-cyan-400 text-white shadow-xs'
-                          : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                          >
+                            {m.label}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => setIsOrthoLocked((v) => !v)}
+                        className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[11px] font-medium transition active:scale-95 shrink-0 border ${
+                          isOrthoLocked
+                            ? 'bg-cyan-600 border-cyan-400 text-white shadow-xs'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
                         }`}
-                      title="Toggle Orthogonal Guidelines & Snapping (F8 or hold Shift)"
-                    >
-                      <CornerDownRight className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Ortho</span>
-                      <span>{isOrthoLocked ? 'ON' : 'OFF'}</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        setIsOtrackEnabled((v) => {
-                          const next = !v;
-                          showToast(`Object Snap Tracking (F11): ${next ? 'ON' : 'OFF'}`);
-                          return next;
-                        });
-                      }}
-                      className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[11px] font-medium transition active:scale-95 shrink-0 border ${isOtrackEnabled
-                          ? 'bg-emerald-600 border-emerald-400 text-white shadow-xs'
-                          : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                        }`}
-                      title="Toggle AutoCAD Object Snap Tracking (F11) - Hover snap points to acquire tracking lines & invisible intersections"
-                    >
-                      <Crosshair className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">O-TRACK</span>
-                      <span>{isOtrackEnabled ? 'ON' : 'OFF'}</span>
-                    </button>
-                    {acquiredTrackPoints.length > 0 && (
+                        title="Toggle Orthogonal Guidelines & Snapping (F8 or hold Shift)"
+                      >
+                        <CornerDownRight className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Ortho</span>
+                        <span>{isOrthoLocked ? 'ON' : 'OFF'}</span>
+                      </button>
                       <button
                         onClick={() => {
-                          setAcquiredTrackPoints([]);
-                          setOrthoGuideRay(null);
-                          showToast('Cleared tracking points');
+                          setIsOtrackEnabled((v) => {
+                            const next = !v;
+                            showToast(`Object Snap Tracking (F11): ${next ? 'ON' : 'OFF'}`);
+                            return next;
+                          });
                         }}
-                        className="flex items-center gap-1 px-2 py-2 rounded-xl text-[10px] font-mono bg-zinc-900 border border-zinc-700 text-emerald-400 hover:text-emerald-300 shrink-0"
-                        title="Click or press Esc to clear acquired tracking points"
+                        className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[11px] font-medium transition active:scale-95 shrink-0 border ${
+                          isOtrackEnabled
+                            ? 'bg-emerald-600 border-emerald-400 text-white shadow-xs'
+                            : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                        title="Toggle AutoCAD Object Snap Tracking (F11) - Hover snap points to acquire tracking lines & invisible intersections"
                       >
-                        +{acquiredTrackPoints.length}
-                        <X className="w-3 h-3" />
+                        <Crosshair className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">O-TRACK</span>
+                        <span>{isOtrackEnabled ? 'ON' : 'OFF'}</span>
                       </button>
-                    )}
-                  </div>
+                      {acquiredTrackPoints.length > 0 && (
+                        <button
+                          onClick={() => {
+                            setAcquiredTrackPoints([]);
+                            setOrthoGuideRay(null);
+                            showToast('Cleared tracking points');
+                          }}
+                          className="flex items-center gap-1 px-2 py-2 rounded-xl text-[10px] font-mono bg-zinc-900 border border-zinc-700 text-emerald-400 hover:text-emerald-300 shrink-0"
+                          title="Click or press Esc to clear acquired tracking points"
+                        >
+                          +{acquiredTrackPoints.length}
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
 
-                  {measureSubMode === 'distance' ? (
-                    activeMeasureFormatted && measurePts.length === 2 ? (
+                    {measureSubMode === 'distance' ? (
+                      activeMeasureFormatted && measurePts.length === 2 ? (
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <div className="text-[10px] font-medium text-zinc-300">
+                              Measured Distance (OSNAP & Ortho)
+                            </div>
+                            <div className="text-base sm:text-lg font-semibold font-mono text-white">
+                              {activeMeasureFormatted.meters}{' '}
+                              <span className="text-xs font-semibold text-zinc-300">
+                                ({activeMeasureFormatted.feetInches} | {activeMeasureFormatted.mm})
+                              </span>
+                            </div>
+                            <div className="text-[11px] font-mono text-zinc-400">
+                              ΔX: {(Math.abs(measurePts[1][0] - measurePts[0][0]) * unitScaleToM).toFixed(3)}m · ΔY:{' '}
+                              {(Math.abs(measurePts[1][1] - measurePts[0][1]) * unitScaleToM).toFixed(3)}m
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={() => {
+                                const distCount = savedMeasurements.filter((m) => m.type === 'distance').length + 1;
+                                const defName = `Span #${distCount} (${activeMeasureFormatted.primary})`;
+                                setNamingModal({
+                                  type: 'distance',
+                                  subMode: 'distance',
+                                  defaultName: defName,
+                                  points: [measurePts[0], measurePts[1]],
+                                  rawUnits: activeMeasureDistance!,
+                                  formattedPrimary: activeMeasureFormatted.primary,
+                                  formattedSecondary: `${activeMeasureFormatted.feetInches} | ${activeMeasureFormatted.mm}`,
+                                  metadata: {
+                                    deltaX: Number((Math.abs(measurePts[1][0] - measurePts[0][0]) * unitScaleToM).toFixed(3)),
+                                    deltaY: Number((Math.abs(measurePts[1][1] - measurePts[0][1]) * unitScaleToM).toFixed(3)),
+                                  },
+                                });
+                                setTempMeasureName(defName);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-white flex items-center gap-1 shadow-sm transition active:scale-95"
+                              title="Save this measurement"
+                            >
+                              <Bookmark className="w-3.5 h-3.5" />
+                              <span>Save</span>
+                            </button>
+                            <button
+                              onClick={() => setMeasurePts([])}
+                              className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 shrink-0"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2 text-xs text-blue-200">
+                          <div className="flex items-center gap-2">
+                            <Ruler className="w-4 h-4 text-zinc-300 shrink-0" />
+                            <span>
+                              {measurePts.length === 0
+                                ? 'Tap 1st point on DWG to measure distance'
+                                : 'Tap 2nd point to complete measurement (snaps to ortho)'}
+                            </span>
+                          </div>
+                          {measurePts.length > 0 && (
+                            <button
+                              onClick={() => setMeasurePts([])}
+                              className="text-[11px] underline text-zinc-300"
+                            >
+                              Reset
+                            </button>
+                          )}
+                        </div>
+                      )
+                    ) : activeAreaFormatted ? (
                       <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <div className="text-[10px] font-medium text-zinc-300">
-                            Measured Distance (OSNAP & Ortho)
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-medium text-zinc-300 truncate">
+                            {measureSubMode === 'area-pick'
+                              ? (selectedAreaShape || hoverAreaShape)?.label || 'Closed Area'
+                              : `Polygon Area (${measurePts.length} pts)`}
                           </div>
                           <div className="text-base sm:text-lg font-semibold font-mono text-white">
-                            {activeMeasureFormatted.meters}{' '}
+                            {activeAreaFormatted.sqm}{' '}
                             <span className="text-xs font-semibold text-zinc-300">
-                              ({activeMeasureFormatted.feetInches} | {activeMeasureFormatted.mm})
+                              ({activeAreaFormatted.sqft}
+                              {unitName === 'mm' ? ` | ${activeAreaFormatted.sqmm}` : ''})
                             </span>
                           </div>
                           <div className="text-[11px] font-mono text-zinc-400">
-                            ΔX: {(Math.abs(measurePts[1][0] - measurePts[0][0]) * unitScaleToM).toFixed(3)}m · ΔY:{' '}
-                            {(Math.abs(measurePts[1][1] - measurePts[0][1]) * unitScaleToM).toFixed(3)}m
+                            Perimeter: {activeAreaFormatted.perim.meters} ({activeAreaFormatted.perim.feetInches})
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
                             onClick={() => {
-                              const distCount = savedMeasurements.filter((m) => m.type === 'distance').length + 1;
-                              const defName = `Span #${distCount} (${activeMeasureFormatted.primary})`;
+                              const areaCount = savedMeasurements.filter((m) => m.type === 'area').length + 1;
+                              const roomLabel = (selectedAreaShape || hoverAreaShape)?.label;
+                              const defName = roomLabel
+                                ? roomLabel.replace(/Closed Polyline |Hatch Area /i, '')
+                                : `Area #${areaCount} (${activeAreaFormatted.sqm})`;
                               setNamingModal({
-                                type: 'distance',
-                                subMode: 'distance',
+                                type: 'area',
+                                subMode: measureSubMode,
                                 defaultName: defName,
-                                points: [measurePts[0], measurePts[1]],
-                                rawUnits: activeMeasureDistance!,
-                                formattedPrimary: activeMeasureFormatted.primary,
-                                formattedSecondary: `${activeMeasureFormatted.feetInches} | ${activeMeasureFormatted.mm}`,
+                                points: activeAreaPts,
+                                rawUnits: activeAreaMetrics!.rawArea,
+                                formattedPrimary: activeAreaFormatted.sqm,
+                                formattedSecondary: `${activeAreaFormatted.sqft}${unitName === 'mm' ? ` | ${activeAreaFormatted.sqmm}` : ''}`,
                                 metadata: {
-                                  deltaX: Number((Math.abs(measurePts[1][0] - measurePts[0][0]) * unitScaleToM).toFixed(3)),
-                                  deltaY: Number((Math.abs(measurePts[1][1] - measurePts[0][1]) * unitScaleToM).toFixed(3)),
+                                  perimeter: activeAreaFormatted.perim.meters,
                                 },
                               });
                               setTempMeasureName(defName);
                             }}
                             className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-white flex items-center gap-1 shadow-sm transition active:scale-95"
-                            title="Save this measurement"
+                            title="Save this area measurement"
                           >
                             <Bookmark className="w-3.5 h-3.5" />
                             <span>Save</span>
                           </button>
+                          {measureSubMode === 'area-points' && measurePts.length > 0 && (
+                            <button
+                              onClick={() => setMeasurePts((prev) => prev.slice(0, -1))}
+                              className="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[11px] font-medium text-zinc-200"
+                            >
+                              Undo
+                            </button>
+                          )}
                           <button
-                            onClick={() => setMeasurePts([])}
-                            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 shrink-0"
+                            onClick={() => {
+                              setMeasurePts([]);
+                              setSelectedAreaShape(null);
+                              setHoverAreaShape(null);
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200"
                           >
                             Clear
                           </button>
@@ -2289,9 +2381,9 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                         <div className="flex items-center gap-2">
                           <Ruler className="w-4 h-4 text-zinc-300 shrink-0" />
                           <span>
-                            {measurePts.length === 0
-                              ? 'Tap 1st point on DWG to measure distance'
-                              : 'Tap 2nd point to complete measurement (snaps to ortho)'}
+                            {measureSubMode === 'area-pick'
+                              ? 'Tap inside any closed polygon or room to get its area'
+                              : `Tap 3+ points (OSNAP) to measure polygon area (${measurePts.length} pts)`}
                           </span>
                         </div>
                         {measurePts.length > 0 && (
@@ -2303,334 +2395,267 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                           </button>
                         )}
                       </div>
-                    )
-                  ) : activeAreaFormatted ? (
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="text-[10px] font-medium text-zinc-300 truncate">
-                          {measureSubMode === 'area-pick'
-                            ? (selectedAreaShape || hoverAreaShape)?.label || 'Closed Area'
-                            : `Polygon Area (${measurePts.length} pts)`}
-                        </div>
-                        <div className="text-base sm:text-lg font-semibold font-mono text-white">
-                          {activeAreaFormatted.sqm}{' '}
-                          <span className="text-xs font-semibold text-zinc-300">
-                            ({activeAreaFormatted.sqft}
-                            {unitName === 'mm' ? ` | ${activeAreaFormatted.sqmm}` : ''})
-                          </span>
-                        </div>
-                        <div className="text-[11px] font-mono text-zinc-400">
-                          Perimeter: {activeAreaFormatted.perim.meters} ({activeAreaFormatted.perim.feetInches})
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <button
-                          onClick={() => {
-                            const areaCount = savedMeasurements.filter((m) => m.type === 'area').length + 1;
-                            const roomLabel = (selectedAreaShape || hoverAreaShape)?.label;
-                            const defName = roomLabel
-                              ? roomLabel.replace(/Closed Polyline |Hatch Area /i, '')
-                              : `Area #${areaCount} (${activeAreaFormatted.sqm})`;
-                            setNamingModal({
-                              type: 'area',
-                              subMode: measureSubMode,
-                              defaultName: defName,
-                              points: activeAreaPts,
-                              rawUnits: activeAreaMetrics!.rawArea,
-                              formattedPrimary: activeAreaFormatted.sqm,
-                              formattedSecondary: `${activeAreaFormatted.sqft}${unitName === 'mm' ? ` | ${activeAreaFormatted.sqmm}` : ''}`,
-                              metadata: {
-                                perimeter: activeAreaFormatted.perim.meters,
-                              },
-                            });
-                            setTempMeasureName(defName);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-white flex items-center gap-1 shadow-sm transition active:scale-95"
-                          title="Save this area measurement"
-                        >
-                          <Bookmark className="w-3.5 h-3.5" />
-                          <span>Save</span>
-                        </button>
-                        {measureSubMode === 'area-points' && measurePts.length > 0 && (
-                          <button
-                            onClick={() => setMeasurePts((prev) => prev.slice(0, -1))}
-                            className="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[11px] font-medium text-zinc-200"
-                          >
-                            Undo
-                          </button>
-                        )}
-                        <button
-                          onClick={() => {
-                            setMeasurePts([]);
-                            setSelectedAreaShape(null);
-                            setHoverAreaShape(null);
-                          }}
-                          className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200"
-                        >
-                          Clear
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between gap-2 text-xs text-blue-200">
-                      <div className="flex items-center gap-2">
-                        <Ruler className="w-4 h-4 text-zinc-300 shrink-0" />
-                        <span>
-                          {measureSubMode === 'area-pick'
-                            ? 'Tap inside any closed polygon or room to get its area'
-                            : `Tap 3+ points (OSNAP) to measure polygon area (${measurePts.length} pts)`}
-                        </span>
-                      </div>
-                      {measurePts.length > 0 && (
-                        <button
-                          onClick={() => setMeasurePts([])}
-                          className="text-[11px] underline text-zinc-300"
-                        >
-                          Reset
-                        </button>
-                      )}
-                    </div>
-                  )}
+                    )}
+                  </div>
+                )}
+
+                {/* Right Zoom Controls */}
+                <div className="absolute right-2 bottom-24 flex flex-col gap-1.5 z-20">
+                  <button
+                    onClick={() => setZoom((z) => z * 1.3)}
+                    className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
+                    title="Zoom In"
+                  >
+                    <ZoomIn className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setZoom((z) => z / 1.3)}
+                    className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
+                    title="Zoom Out"
+                  >
+                    <ZoomOut className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={fitDrawing}
+                    className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
+                    title="Fit Plan to Screen"
+                  >
+                    <Maximize2 className="w-4 h-4" />
+                  </button>
                 </div>
-              )}
 
-              {/* Right Zoom Controls */}
-              <div className="absolute right-2 bottom-24 flex flex-col gap-1.5 z-20">
-                <button
-                  onClick={() => setZoom((z) => z * 1.3)}
-                  className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
-                  title="Zoom In"
-                >
-                  <ZoomIn className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setZoom((z) => z / 1.3)}
-                  className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
-                  title="Zoom Out"
-                >
-                  <ZoomOut className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={fitDrawing}
-                  className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
-                  title="Fit Plan to Screen"
-                >
-                  <Maximize2 className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Bottom Mobile-First Floating Tool Dock */}
-              <div className="absolute bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/90 p-1 rounded-2xl shadow-2xl max-w-[96vw]">
-                <button
-                  onClick={() => setToolMode('pan')}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${toolMode === 'pan'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-zinc-300 hover:bg-zinc-800'
+                {/* Bottom Mobile-First Floating Tool Dock */}
+                <div className="absolute bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/90 p-1 rounded-2xl shadow-2xl max-w-[96vw]">
+                  <button
+                    onClick={() => setToolMode('pan')}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${
+                      toolMode === 'pan'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-zinc-300 hover:bg-zinc-800'
                     }`}
-                >
-                  <Hand className="w-3.5 h-3.5" />
-                  <span>Pan</span>
-                </button>
+                  >
+                    <Hand className="w-3.5 h-3.5" />
+                    <span>Pan</span>
+                  </button>
 
-                <button
-                  onClick={() => setToolMode((m) => (m === 'measure' ? 'pan' : 'measure'))}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${toolMode === 'measure'
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'bg-zinc-900 text-zinc-300 border border-blue-500/30 hover:bg-blue-900/60'
+                  <button
+                    onClick={() => setToolMode((m) => (m === 'measure' ? 'pan' : 'measure'))}
+                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${
+                      toolMode === 'measure'
+                        ? 'bg-blue-600 text-white shadow-sm'
+                        : 'bg-zinc-900 text-zinc-300 border border-blue-500/30 hover:bg-blue-900/60'
                     }`}
-                >
-                  <Ruler className="w-3.5 h-3.5" />
-                  <span>Measure</span>
-                </button>
+                  >
+                    <Ruler className="w-3.5 h-3.5" />
+                    <span>Measure</span>
+                  </button>
 
-                <button
-                  onClick={() => setShowSavedDrawer((v) => !v)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${showSavedDrawer
-                      ? 'bg-emerald-600 text-white'
-                      : savedMeasurements.length > 0
+                  <button
+                    onClick={() => setShowSavedDrawer((v) => !v)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${
+                      showSavedDrawer
+                        ? 'bg-emerald-600 text-white'
+                        : savedMeasurements.length > 0
                         ? 'bg-zinc-900 text-emerald-300 border border-emerald-500/40 hover:bg-zinc-800'
                         : 'text-zinc-300 hover:bg-zinc-800'
                     }`}
-                  title="View saved measurements"
-                >
-                  <Bookmark className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Saved ({savedMeasurements.length})</span>
-                </button>
+                    title="View saved measurements"
+                  >
+                    <Bookmark className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Saved ({savedMeasurements.length})</span>
+                  </button>
 
-                <div className="h-5 w-px bg-zinc-800 mx-0.5 shrink-0" />
+                  <div className="h-5 w-px bg-zinc-800 mx-0.5 shrink-0" />
 
-                {/* Drawing Unit Scale Selector */}
-                <select
-                  value={unitScaleToM}
-                  onChange={(e) => onChangeUnitScale(Number(e.target.value))}
-                  className="bg-zinc-950 border border-zinc-700 rounded-xl px-2 py-2 text-xs font-medium text-zinc-200 shrink-0 max-w-[84px]"
-                  title="Calibrate DWG Measurement Units"
-                >
-                  {UNIT_OPTIONS.map((u) => (
-                    <option key={u.label} value={u.scale}>
-                      {u.label}
-                    </option>
-                  ))}
-                </select>
+                  {/* Drawing Unit Scale Selector */}
+                  <select
+                    value={unitScaleToM}
+                    onChange={(e) => onChangeUnitScale(Number(e.target.value))}
+                    className="bg-zinc-950 border border-zinc-700 rounded-xl px-2 py-2 text-xs font-medium text-zinc-200 shrink-0 max-w-[84px]"
+                    title="Calibrate DWG Measurement Units"
+                  >
+                    {UNIT_OPTIONS.map((u) => (
+                      <option key={u.label} value={u.scale}>
+                        {u.label}
+                      </option>
+                    ))}
+                  </select>
 
-                <button
-                  onClick={() => setShowLayersSheet((v) => !v)}
-                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${showLayersSheet ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-zinc-800'
+                  <button
+                    onClick={() => setShowLayersSheet((v) => !v)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${
+                      showLayersSheet ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-zinc-800'
                     }`}
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  <span>Layers</span>
-                </button>
+                  >
+                    <Layers className="w-3.5 h-3.5" />
+                    <span>Layers</span>
+                  </button>
 
-                <button
-                  onClick={() =>
-                    setColorMode((c) => (c === 'cad' ? 'blueprint' : c === 'blueprint' ? 'mono' : 'cad'))
-                  }
-                  className="px-2.5 py-2 rounded-xl text-xs font-semibold text-zinc-300 hover:bg-zinc-800 shrink-0"
-                  title="Cycle CAD Color Mode"
-                >
-                  {colorMode}
-                </button>
-              </div>
-
-              {/* Slide-up Layer Drawer */}
-              {showLayersSheet && (
-                <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-[92%] max-w-sm max-h-72 bg-zinc-900/95 backdrop-blur-md border border-zinc-700 rounded-2xl shadow-2xl z-30 flex flex-col overflow-hidden">
-                  <div className="px-3.5 py-2.5 border-b border-zinc-800 flex items-center justify-between">
-                    <span className="text-xs font-medium text-white">
-                      Cleaned View Layers ({layers.length})
-                    </span>
-                    <div className="flex items-center gap-2">
-                      {hiddenLayers.size > 0 && (
-                        <button
-                          onClick={() => setHiddenLayers(new Set())}
-                          className="text-[11px] text-blue-400 hover:underline"
-                        >
-                          Show All
-                        </button>
-                      )}
-                      <button
-                        onClick={() => setShowLayersSheet(false)}
-                        className="p-1 text-zinc-400 hover:text-white"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="overflow-y-auto divide-y divide-zinc-800/60 p-1.5">
-                    {layers.map((lyr: any) => {
-                      const visible = !hiddenLayers.has(lyr.name);
-                      return (
-                        <button
-                          key={lyr.name}
-                          onClick={() => {
-                            setHiddenLayers((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(lyr.name)) next.delete(lyr.name);
-                              else next.add(lyr.name);
-                              return next;
-                            });
-                          }}
-                          className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between hover:bg-zinc-800/60 text-xs"
-                        >
-                          <div className="flex items-center gap-2 truncate">
-                            <span
-                              className="w-2.5 h-2.5 rounded-full shrink-0"
-                              style={{ backgroundColor: lyr.color_hex || '#f8fafc' }}
-                            />
-                            <span className={`font-mono truncate ${visible ? 'text-zinc-100' : 'text-zinc-500 line-through'}`}>
-                              {lyr.name}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-[10px] text-zinc-400">{lyr.entity_count}</span>
-                            {visible ? (
-                              <Eye className="w-3.5 h-3.5 text-zinc-300" />
-                            ) : (
-                              <EyeOff className="w-3.5 h-3.5 text-zinc-500" />
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                  <button
+                    onClick={() =>
+                      setColorMode((c) => (c === 'cad' ? 'blueprint' : c === 'blueprint' ? 'mono' : 'cad'))
+                    }
+                    className="px-2.5 py-2 rounded-xl text-xs font-semibold text-zinc-300 hover:bg-zinc-800 shrink-0"
+                    title="Cycle CAD Color Mode"
+                  >
+                    {colorMode}
+                  </button>
                 </div>
-              )}
 
-              {/* Slide-up Saved Measurements Drawer */}
-              {showSavedDrawer && (
-                <div className="absolute bottom-16 right-3 sm:right-6 w-[94%] max-w-sm max-h-80 bg-zinc-900/95 backdrop-blur-md border border-zinc-700 rounded-2xl shadow-2xl z-40 flex flex-col overflow-hidden">
-                  <div className="px-3.5 py-2.5 border-b border-zinc-800 flex items-center justify-between">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Bookmark className="w-4 h-4 text-emerald-400 shrink-0" />
-                      <span className="text-xs font-semibold text-white truncate">
-                        Saved Measurements ({savedMeasurements.length})
+                {/* Slide-up Layer Drawer */}
+                {showLayersSheet && (
+                  <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-[92%] max-w-sm max-h-72 bg-zinc-900/95 backdrop-blur-md border border-zinc-700 rounded-2xl shadow-2xl z-30 flex flex-col overflow-hidden">
+                    <div className="px-3.5 py-2.5 border-b border-zinc-800 flex items-center justify-between">
+                      <span className="text-xs font-medium text-white">
+                        Cleaned View Layers ({layers.length})
                       </span>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {savedMeasurements.length > 0 && (
+                      <div className="flex items-center gap-2">
+                        {hiddenLayers.size > 0 && (
+                          <button
+                            onClick={() => setHiddenLayers(new Set())}
+                            className="text-[11px] text-blue-400 hover:underline"
+                          >
+                            Show All
+                          </button>
+                        )}
                         <button
-                          onClick={() => {
-                            if (window.confirm('Clear all saved measurements?')) {
-                              persistSavedMeasurements([]);
-                              setFocusedMeasurementId(null);
-                            }
-                          }}
-                          className="text-[11px] text-zinc-400 hover:text-red-400 transition"
+                          onClick={() => setShowLayersSheet(false)}
+                          className="p-1 text-zinc-400 hover:text-white"
                         >
-                          Clear All
+                          <X className="w-4 h-4" />
                         </button>
-                      )}
-                      <button
-                        onClick={() => setShowSavedDrawer(false)}
-                        className="p-1 text-zinc-400 hover:text-white"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
+                      </div>
+                    </div>
+                    <div className="overflow-y-auto divide-y divide-zinc-800/60 p-1.5">
+                      {layers.map((lyr: any) => {
+                        const visible = !hiddenLayers.has(lyr.name);
+                        return (
+                          <button
+                            key={lyr.name}
+                            onClick={() => {
+                              setHiddenLayers((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(lyr.name)) next.delete(lyr.name);
+                                else next.add(lyr.name);
+                                return next;
+                              });
+                            }}
+                            className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between hover:bg-zinc-800/60 text-xs"
+                          >
+                            <div className="flex items-center gap-2 truncate">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ backgroundColor: lyr.color_hex || '#f8fafc' }}
+                              />
+                              <span className={`font-mono truncate ${visible ? 'text-zinc-100' : 'text-zinc-500 line-through'}`}>
+                                {lyr.name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <span className="text-[10px] text-zinc-400">{lyr.entity_count}</span>
+                              {visible ? (
+                                <Eye className="w-3.5 h-3.5 text-zinc-300" />
+                              ) : (
+                                <EyeOff className="w-3.5 h-3.5 text-zinc-500" />
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
+                )}
 
-                  <div className="overflow-y-auto divide-y divide-zinc-800/60 p-1.5 space-y-1">
-                    {savedMeasurements.length === 0 ? (
-                      <div className="py-8 text-center text-zinc-400 text-xs space-y-1">
-                        <Bookmark className="w-6 h-6 mx-auto text-zinc-600" />
-                        <p className="font-medium text-zinc-300">No saved measurements yet</p>
-                        <p className="text-[11px] text-zinc-500 max-w-xs mx-auto">
-                          Use the Measure tool to measure distances or room areas, then tap Save to keep them.
-                        </p>
+                {/* Slide-up Saved Measurements Drawer */}
+                {showSavedDrawer && (
+                  <div className="absolute bottom-16 right-3 sm:right-6 w-[94%] max-w-sm max-h-80 bg-zinc-900/95 backdrop-blur-md border border-zinc-700 rounded-2xl shadow-2xl z-40 flex flex-col overflow-hidden">
+                    <div className="px-3.5 py-2.5 border-b border-zinc-800 flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Bookmark className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span className="text-xs font-semibold text-white truncate">
+                          Saved Measurements ({savedMeasurements.length})
+                        </span>
                       </div>
-                    ) : (
-                      savedMeasurements.map((m) => {
-                        const isFocused = m.id === focusedMeasurementId;
-                        const isEditing = m.id === editingMeasureId;
-                        return (
-                          <div
-                            key={m.id}
-                            className={`p-2.5 rounded-xl transition ${isFocused
-                                ? 'bg-emerald-950/40 border border-emerald-500/40'
-                                : 'hover:bg-zinc-800/60 border border-transparent'
-                              }`}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {savedMeasurements.length > 0 && (
+                          <button
+                            onClick={() => {
+                              if (window.confirm('Clear all saved measurements?')) {
+                                persistSavedMeasurements([]);
+                                setFocusedMeasurementId(null);
+                              }
+                            }}
+                            className="text-[11px] text-zinc-400 hover:text-red-400 transition"
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex items-start gap-2 min-w-0 flex-1">
-                                <span className="mt-0.5 p-1 rounded-lg bg-zinc-800 text-emerald-400 shrink-0">
-                                  {m.type === 'distance' ? (
-                                    <Ruler className="w-3.5 h-3.5" />
-                                  ) : (
-                                    <Maximize2 className="w-3.5 h-3.5" />
-                                  )}
-                                </span>
-                                <div className="min-w-0 flex-1">
-                                  {isEditing ? (
-                                    <div className="flex items-center gap-1">
-                                      <input
-                                        type="text"
-                                        value={editingMeasureText}
-                                        onChange={(e) => setEditingMeasureText(e.target.value)}
-                                        className="bg-zinc-950 border border-emerald-500 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none flex-1"
-                                        autoFocus
-                                        onKeyDown={(e) => {
-                                          if (e.key === 'Enter') {
+                            Clear All
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setShowSavedDrawer(false)}
+                          className="p-1 text-zinc-400 hover:text-white"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-y-auto divide-y divide-zinc-800/60 p-1.5 space-y-1">
+                      {savedMeasurements.length === 0 ? (
+                        <div className="py-8 text-center text-zinc-400 text-xs space-y-1">
+                          <Bookmark className="w-6 h-6 mx-auto text-zinc-600" />
+                          <p className="font-medium text-zinc-300">No saved measurements yet</p>
+                          <p className="text-[11px] text-zinc-500 max-w-xs mx-auto">
+                            Use the Measure tool to measure distances or room areas, then tap Save to keep them.
+                          </p>
+                        </div>
+                      ) : (
+                        savedMeasurements.map((m) => {
+                          const isFocused = m.id === focusedMeasurementId;
+                          const isEditing = m.id === editingMeasureId;
+                          return (
+                            <div
+                              key={m.id}
+                              className={`p-2.5 rounded-xl transition ${
+                                isFocused
+                                  ? 'bg-emerald-950/40 border border-emerald-500/40'
+                                  : 'hover:bg-zinc-800/60 border border-transparent'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-start gap-2 min-w-0 flex-1">
+                                  <span className="mt-0.5 p-1 rounded-lg bg-zinc-800 text-emerald-400 shrink-0">
+                                    {m.type === 'distance' ? (
+                                      <Ruler className="w-3.5 h-3.5" />
+                                    ) : (
+                                      <Maximize2 className="w-3.5 h-3.5" />
+                                    )}
+                                  </span>
+                                  <div className="min-w-0 flex-1">
+                                    {isEditing ? (
+                                      <div className="flex items-center gap-1">
+                                        <input
+                                          type="text"
+                                          value={editingMeasureText}
+                                          onChange={(e) => setEditingMeasureText(e.target.value)}
+                                          className="bg-zinc-950 border border-emerald-500 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none flex-1"
+                                          autoFocus
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') {
+                                              persistSavedMeasurements(
+                                                savedMeasurements.map((x) =>
+                                                  x.id === m.id
+                                                    ? { ...x, name: editingMeasureText.trim() || x.name }
+                                                    : x
+                                                )
+                                              );
+                                              setEditingMeasureId(null);
+                                            } else if (e.key === 'Escape') {
+                                              setEditingMeasureId(null);
+                                            }
+                                          }}
+                                        />
+                                        <button
+                                          onClick={() => {
                                             persistSavedMeasurements(
                                               savedMeasurements.map((x) =>
                                                 x.id === m.id
@@ -2639,93 +2664,79 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                                               )
                                             );
                                             setEditingMeasureId(null);
-                                          } else if (e.key === 'Escape') {
-                                            setEditingMeasureId(null);
-                                          }
-                                        }}
-                                      />
-                                      <button
-                                        onClick={() => {
-                                          persistSavedMeasurements(
-                                            savedMeasurements.map((x) =>
-                                              x.id === m.id
-                                                ? { ...x, name: editingMeasureText.trim() || x.name }
-                                                : x
-                                            )
-                                          );
-                                          setEditingMeasureId(null);
-                                        }}
-                                        className="p-1 rounded bg-emerald-600 text-white"
-                                      >
-                                        <Check className="w-3 h-3" />
-                                      </button>
+                                          }}
+                                          className="p-1 rounded bg-emerald-600 text-white"
+                                        >
+                                          <Check className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-1.5">
+                                        <span className="text-xs font-medium text-white truncate min-w-0">
+                                          {m.name}
+                                        </span>
+                                        <button
+                                          onClick={() => {
+                                            setEditingMeasureId(m.id);
+                                            setEditingMeasureText(m.name);
+                                          }}
+                                          className="p-0.5 text-zinc-500 hover:text-zinc-300 transition shrink-0"
+                                          title="Rename measurement"
+                                        >
+                                          <Edit2 className="w-2.5 h-2.5" />
+                                        </button>
+                                      </div>
+                                    )}
+                                    <div className="text-sm font-semibold font-mono text-emerald-300 mt-0.5">
+                                      {m.formattedPrimary}
                                     </div>
-                                  ) : (
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="text-xs font-medium text-white truncate min-w-0">
-                                        {m.name}
-                                      </span>
-                                      <button
-                                        onClick={() => {
-                                          setEditingMeasureId(m.id);
-                                          setEditingMeasureText(m.name);
-                                        }}
-                                        className="p-0.5 text-zinc-500 hover:text-zinc-300 transition shrink-0"
-                                        title="Rename measurement"
-                                      >
-                                        <Edit2 className="w-2.5 h-2.5" />
-                                      </button>
+                                    <div className="text-[11px] font-mono text-zinc-400 truncate">
+                                      {m.formattedSecondary}
+                                      {m.metadata?.deltaX !== undefined && m.metadata?.deltaY !== undefined ? (
+                                        <span> · ΔX:{m.metadata.deltaX}m · ΔY:{m.metadata.deltaY}m</span>
+                                      ) : null}
                                     </div>
-                                  )}
-                                  <div className="text-sm font-semibold font-mono text-emerald-300 mt-0.5">
-                                    {m.formattedPrimary}
-                                  </div>
-                                  <div className="text-[11px] font-mono text-zinc-400 truncate">
-                                    {m.formattedSecondary}
-                                    {m.metadata?.deltaX !== undefined && m.metadata?.deltaY !== undefined ? (
-                                      <span> · ΔX:{m.metadata.deltaX}m · ΔY:{m.metadata.deltaY}m</span>
-                                    ) : null}
                                   </div>
                                 </div>
-                              </div>
 
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button
-                                  onClick={() => {
-                                    zoomToMeasurement(m);
-                                    if (window.innerWidth < 640) setShowSavedDrawer(false);
-                                  }}
-                                  className={`px-2 py-1 rounded-lg text-xs font-medium transition ${isFocused
-                                      ? 'bg-emerald-600 text-white'
-                                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    onClick={() => {
+                                      zoomToMeasurement(m);
+                                      if (window.innerWidth < 640) setShowSavedDrawer(false);
+                                    }}
+                                    className={`px-2 py-1 rounded-lg text-xs font-medium transition ${
+                                      isFocused
+                                        ? 'bg-emerald-600 text-white'
+                                        : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
                                     }`}
-                                  title="Focus and zoom to measurement"
-                                >
-                                  Focus
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    persistSavedMeasurements(savedMeasurements.filter((x) => x.id !== m.id));
-                                    if (focusedMeasurementId === m.id) setFocusedMeasurementId(null);
-                                  }}
-                                  className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-red-400 transition"
-                                  title="Delete measurement"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                    title="Focus and zoom to measurement"
+                                  >
+                                    Focus
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      persistSavedMeasurements(savedMeasurements.filter((x) => x.id !== m.id));
+                                      if (focusedMeasurementId === m.id) setFocusedMeasurementId(null);
+                                    }}
+                                    className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-red-400 transition"
+                                    title="Delete measurement"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        );
-                      })
-                    )}
+                          );
+                        })
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
-            </>
-          )}
+                )}
+              </>
+            )}
+          </div>
         </div>
-      </div>
 
       {/* Sheet Metadata Edit Modal */}
       {editingSheetMeta && (

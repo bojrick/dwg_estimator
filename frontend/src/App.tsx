@@ -404,8 +404,8 @@ export function App() {
       const estTotalSec = !dwgFile
         ? 3
         : isDwg
-          ? Math.max(7, Math.min(26, Math.round(sizeMB * 4.5 + 6)))
-          : Math.max(4, Math.min(18, Math.round(sizeMB * 0.4 + 3)));
+        ? Math.max(7, Math.min(26, Math.round(sizeMB * 4.5 + 6)))
+        : Math.max(4, Math.min(18, Math.round(sizeMB * 0.4 + 3)));
 
       let uploadBytesDone = false;
       let latestUploadRatio = 0;
@@ -1122,11 +1122,11 @@ export function App() {
             onOpenAuth={
               !authSession
                 ? (mode) => {
-                  setAuthMode(mode);
-                  setAuthError(null);
-                  setAuthNotice(null);
-                  setShowAuthModal(true);
-                }
+                    setAuthMode(mode);
+                    setAuthError(null);
+                    setAuthNotice(null);
+                    setShowAuthModal(true);
+                  }
                 : undefined
             }
             onBack={() => {
@@ -1335,10 +1335,11 @@ export function App() {
           <div className="md:hidden w-full flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-3 px-3">
             <button
               onClick={() => setSelectedProject('ALL')}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${selectedProject === 'ALL'
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
+                selectedProject === 'ALL'
                   ? 'bg-zinc-100 text-zinc-950 border-white'
                   : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                }`}
+              }`}
             >
               <FolderKanban className="w-3 h-3 opacity-75 shrink-0" />
               <span>All</span>
@@ -1351,10 +1352,11 @@ export function App() {
                 <button
                   key={proj}
                   onClick={() => setSelectedProject(proj)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${isSelected
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
+                    isSelected
                       ? 'bg-zinc-100 text-zinc-950 border-white'
                       : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                    }`}
+                  }`}
                 >
                   <span className="truncate max-w-[130px]">{proj}</span>
                   <span className="text-[10px] tabular-nums font-mono opacity-80">({count})</span>
@@ -1455,10 +1457,11 @@ export function App() {
               <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-3 px-3 sm:mx-0 sm:px-0">
                 <button
                   onClick={() => setSelectedDiscipline('ALL')}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 ${selectedDiscipline === 'ALL'
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 ${
+                    selectedDiscipline === 'ALL'
                       ? 'bg-zinc-200 text-zinc-950 border-white'
                       : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                    }`}
+                  }`}
                 >
                   All ({projectScopedPlans.length})
                 </button>
@@ -1471,10 +1474,11 @@ export function App() {
                     <button
                       key={d.id}
                       onClick={() => setSelectedDiscipline(d.id)}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 flex items-center gap-1 ${active
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 flex items-center gap-1 ${
+                        active
                           ? d.pillActiveClass
                           : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700'
-                        }`}
+                      }`}
                     >
                       <span>{d.label}</span>
                       <span className="opacity-75 text-[10px] font-mono">({count})</span>
@@ -1502,15 +1506,15 @@ export function App() {
                     {!authSession
                       ? 'Sign In to Access Your Personal Plan Vault'
                       : plans.length === 0
-                        ? 'Your Cloud Plan Vault is Empty'
-                        : 'No Matching Plans Found'}
+                      ? 'Your Cloud Plan Vault is Empty'
+                      : 'No Matching Plans Found'}
                   </h3>
                   <p className="text-xs text-zinc-400">
                     {!authSession
                       ? 'Private drawings and projects are protected. Sign in to access your vault, or test with instant guest preview.'
                       : plans.length === 0
-                        ? 'Upload a DWG/DXF plan to view, isolate sheet views, and calculate discipline estimates.'
-                        : 'Try changing your search query or discipline filter.'}
+                      ? 'Upload a DWG/DXF plan to view, isolate sheet views, and calculate discipline estimates.'
+                      : 'Try changing your search query or discipline filter.'}
                   </p>
                 </div>
                 {!authSession ? (
