@@ -7,6 +7,8 @@ import {
   FolderKanban,
   Pencil,
   Trash2,
+  Lock,
+  LogIn,
 } from 'lucide-react';
 import { OpenCadViewer } from './components/OpenCadViewer';
 import { StructuralEstimatorPage } from './components/StructuralEstimator/StructuralEstimatorPage';
@@ -30,8 +32,8 @@ import {
   CreateProjectModal,
   ConfirmDeletePlanModal,
 } from './components/modals/ProjectPlanModals';
-import { AiNameCleanupModal } from './components/modals/AiNameCleanupModal';
 import { UploadProgressOverlay } from './components/ui/UploadProgressOverlay';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import {
   PlanDiscipline,
   DISCIPLINES,
@@ -105,7 +107,6 @@ export function App() {
   const [uploading, setUploading] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<UploadProgressState | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isAiCleaningTitle, setIsAiCleaningTitle] = useState<boolean>(false);
 
   // Sheet Window Selector state
   const [sheetSelectorData, setSheetSelectorData] = useState<{
@@ -125,18 +126,6 @@ export function App() {
   const [renamePlanModal, setRenamePlanModal] = useState<{ plan: any; newName: string } | null>(null);
   const [createProjectModal, setCreateProjectModal] = useState<{ name: string } | null>(null);
 
-  // AI Name Cleanup Modal State
-  const [aiCleanupTarget, setAiCleanupTarget] = useState<{
-    planId?: number;
-    originalTitle: string;
-    originalDiscipline: PlanDiscipline;
-    originalSheets: { id: string; name: string }[];
-    proposal: {
-      cleaned_title: string;
-      discipline: PlanDiscipline;
-      sheets: { id: string; name: string }[];
-    };
-  } | null>(null);
 
   // Toast & PWA install prompt
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -334,7 +323,7 @@ export function App() {
           .finally(() => {
             if (active) setOpeningPlan(false);
           });
-      } else if (planIdParam && sess) {
+      } else if (planIdParam) {
         setOpeningPlan(true);
         authFetch(`/api/plans/${encodeURIComponent(planIdParam)}`)
           .then((r) => (r.ok ? r.json() : null))
@@ -352,11 +341,7 @@ export function App() {
           });
       }
 
-      if (sess) {
-        await fetchVaultPlans();
-      } else if (active) {
-        setLoadingVault(false);
-      }
+      await fetchVaultPlans();
     })();
     return () => {
       active = false;
@@ -419,8 +404,8 @@ export function App() {
       const estTotalSec = !dwgFile
         ? 3
         : isDwg
-        ? Math.max(7, Math.min(26, Math.round(sizeMB * 4.5 + 6)))
-        : Math.max(4, Math.min(18, Math.round(sizeMB * 0.4 + 3)));
+          ? Math.max(7, Math.min(26, Math.round(sizeMB * 4.5 + 6)))
+          : Math.max(4, Math.min(18, Math.round(sizeMB * 0.4 + 3)));
 
       let uploadBytesDone = false;
       let latestUploadRatio = 0;
@@ -535,7 +520,7 @@ export function App() {
           discipline: uploadDiscipline,
           parsed: first,
           filesData: parsed.files,
-          isGuest: false,
+          isGuest: !authSession,
         });
         setShowUploadModal(false);
       } else {
@@ -547,7 +532,7 @@ export function App() {
           project: uploadProject.trim(),
           discipline: uploadDiscipline,
           parsed,
-          isGuest: false,
+          isGuest: !authSession,
         });
         setShowUploadModal(false);
       }
@@ -931,103 +916,6 @@ export function App() {
     setCreateProjectModal(null);
   };
 
-  // AI Name Cleanup Handlers
-  const handleTriggerAiClean = async (plan: any) => {
-    try {
-      const res = await authFetch(`/api/plans/${plan.id}/ai-clean-names`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apply: false }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAiCleanupTarget({
-          planId: plan.id,
-          originalTitle: plan.name,
-          originalDiscipline: plan.discipline || 'architectural',
-          originalSheets: (plan.sheets || []).map((s: any) => ({ id: s.id, name: s.name })),
-          proposal: {
-            cleaned_title: data.cleaned_title,
-            discipline: data.discipline,
-            sheets: data.sheets || [],
-          },
-        });
-      } else {
-        showToast('AI name suggestion failed');
-      }
-    } catch (err: any) {
-      showToast(err.message || 'Error calling AI service');
-    }
-  };
-
-  const handleApplyAiClean = async (applied: {
-    title: string;
-    discipline: PlanDiscipline;
-    sheets: { id: string; name: string }[];
-  }) => {
-    if (!aiCleanupTarget) return;
-    const { planId } = aiCleanupTarget;
-    setAiCleanupTarget(null);
-    if (!planId) return;
-
-    try {
-      const res = await authFetch(`/api/plans/${planId}/ai-clean-names`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          apply: true,
-          custom_title: applied.title,
-          custom_discipline: applied.discipline,
-          custom_sheets: applied.sheets,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (activePlanPayload?.plan?.id === planId && data?.plan) {
-          setActivePlanPayload((prev: any) => (prev ? { ...prev, plan: data.plan } : prev));
-        }
-        await fetchVaultPlans();
-        showToast('Plan & sheet names updated via AI cleanup!');
-      } else {
-        showToast('Failed to apply cleanup');
-      }
-    } catch (err: any) {
-      showToast(err.message || 'Error applying clean names');
-    }
-  };
-
-  const handleUploadCleanTitleAi = async () => {
-    const firstFile = uploadDwgFiles[0];
-    if (!firstFile && !uploadTitle) return;
-    setIsAiCleaningTitle(true);
-    try {
-      const res = await authFetch('/api/plans/ai-clean-names', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          filename: firstFile?.name || '',
-          current_title: uploadTitle,
-          discipline: uploadDiscipline,
-          apply: false,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.cleaned_title) {
-          setUploadTitle(data.cleaned_title);
-        }
-        if (data.discipline) {
-          setUploadDiscipline(data.discipline);
-        }
-        showToast('AI cleaned drawing title & discipline');
-      }
-    } catch {
-      showToast('AI name cleanup unavailable');
-    } finally {
-      setIsAiCleaningTitle(false);
-    }
-  };
-
   const handleOpenPlanCardEstimator = (plan: any) => {
     openPlanById(plan.id, false, true).then((loaded) => {
       if (loaded) {
@@ -1195,158 +1083,169 @@ export function App() {
           </div>
         )}
         <UploadProgressOverlay progress={uploadProgress} />
-        <OpenCadViewer
-          plan={p}
-          rawData={activePlanPayload.raw}
-          initialMeasure={viewerInitialMeasure}
-          isGuest={activePlanPayload.isGuest}
-          onOpenEstimator={(discipline) => {
-            setActiveEstimatorDiscipline(discipline);
-            if (discipline === 'structural') setIsStructuralEstimatorOpen(true);
-            const params = new URLSearchParams(window.location.search);
-            params.set('view', discipline);
-            if (activePlanPayload.plan?.id) {
-              params.set('planId', String(activePlanPayload.plan.id));
-            }
-            window.history.pushState({}, '', `?${params.toString()}`);
-          }}
-          onOpenStructuralEstimator={() => {
-            setActiveEstimatorDiscipline('structural');
-            setIsStructuralEstimatorOpen(true);
-            const params = new URLSearchParams(window.location.search);
-            params.set('view', 'structural');
-            if (activePlanPayload.plan?.id) {
-              params.set('planId', String(activePlanPayload.plan.id));
-            }
-            window.history.pushState({}, '', `?${params.toString()}`);
-          }}
-          onSavePlan={handleSaveGuestPlan}
-          onOpenAuth={
-            !authSession
-              ? (mode) => {
-                  setAuthMode(mode);
-                  setAuthError(null);
-                  setAuthNotice(null);
-                  setShowAuthModal(true);
-                }
-              : undefined
-          }
-          onBack={() => {
+        <ErrorBoundary
+          fallbackTitle="Unable to Open CAD Viewer"
+          onReset={() => {
             window.history.replaceState({}, '', window.location.pathname);
             setActiveEstimatorDiscipline(null);
             setIsStructuralEstimatorOpen(false);
             setActivePlanPayload(null);
             setGuestDwgFile(null);
-            if (authSession) fetchVaultPlans();
           }}
-          onShare={handleSharePlan}
-          onSelectSheet={async (sheetId) => {
-            if (activePlanPayload.isGuest) {
-              if (sheetId === 'all' && activePlanPayload.fullRaw) {
-                setActivePlanPayload((prev: any) => ({
-                  ...prev,
-                  plan: {
-                    ...prev.plan,
-                    active_sheet_id: 'all',
-                    active_sheet_name: 'All Selected Sheets',
-                  },
-                  raw: activePlanPayload.fullRaw,
-                }));
-                showToast('Showing all selected sheets');
+        >
+          <OpenCadViewer
+            plan={p}
+            rawData={activePlanPayload.raw}
+            initialMeasure={viewerInitialMeasure}
+            isGuest={activePlanPayload.isGuest}
+            onOpenEstimator={(discipline) => {
+              setActiveEstimatorDiscipline(discipline);
+              if (discipline === 'structural') setIsStructuralEstimatorOpen(true);
+              const params = new URLSearchParams(window.location.search);
+              params.set('view', discipline);
+              if (activePlanPayload.plan?.id) {
+                params.set('planId', String(activePlanPayload.plan.id));
+              }
+              window.history.pushState({}, '', `?${params.toString()}`);
+            }}
+            onOpenStructuralEstimator={() => {
+              setActiveEstimatorDiscipline('structural');
+              setIsStructuralEstimatorOpen(true);
+              const params = new URLSearchParams(window.location.search);
+              params.set('view', 'structural');
+              if (activePlanPayload.plan?.id) {
+                params.set('planId', String(activePlanPayload.plan.id));
+              }
+              window.history.pushState({}, '', `?${params.toString()}`);
+            }}
+            onSavePlan={handleSaveGuestPlan}
+            onOpenAuth={
+              !authSession
+                ? (mode) => {
+                  setAuthMode(mode);
+                  setAuthError(null);
+                  setAuthNotice(null);
+                  setShowAuthModal(true);
+                }
+                : undefined
+            }
+            onBack={() => {
+              window.history.replaceState({}, '', window.location.pathname);
+              setActiveEstimatorDiscipline(null);
+              setIsStructuralEstimatorOpen(false);
+              setActivePlanPayload(null);
+              setGuestDwgFile(null);
+              if (authSession) fetchVaultPlans();
+            }}
+            onShare={handleSharePlan}
+            onSelectSheet={async (sheetId) => {
+              if (activePlanPayload.isGuest) {
+                if (sheetId === 'all' && activePlanPayload.fullRaw) {
+                  setActivePlanPayload((prev: any) => ({
+                    ...prev,
+                    plan: {
+                      ...prev.plan,
+                      active_sheet_id: 'all',
+                      active_sheet_name: 'All Selected Sheets',
+                    },
+                    raw: activePlanPayload.fullRaw,
+                  }));
+                  showToast('Showing all selected sheets');
+                  return;
+                }
+                const sheets = p.sheets || [];
+                const targetSheet = sheets.find((s: any) => s.id === sheetId);
+                if (targetSheet && activePlanPayload.fullRaw) {
+                  const cropped = cropRawDataToSheet(activePlanPayload.fullRaw, targetSheet);
+                  setActivePlanPayload((prev: any) => ({
+                    ...prev,
+                    plan: {
+                      ...prev.plan,
+                      active_sheet_id: sheetId,
+                      active_sheet_name: targetSheet.name,
+                    },
+                    raw: cropped,
+                  }));
+                  showToast(`Isolated view: ${targetSheet.name}`);
+                }
                 return;
               }
-              const sheets = p.sheets || [];
-              const targetSheet = sheets.find((s: any) => s.id === sheetId);
-              if (targetSheet && activePlanPayload.fullRaw) {
-                const cropped = cropRawDataToSheet(activePlanPayload.fullRaw, targetSheet);
-                setActivePlanPayload((prev: any) => ({
-                  ...prev,
-                  plan: {
-                    ...prev.plan,
-                    active_sheet_id: sheetId,
-                    active_sheet_name: targetSheet.name,
-                  },
-                  raw: cropped,
-                }));
-                showToast(`Isolated view: ${targetSheet.name}`);
+              const res = await authFetch(`/api/plans/${p.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ active_sheet_id: sheetId }),
+              });
+              if (res.ok) {
+                const data = await res.json();
+                setActivePlanPayload(data);
+                showToast(`Isolated view: ${data.plan.active_sheet_name}`);
               }
-              return;
-            }
-            const res = await authFetch(`/api/plans/${p.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ active_sheet_id: sheetId }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              setActivePlanPayload(data);
-              showToast(`Isolated view: ${data.plan.active_sheet_name}`);
-            }
-          }}
-          onChangeUnitScale={async (scaleToM) => {
-            if (activePlanPayload.isGuest) {
-              setActivePlanPayload((prev) => {
-                if (!prev) return null;
-                return {
-                  ...prev,
-                  plan: { ...prev.plan, scale_to_m: scaleToM },
-                  raw: { ...prev.raw, scale_to_m: scaleToM },
-                };
+            }}
+            onChangeUnitScale={async (scaleToM) => {
+              if (activePlanPayload.isGuest) {
+                setActivePlanPayload((prev) => {
+                  if (!prev) return null;
+                  return {
+                    ...prev,
+                    plan: { ...prev.plan, scale_to_m: scaleToM },
+                    raw: { ...prev.raw, scale_to_m: scaleToM },
+                  };
+                });
+                showToast('Measurement unit updated for preview');
+                return;
+              }
+              const res = await authFetch(`/api/plans/${p.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ scale_to_m: scaleToM }),
               });
-              showToast('Measurement unit updated for preview');
-              return;
-            }
-            const res = await authFetch(`/api/plans/${p.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ scale_to_m: scaleToM }),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              setActivePlanPayload(data);
-              showToast(`Measurement unit updated to ${data.plan.unit_name}`);
-            }
-          }}
-          onUploadDwg={async (file) => {
-            if (activePlanPayload.isGuest) {
-              const dt = new DataTransfer();
-              dt.items.add(file);
-              await handleGuestCadPreview(dt.files);
-              return;
-            }
-            const form = new FormData();
-            form.append('dwg_file', file);
-            try {
-              const data = await runUploadWithProgress(`/api/plans/${p.id}/dwg`, form, file);
-              setActivePlanPayload(data);
-              showToast('DWG uploaded & cleaned!');
-            } finally {
-              setUploadProgress(null);
-            }
-          }}
-          onUpdateMetadata={async (patch) => {
-            if (activePlanPayload.isGuest) {
-              setActivePlanPayload((prev) => {
-                if (!prev) return null;
-                const nextPlan = { ...prev.plan, ...patch };
-                return { ...prev, plan: nextPlan };
+              if (res.ok) {
+                const data = await res.json();
+                setActivePlanPayload(data);
+                showToast(`Measurement unit updated to ${data.plan.unit_name}`);
+              }
+            }}
+            onUploadDwg={async (file) => {
+              if (activePlanPayload.isGuest) {
+                const dt = new DataTransfer();
+                dt.items.add(file);
+                await handleGuestCadPreview(dt.files);
+                return;
+              }
+              const form = new FormData();
+              form.append('dwg_file', file);
+              try {
+                const data = await runUploadWithProgress(`/api/plans/${p.id}/dwg`, form, file);
+                setActivePlanPayload(data);
+                showToast('DWG uploaded & cleaned!');
+              } finally {
+                setUploadProgress(null);
+              }
+            }}
+            onUpdateMetadata={async (patch) => {
+              if (activePlanPayload.isGuest) {
+                setActivePlanPayload((prev) => {
+                  if (!prev) return null;
+                  const nextPlan = { ...prev.plan, ...patch };
+                  return { ...prev, plan: nextPlan };
+                });
+                showToast('Updated plan details');
+                return;
+              }
+              const res = await authFetch(`/api/plans/${p.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(patch),
               });
-              showToast('Updated plan details');
-              return;
-            }
-            const res = await authFetch(`/api/plans/${p.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(patch),
-            });
-            if (res.ok) {
-              const data = await res.json();
-              setActivePlanPayload(data);
-              await fetchVaultPlans();
-              showToast('Plan saved');
-            }
-          }}
-        />
+              if (res.ok) {
+                const data = await res.json();
+                setActivePlanPayload(data);
+                await fetchVaultPlans();
+                showToast('Plan saved');
+              }
+            }}
+          />
+        </ErrorBoundary>
         <AuthModal
           isOpen={showAuthModal}
           onClose={() => setShowAuthModal(false)}
@@ -1436,11 +1335,10 @@ export function App() {
           <div className="md:hidden w-full flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-3 px-3">
             <button
               onClick={() => setSelectedProject('ALL')}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
-                selectedProject === 'ALL'
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${selectedProject === 'ALL'
                   ? 'bg-zinc-100 text-zinc-950 border-white'
                   : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-              }`}
+                }`}
             >
               <FolderKanban className="w-3 h-3 opacity-75 shrink-0" />
               <span>All</span>
@@ -1453,11 +1351,10 @@ export function App() {
                 <button
                   key={proj}
                   onClick={() => setSelectedProject(proj)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
-                    isSelected
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${isSelected
                       ? 'bg-zinc-100 text-zinc-950 border-white'
                       : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                  }`}
+                    }`}
                 >
                   <span className="truncate max-w-[130px]">{proj}</span>
                   <span className="text-[10px] tabular-nums font-mono opacity-80">({count})</span>
@@ -1558,11 +1455,10 @@ export function App() {
               <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-3 px-3 sm:mx-0 sm:px-0">
                 <button
                   onClick={() => setSelectedDiscipline('ALL')}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 ${
-                    selectedDiscipline === 'ALL'
+                  className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 ${selectedDiscipline === 'ALL'
                       ? 'bg-zinc-200 text-zinc-950 border-white'
                       : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-                  }`}
+                    }`}
                 >
                   All ({projectScopedPlans.length})
                 </button>
@@ -1575,11 +1471,10 @@ export function App() {
                     <button
                       key={d.id}
                       onClick={() => setSelectedDiscipline(d.id)}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 flex items-center gap-1 ${
-                        active
+                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 flex items-center gap-1 ${active
                           ? d.pillActiveClass
                           : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700'
-                      }`}
+                        }`}
                     >
                       <span>{d.label}</span>
                       <span className="opacity-75 text-[10px] font-mono">({count})</span>
@@ -1599,29 +1494,60 @@ export function App() {
               </div>
             ) : filteredPlans.length === 0 ? (
               <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-8 text-center space-y-4">
-                <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/30 flex items-center justify-center mx-auto">
-                  <Plus className="w-6 h-6 text-blue-400" />
+                <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mx-auto">
+                  {!authSession ? <Lock className="w-6 h-6 text-cyan-400" /> : <Plus className="w-6 h-6 text-cyan-400" />}
                 </div>
                 <div className="space-y-1 max-w-md mx-auto">
                   <h3 className="text-sm font-medium text-white">
-                    {plans.length === 0 ? 'Your Cloud Plan Vault is Empty' : 'No Matching Plans Found'}
+                    {!authSession
+                      ? 'Sign In to Access Your Personal Plan Vault'
+                      : plans.length === 0
+                        ? 'Your Cloud Plan Vault is Empty'
+                        : 'No Matching Plans Found'}
                   </h3>
                   <p className="text-xs text-zinc-400">
-                    {plans.length === 0
-                      ? 'Upload a DWG/DXF plan to view, isolate sheet views, and calculate discipline estimates.'
-                      : 'Try changing your search query or discipline filter.'}
+                    {!authSession
+                      ? 'Private drawings and projects are protected. Sign in to access your vault, or test with instant guest preview.'
+                      : plans.length === 0
+                        ? 'Upload a DWG/DXF plan to view, isolate sheet views, and calculate discipline estimates.'
+                        : 'Try changing your search query or discipline filter.'}
                   </p>
                 </div>
-                <button
-                  onClick={() => {
-                    if (selectedProject !== 'ALL') setUploadProject(selectedProject);
-                    setShowUploadModal(true);
-                  }}
-                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium inline-flex items-center gap-2 shadow-lg"
-                >
-                  <Plus className="w-4 h-4" />
-                  Upload plan
-                </button>
+                {!authSession ? (
+                  <div className="flex items-center justify-center gap-3">
+                    <button
+                      onClick={() => {
+                        setAuthMode('signin');
+                        setShowAuthModal(true);
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium inline-flex items-center gap-2 shadow-lg"
+                    >
+                      <LogIn className="w-4 h-4" />
+                      Sign in / Register
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (selectedProject !== 'ALL') setUploadProject(selectedProject);
+                        setShowUploadModal(true);
+                      }}
+                      className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium inline-flex items-center gap-2 border border-zinc-700"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Instant Guest Preview
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      if (selectedProject !== 'ALL') setUploadProject(selectedProject);
+                      setShowUploadModal(true);
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium inline-flex items-center gap-2 shadow-lg"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Upload plan
+                  </button>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -1642,7 +1568,6 @@ export function App() {
                     onRenamePlan={(p) => setRenamePlanModal({ plan: p, newName: p.name })}
                     onSharePlan={handleSharePlan}
                     onDeletePlan={(p) => setConfirmDeletePlan(p)}
-                    onCleanTitleAi={handleTriggerAiClean}
                   />
                 ))}
               </div>
@@ -1670,8 +1595,6 @@ export function App() {
         uploadProgress={uploadProgress}
         uploadError={uploadError}
         onSubmit={handleUploadSubmit}
-        onCleanTitleAi={handleUploadCleanTitleAi}
-        isAiCleaningTitle={isAiCleaningTitle}
       />
 
       {/* Floating Auth Modal */}
@@ -1712,18 +1635,6 @@ export function App() {
           filesData={sheetSelectorData.filesData}
           onConfirm={handleSheetSelectorConfirm}
           onCancel={() => setSheetSelectorData(null)}
-        />
-      )}
-
-      {/* AI Name & Sheet Cleanup Confirmation Modal */}
-      {aiCleanupTarget && (
-        <AiNameCleanupModal
-          originalTitle={aiCleanupTarget.originalTitle}
-          originalDiscipline={aiCleanupTarget.originalDiscipline}
-          originalSheets={aiCleanupTarget.originalSheets}
-          proposal={aiCleanupTarget.proposal}
-          onApply={handleApplyAiClean}
-          onClose={() => setAiCleanupTarget(null)}
         />
       )}
 

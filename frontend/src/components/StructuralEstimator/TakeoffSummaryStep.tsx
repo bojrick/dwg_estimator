@@ -3,6 +3,7 @@ import { Download, Save, CheckCircle2, AlertTriangle, ArrowLeft } from 'lucide-r
 import {
   BbsBarItem,
   CivilAuditAnomaly,
+  DiameterSummary,
   StructuralEstimateState,
 } from './types';
 
@@ -19,7 +20,7 @@ interface TakeoffSummaryStepProps {
   takeoffTab: 'bbs' | 'diameter' | 'audit';
   setTakeoffTab: (tab: 'bbs' | 'diameter' | 'audit') => void;
   bbsItems: BbsBarItem[];
-  diameterSummary: { dia: number; lengthM: number; weightKg: number; count: number }[];
+  diameterSummary: DiameterSummary[];
   auditAnomalies: CivilAuditAnomaly[];
   onExportBbsCsv: () => void;
   onHighlightMember: (mark: string) => void;
@@ -178,16 +179,16 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
                       {item.memberId}
                     </td>
                     <td className="py-2 px-2 font-sans text-zinc-300 truncate">
-                      <span>{item.mark}</span>
-                      <span className="block text-[10px] text-zinc-500 font-mono">
-                        {item.shape.replace('_', ' ')}
+                      <span className="font-medium text-zinc-200">{item.mark}</span>
+                      <span className="block text-[10px] text-zinc-400 font-mono truncate" title={item.notes || ''}>
+                        {item.shape.replace('_', ' ')}{item.notes ? ` · ${item.notes}` : ''}
                       </span>
                     </td>
                     <td className="py-2 px-2 text-center text-zinc-200">Φ{item.diameter}</td>
                     <td className="py-2 px-2 text-right text-zinc-200">
                       {item.cuttingLengthM.toFixed(2)}
                     </td>
-                    <td className="py-2 px-2 text-center text-zinc-200">{item.barCount}</td>
+                    <td className="py-2 px-2 text-center text-zinc-200">{item.totalBars}</td>
                     <td className="py-2 pl-2 pr-3 text-right font-medium text-zinc-100">
                       {item.totalWeightKg.toFixed(1)}
                     </td>
@@ -219,18 +220,25 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
               </thead>
               <tbody className="divide-y divide-zinc-900 font-mono tabular-nums">
                 {diameterSummary.map((d) => (
-                  <tr key={d.dia} className="hover:bg-zinc-900/40">
-                    <td className="py-2 pl-3 font-medium text-zinc-100">Φ{d.dia} mm</td>
+                  <tr key={d.diameter} className="hover:bg-zinc-900/40">
+                    <td className="py-2 pl-3 font-medium text-zinc-100">Φ{d.diameter} mm</td>
                     <td className="py-2 text-right text-zinc-400">
-                      {((d.dia * d.dia) / 162).toFixed(3)}
+                      {d.unitWeightKgM ? d.unitWeightKgM.toFixed(3) : ((d.diameter * d.diameter) / 162).toFixed(3)}
                     </td>
-                    <td className="py-2 text-center text-zinc-300">{d.count}</td>
-                    <td className="py-2 text-right text-zinc-300">{d.lengthM.toFixed(1)}</td>
+                    <td className="py-2 text-center text-zinc-300">{d.totalBars}</td>
+                    <td className="py-2 text-right text-zinc-300">{(d.totalLengthM || 0).toFixed(1)}</td>
                     <td className="py-2 pr-3 text-right font-medium text-zinc-100">
-                      {d.weightKg.toFixed(1)}
+                      {(d.totalWeightKg || 0).toFixed(1)}
                     </td>
                   </tr>
                 ))}
+                {diameterSummary.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="py-12 text-center text-zinc-500 font-sans">
+                      No rebar diameter summary available yet.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>

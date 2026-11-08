@@ -39,6 +39,7 @@ class Plan(SQLModel, table=True):
     active_sheet_name: str = Field(default="Full Plan View")
     match_reason: str = Field(default="")
     sheets_json: str = Field(default="[]")
+    measurements_json: str = Field(default="[]")
     summary_json: str = Field(default="{}")
     structural_estimate_json: str = Field(default="{}")
 

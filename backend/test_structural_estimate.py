@@ -94,7 +94,47 @@ def test_structural_estimate_and_cache_db():
     print("test_structural_estimate_and_cache_db passed!")
 
 
+def test_infer_longitudinal_section():
+    from app.services.structural_ai import infer_longitudinal_section_ai
+
+    sample_texts = [
+        "L-SEC OF BEAM B1-1 TO B1-3 (GRID 1)",
+        "SPAN 1: 3800",
+        "SPAN 2: 4500",
+        "SPAN 3: 3600",
+        "SIZE: 230 x 450",
+        "COL WIDTH: 400",
+        "3-T20 BTM (CONT)",
+        "2-T16 CURTAILED",
+        "2-T12 TOP THRU",
+        "2-T20 EXTRA @ SUPPORTS",
+        "8mm @ 100 / 175 c/c",
+    ]
+
+    res = infer_longitudinal_section_ai(
+        session=None,
+        window_texts=sample_texts,
+        candidate_beams=["B1-1", "B1-2", "B1-3"],
+    )
+
+    assert "B1-1" in res["beamMarks"]
+    assert "B1-2" in res["beamMarks"]
+    assert "B1-3" in res["beamMarks"]
+    assert len(res["spans"]) >= 3
+    assert res["spans"][0]["clearSpanMm"] == 3800
+    assert res["spans"][1]["clearSpanMm"] == 4500
+    assert res["spans"][2]["clearSpanMm"] == 3600
+    assert res["reinforcement"]["bottomContinuousBars"]["diameter"] == 20
+    assert res["reinforcement"]["bottomContinuousBars"]["count"] == 3
+    assert res["reinforcement"]["bottomCurtailedBars"]["diameter"] == 16
+    assert res["reinforcement"]["topContinuousBars"]["diameter"] == 12
+    assert res["reinforcement"]["stirrups"]["spacingEndMm"] == 100
+    assert res["reinforcement"]["stirrups"]["spacingMidMm"] == 175
+    print("test_infer_longitudinal_section passed!")
+
+
 if __name__ == "__main__":
     test_compound_marks_and_distinct_sections()
     test_is456_and_diameter_constraints_audit()
     test_structural_estimate_and_cache_db()
+    test_infer_longitudinal_section()

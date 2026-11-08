@@ -8,6 +8,7 @@ import {
   Trash2,
   Tag,
   Scan,
+  Layers,
   Copy,
   X,
 } from 'lucide-react';
@@ -39,6 +40,9 @@ interface ReinforcementLinkStepProps {
   onClearInspectedCrossSection?: () => void;
   onStartCrossSectionMarquee?: () => void;
   isCrossSectionToolActive?: boolean;
+  onStartLongitudinalSectionWindow?: () => void;
+  isLongitudinalSectionToolActive?: boolean;
+  longitudinalSectionsCount?: number;
 }
 
 export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
@@ -59,6 +63,9 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
   onClearInspectedCrossSection,
   onStartCrossSectionMarquee,
   isCrossSectionToolActive,
+  onStartLongitudinalSectionWindow,
+  isLongitudinalSectionToolActive,
+  longitudinalSectionsCount = 0,
 }) => {
   const [activeMemberId, setActiveMemberId] = useState<string>(members[0]?.id || '');
   const [filterMode, setFilterMode] = useState<'all' | 'pending' | 'warnings'>('all');
@@ -270,6 +277,26 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5">
+            {scope === 'beam' && onStartLongitudinalSectionWindow && (
+              <button
+                type="button"
+                onClick={onStartLongitudinalSectionWindow}
+                className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium flex items-center gap-1.5 transition ${
+                  isLongitudinalSectionToolActive
+                    ? 'bg-blue-600 text-white border-blue-500'
+                    : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:border-zinc-700'
+                }`}
+                title="Drag a box over a multi-span continuous beam Longitudinal Section (L-Section)"
+              >
+                <Layers className="w-3.5 h-3.5 text-blue-400" />
+                <span>
+                  {isLongitudinalSectionToolActive
+                    ? 'Cancel box'
+                    : `Window L-Section${longitudinalSectionsCount > 0 ? ` (${longitudinalSectionsCount})` : ''}`}
+                </span>
+              </button>
+            )}
+
             {onStartCrossSectionMarquee && (
               <button
                 type="button"

@@ -1,4 +1,10 @@
-import { ExtractedCadTable, BbsBarItem, StructuralMemberType } from './types';
+import {
+  ExtractedCadTable,
+  GeneralCadTable,
+  GeneralTableCategory,
+  BbsBarItem,
+  StructuralMemberType,
+} from './types';
 import { recalculateBarItem } from './bbsMath';
 import {
   extractTableViaLattice,
@@ -164,31 +170,59 @@ export function extractTableFromBoundingBox(
   const result: LatticeTableResult | null = extractTableViaLattice(lines, polylines, texts, bbox);
   if (!result || result.rows.length === 0) return null;
 
-  // Infer member type from title and contents
+  // Infer table category and member type from title and contents
   const combinedText = [
     tableTitle || '',
     ...result.headers,
     ...result.rows.flatMap((r) => r),
   ].join(' ').toLowerCase();
 
+  let category: GeneralTableCategory = 'general';
   let detectedType: StructuralMemberType = 'other';
-  if (/col|column/i.test(combinedText)) detectedType = 'column';
-  else if (/beam|plinth|lintel/i.test(combinedText)) detectedType = 'beam';
-  else if (/footing|fnd|foundation|raft/i.test(combinedText)) detectedType = 'footing';
-  else if (/slab/i.test(combinedText)) detectedType = 'slab';
 
-  const { normalizedHeaders } = standardizeScheduleHeaders(result.headers);
+  if (/col|column/i.test(combinedText)) {
+    detectedType = 'column';
+    category = 'structural';
+  } else if (/beam|plinth|lintel/i.test(combinedText)) {
+    detectedType = 'beam';
+    category = 'structural';
+  } else if (/footing|fnd|foundation|raft/i.test(combinedText)) {
+    detectedType = 'footing';
+    category = 'structural';
+  } else if (/slab/i.test(combinedText)) {
+    detectedType = 'slab';
+    category = 'structural';
+  } else if (/(door|win(dow)?|glaz|opening|shutter|vent)/i.test(combinedText)) {
+    category = 'door_window';
+  } else if (/(finish|flooring|skirting|ceiling|plaster|paint)/i.test(combinedText)) {
+    category = 'room_finish';
+  } else if (/(panel|circuit|breaker|switchboard|conduit|db\b)/i.test(combinedText)) {
+    category = 'electrical';
+  }
+
+  // Preserve natural CAD headers without force-overwriting them
+  const rawHeaders = result.headers.map((h, i) => h.trim() || `Col ${i + 1}`);
 
   const defaultTitle =
-    tableTitle || `${detectedType.toUpperCase()} SCHEDULE`;
+    tableTitle ||
+    (category === 'structural'
+      ? `${detectedType.toUpperCase()} SCHEDULE`
+      : category === 'door_window'
+      ? 'DOOR & WINDOW SCHEDULE'
+      : category === 'room_finish'
+      ? 'ROOM FINISH SCHEDULE'
+      : category === 'electrical'
+      ? 'ELECTRICAL PANEL SCHEDULE'
+      : 'CAD SCHEDULE TABLE');
 
   return {
     id: `table_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
     title: defaultTitle,
-    headers: normalizedHeaders,
+    headers: rawHeaders,
     rows: result.rows,
     bbox,
     detectedType,
+    category,
   };
 }
 
@@ -305,7 +339,10 @@ export function convertScheduleTableToBbsItems(
   }
 ): BbsBarItem[] {
   const result: BbsBarItem[] = [];
-  const type = table.detectedType || 'column';
+  const rawType = String(table.detectedType || 'column');
+  const type: StructuralMemberType = ['column', 'beam', 'footing', 'slab', 'staircase', 'wall'].includes(rawType)
+    ? (rawType as StructuralMemberType)
+    : 'column';
   const cover =
     options?.clearCoverMm ||
     (type === 'column' ? 40 : type === 'beam' ? 25 : type === 'footing' ? 50 : 20);

@@ -23,6 +23,7 @@ import { calculateElectricalTakeoff } from './electricalMath';
 import { cropRawDataToSheet } from '../../SheetSelectorModal';
 import { CadEstimatorCanvas, WorldBBox } from '../shared/CadEstimatorCanvas';
 import { analyzeCadLayers, inferElectricalFromCad } from '../shared/cadLayerInference';
+import { VersionHistoryControl } from '../shared/VersionHistoryControl';
 
 interface ElectricalEstimatorPageProps {
   plan: any;
@@ -74,8 +75,14 @@ export const ElectricalEstimatorPage: React.FC<ElectricalEstimatorPageProps> = (
     () => plan?.sheets || fullRawData?.sheets || rawData?.sheets || [],
     [plan?.sheets, fullRawData?.sheets, rawData?.sheets]
   );
-  const [activeSheetId, setActiveSheetId] = useState<string>('all');
+  const [activeSheetId, setActiveSheetId] = useState<string>(() => {
+    const initialSheets = plan?.sheets || fullRawData?.sheets || rawData?.sheets || [];
+    return savedState.active_sheet_id || plan?.active_sheet_id || initialSheets[0]?.id || 'all';
+  });
   const [step, setStep] = useState<ElecStep>('scope');
+  const [notes, setNotes] = useState<string>(() => savedState.notes || '');
+  const [bySheet, setBySheet] = useState<Record<string, any>>(() => savedState.by_sheet || {});
+  const [versions, setVersions] = useState<any[]>(() => savedState.versions || []);
 
   const [params, setParams] = useState<ElectricalParameters>(() => ({
     ...DEFAULT_PARAMS,
@@ -101,11 +108,54 @@ export const ElectricalEstimatorPage: React.FC<ElectricalEstimatorPageProps> = (
     () => sheets.find((s) => s.id === activeSheetId),
     [sheets, activeSheetId]
   );
+  const activeSheetName = useMemo(
+    () => (activeSheetId === 'all' ? 'All sheets combined' : activeSheet?.name || 'Sheet 1'),
+    [activeSheetId, activeSheet]
+  );
   const activeRaw = useMemo(() => {
     if (!masterRawData) return null;
     if (!activeSheet || activeSheetId === 'all') return masterRawData;
     return cropRawDataToSheet(masterRawData, activeSheet);
   }, [masterRawData, activeSheet, activeSheetId]);
+
+  const handleSelectSheet = (newSheetId: string) => {
+    if (newSheetId === activeSheetId) return;
+    setBySheet((prev) => ({
+      ...prev,
+      [activeSheetId]: {
+        sheetId: activeSheetId,
+        sheetName: activeSheetName,
+        parameters: params,
+        points,
+        roleOverrides,
+        scanBox,
+        notes,
+        summary,
+        updatedAt: new Date().toISOString(),
+      },
+    }));
+    const target = bySheet[newSheetId];
+    setActiveSheetId(newSheetId);
+    if (target) {
+      setParams({ ...DEFAULT_PARAMS, ...(target.parameters || {}) });
+      setPoints(target.points || []);
+      setRoleOverrides(target.roleOverrides || {});
+      setScanBox(target.scanBox || null);
+      setNotes(target.notes || '');
+    } else {
+      setScanBox(null);
+      const nextSheet = sheets.find((s) => s.id === newSheetId);
+      const nextRaw =
+        !masterRawData || !nextSheet || newSheetId === 'all'
+          ? masterRawData
+          : cropRawDataToSheet(masterRawData, nextSheet);
+      if (nextRaw) {
+        const res = inferElectricalFromCad(nextRaw, null, roleOverrides);
+        setPoints(res.points);
+        setLastScanNote(res.summaryNote);
+      }
+    }
+  };
 
   const layerStats = useMemo(
     () => analyzeCadLayers(activeRaw, 'electrical', scanBox, roleOverrides),
@@ -157,17 +207,59 @@ export const ElectricalEstimatorPage: React.FC<ElectricalEstimatorPageProps> = (
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      const updatedBySheet = {
+        ...bySheet,
+        [activeSheetId]: {
+          sheetId: activeSheetId,
+          sheetName: activeSheetName,
+          parameters: params,
+          points,
+          roleOverrides,
+          scanBox,
+          notes,
+          summary,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+      const newVersion = {
+        versionId: `v_${Date.now()}`,
+        versionNumber: versions.length + 1,
+        createdAt: new Date().toISOString(),
+        sheetId: activeSheetId,
+        sheetName: activeSheetName,
+        notes,
+        totalCost: summary.totalCost,
+        snapshot: {
+          activeSheetId,
+          sheetName: activeSheetName,
+          parameters: params,
+          points,
+          roleOverrides,
+          scanBox,
+          notes,
+          summary,
+        },
+      };
+      const nextVersions = [...versions, newVersion].slice(-20);
+      setBySheet(updatedBySheet);
+      setVersions(nextVersions);
+
       await onSaveEstimate({
         electrical_estimate: {
+          active_sheet_id: activeSheetId,
+          sheetName: activeSheetName,
+          notes,
           parameters: params,
           points,
           roleOverrides,
           scanBox,
           summary,
+          by_sheet: updatedBySheet,
+          versions: nextVersions,
           updatedAt: new Date().toISOString(),
         },
       });
-      showToast('Electrical estimate saved');
+      showToast(`Saved Electrical estimate v${newVersion.versionNumber} (${activeSheetName})`);
     } catch {
       showToast('Failed to save estimate');
     } finally {
@@ -175,8 +267,22 @@ export const ElectricalEstimatorPage: React.FC<ElectricalEstimatorPageProps> = (
     }
   };
 
+  const handleRestoreVersion = (v: any) => {
+    if (!v?.snapshot) return;
+    const snap = v.snapshot;
+    if (snap.activeSheetId) setActiveSheetId(snap.activeSheetId);
+    if (snap.parameters) setParams({ ...DEFAULT_PARAMS, ...snap.parameters });
+    if (snap.points) setPoints(snap.points);
+    if (snap.roleOverrides) setRoleOverrides(snap.roleOverrides);
+    setScanBox(snap.scanBox || null);
+    setNotes(snap.notes || '');
+    showToast(`Restored v${v.versionNumber} (${v.sheetName})`);
+  };
+
   const handleExportCsv = () => {
     const rows = [
+      ['Sheet', activeSheetName, '', '', ''],
+      ['Estimator notes', notes || '-', '', '', ''],
       ['Item', 'Quantity', 'Unit', 'Rate', 'Amount'],
       [
         '25mm HMS PVC conduit & accessories',
@@ -306,6 +412,11 @@ export const ElectricalEstimatorPage: React.FC<ElectricalEstimatorPageProps> = (
         </div>
 
         <div className="flex items-center gap-2">
+          <VersionHistoryControl
+            versions={versions}
+            currency={params.currency}
+            onRestoreVersion={handleRestoreVersion}
+          />
           <button
             onClick={handleExportCsv}
             className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-white/[0.08]"
@@ -331,7 +442,7 @@ export const ElectricalEstimatorPage: React.FC<ElectricalEstimatorPageProps> = (
             rawData={activeRaw}
             sheets={sheets}
             activeSheetId={activeSheetId}
-            onSelectSheetId={setActiveSheetId}
+            onSelectSheetId={handleSelectSheet}
             highlightedLayers={highlightedLayers}
             highlightedMark={highlightedMark}
             layoutBox={scanBox}
@@ -724,7 +835,12 @@ export const ElectricalEstimatorPage: React.FC<ElectricalEstimatorPageProps> = (
               <div className="space-y-4">
                 <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
                   <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
-                    <span className="text-xs font-medium text-zinc-200">Electrical bill of quantities</span>
+                    <div>
+                      <span className="text-xs font-medium text-zinc-200">Electrical bill of quantities</span>
+                      <span className="ml-2 text-[10px] font-mono text-amber-300 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded">
+                        {activeSheetName}
+                      </span>
+                    </div>
                     <span className="text-xs font-semibold text-amber-400 tabular-nums">
                       {params.currency}
                       {summary.totalCost.toLocaleString()}
@@ -795,6 +911,19 @@ export const ElectricalEstimatorPage: React.FC<ElectricalEstimatorPageProps> = (
                       </tr>
                     </tbody>
                   </table>
+                </div>
+
+                <div className="p-3 rounded-xl bg-zinc-900/50 border border-white/[0.08] space-y-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-zinc-300 font-medium">Estimator notes ({activeSheetName})</span>
+                  </div>
+                  <textarea
+                    rows={2}
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Add circuit grouping assumptions, DB location notes, or cable tray exclusions..."
+                    className="w-full bg-zinc-950 text-xs text-zinc-100 px-2.5 py-1.5 rounded-lg border border-white/[0.08] resize-none"
+                  />
                 </div>
 
                 <div className="space-y-2">

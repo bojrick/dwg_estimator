@@ -62,3 +62,6 @@
 [2026-11-08 00:35:32,148] [INFO] [ezdxf] creating ACAD_SCALELIST dictionary
 [2026-11-08 00:35:32,148] [INFO] [ezdxf] creating ACAD_TABLESTYLE dictionary
 [2026-11-08 00:35:32,148] [INFO] [ezdxf] creating ACAD_VISUALSTYLE dictionary
+[2026-11-08 13:25:59,512] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out
+[2026-11-08 13:29:59,169] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out
+[2026-11-08 13:31:09,658] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out

@@ -147,6 +147,7 @@ export function inferLayerRole(
   if (/(GRID|AXIS|DIM|TEXT|ANNO|TITLE|BORDER|FRAME|DEFPOINTS|HATCH)/.test(s)) return 'annotation';
 
   if (discipline === 'architectural') {
+    if (/(PARAPET|PRPT|BALCONY.*WALL|TERRACE.*WALL|RAILING)/.test(s)) return 'parapet';
     if (/(EXT.*WALL|OUTER.*WALL|230|200.*WALL)/.test(s)) return 'ext_wall';
     if (/(INT.*WALL|PART|115|100.*WALL)/.test(s)) return 'int_wall';
     if (/(WALL|BRICK|MASON|BLK|BLOCK|AAC)/.test(s)) return 'wall';
@@ -189,35 +190,452 @@ export function inferLayerRole(
   return 'general';
 }
 
-function parseDimTokenToMeters(str: string): [number, number] | null {
-  // Matches meters "4.2 x 3.6", mm "4200 x 3600", or feet-inches "12'6\" x 10'0\""
-  const ftMatch = str.match(/(\d{1,2})\s*['’]\s*(\d{1,2})?\s*(?:["”])?\s*[xX×*]\s*(\d{1,2})\s*['’]\s*(\d{1,2})?/);
+function stripDxfMtext(raw: string): string {
+  return String(raw || '')
+    .replace(/\\P/gi, '\n')
+    .replace(/\\X/gi, '\n')
+    .replace(/\\[fFcCHWTQApS][^;]*;/g, '')
+    .replace(/[{}]/g, '')
+    .trim();
+}
+
+export function parseDimTokenWithLabel(
+  rawInput: string
+): { wM: number; hM: number; label: string } | null {
+  const str = stripDxfMtext(rawInput);
+
+  const ftInRe =
+    /(\d{1,2}(?:\.\d+)?)\s*['’]\s*(?:[-–—]?\s*(\d{1,2}(?:\.\d+)?)\s*(?:["”]|''|in\b)?)?\s*[xX×*]\s*(\d{1,2}(?:\.\d+)?)\s*['’]\s*(?:[-–—]?\s*(\d{1,2}(?:\.\d+)?)\s*(?:["”]|''|in\b)?)?/;
+  const ftMatch = str.match(ftInRe);
   if (ftMatch) {
-    const f1 = parseInt(ftMatch[1], 10) + (ftMatch[2] ? parseInt(ftMatch[2], 10) / 12 : 0);
-    const f2 = parseInt(ftMatch[3], 10) + (ftMatch[4] ? parseInt(ftMatch[4], 10) / 12 : 0);
-    const w = f1 * 0.3048;
-    const h = f2 * 0.3048;
-    if (w >= 0.4 && h >= 0.4 && w <= 40 && h <= 40) return [w, h];
+    const f1 = parseFloat(ftMatch[1]) + (ftMatch[2] ? parseFloat(ftMatch[2]) / 12 : 0);
+    const f2 = parseFloat(ftMatch[3]) + (ftMatch[4] ? parseFloat(ftMatch[4]) / 12 : 0);
+    const w = Math.round(f1 * 0.3048 * 1000) / 1000;
+    const h = Math.round(f2 * 0.3048 * 1000) / 1000;
+    if (w >= 0.35 && h >= 0.35 && w <= 45 && h <= 45) {
+      return { wM: w, hM: h, label: ftMatch[0].trim() };
+    }
   }
 
-  const numMatch = str.match(/(\d+(?:\.\d+)?)\s*[xX×*]\s*(\d+(?:\.\d+)?)/);
+  const numRe =
+    /(\d+(?:\.\d+)?)\s*(mm|cm|m|ft|feet)?\s*[xX×*]\s*(\d+(?:\.\d+)?)\s*(mm|cm|m|ft|feet)?/i;
+  const numMatch = str.match(numRe);
   if (numMatch) {
     let a = parseFloat(numMatch[1]);
-    let b = parseFloat(numMatch[2]);
-    if (a >= 350 && b >= 350) {
+    let b = parseFloat(numMatch[3]);
+    const unit = (numMatch[2] || numMatch[4] || '').toLowerCase();
+
+    if (unit === 'mm' || (a >= 350 && b >= 350)) {
       a /= 1000;
       b /= 1000;
-    } else if (a > 25 && b > 25 && a < 350 && b < 350) {
-      // Likely feet without apostrophe or cm; treat >45 as cm
-      if (a >= 60 && b >= 60) {
-        a /= 100;
-        b /= 100;
-      } else {
-        a *= 0.3048;
-        b *= 0.3048;
+    } else if (unit === 'cm' || (a >= 65 && b >= 65 && a < 350 && b < 350)) {
+      a /= 100;
+      b /= 100;
+    } else if (
+      unit === 'ft' ||
+      unit === 'feet' ||
+      (a > 7.5 && b > 7.5 && a <= 45 && b <= 45 && !str.includes('.'))
+    ) {
+      a *= 0.3048;
+      b *= 0.3048;
+    }
+    if (a >= 0.35 && b >= 0.35 && a <= 50 && b <= 50) {
+      return {
+        wM: Math.round(a * 1000) / 1000,
+        hM: Math.round(b * 1000) / 1000,
+        label: numMatch[0].trim(),
+      };
+    }
+  }
+  return null;
+}
+
+function parseDimTokenToMeters(str: string): [number, number] | null {
+  const parsed = parseDimTokenWithLabel(str);
+  return parsed ? [parsed.wM, parsed.hM] : null;
+}
+
+export function pointInPoly(x: number, y: number, pts: number[][]): boolean {
+  if (!pts || pts.length < 3) return false;
+  let inside = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i][0],
+      yi = pts[i][1];
+    const xj = pts[j][0],
+      yj = pts[j][1];
+    const intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi + 1e-12) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+export interface WallBoundaryEnclosure {
+  boundaryPolygon: [number, number][]; // in CAD world coords
+  areaM2: number;
+  perimeterM: number;
+  parapetLengthM: number;
+  isParapetEnclosed: boolean;
+  widthM: number;
+  lengthM: number;
+  bbox: WorldBBox;
+}
+
+function perpDistance(p: [number, number], a: [number, number], b: [number, number]): number {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq < 1e-12) return Math.hypot(p[0] - a[0], p[1] - a[1]);
+  return Math.abs(dy * p[0] - dx * p[1] + b[0] * a[1] - b[1] * a[0]) / Math.sqrt(lenSq);
+}
+
+function rdpSimplifyOpen(pts: [number, number][], tol: number): [number, number][] {
+  if (pts.length <= 2) return pts;
+  let maxD = 0;
+  let maxIdx = 0;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const d = perpDistance(pts[i], pts[0], pts[pts.length - 1]);
+    if (d > maxD) {
+      maxD = d;
+      maxIdx = i;
+    }
+  }
+  if (maxD > tol) {
+    const left = rdpSimplifyOpen(pts.slice(0, maxIdx + 1), tol);
+    const right = rdpSimplifyOpen(pts.slice(maxIdx), tol);
+    return left.slice(0, -1).concat(right);
+  }
+  return [pts[0], pts[pts.length - 1]];
+}
+
+function rdpSimplifyPolygon(pts: [number, number][], tol: number): [number, number][] {
+  if (pts.length <= 3) return pts;
+  let maxD = 0;
+  let splitIdx = 1;
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.hypot(pts[i][0] - pts[0][0], pts[i][1] - pts[0][1]);
+    if (d > maxD) {
+      maxD = d;
+      splitIdx = i;
+    }
+  }
+  const half1 = rdpSimplifyOpen(pts.slice(0, splitIdx + 1), tol);
+  const half2 = rdpSimplifyOpen(pts.slice(splitIdx).concat([pts[0]]), tol);
+  const merged = half1.slice(0, -1).concat(half2.slice(0, -1));
+  return merged.length >= 3 ? merged : pts;
+}
+
+export function traceWallBoundaryEnclosure(
+  seedX: number,
+  seedY: number,
+  rawData: any,
+  scaleToM: number,
+  box?: WorldBBox | null,
+  roleOverrides: Record<string, string> = {}
+): WallBoundaryEnclosure | null {
+  interface WallSeg {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    isParapet: boolean;
+    layer: string;
+  }
+  const segments: WallSeg[] = [];
+
+  const addSeg = (x1: number, y1: number, x2: number, y2: number, layer: string = '0') => {
+    if (!inBox(x1, y1, box) && !inBox(x2, y2, box)) return;
+    const lenM = Math.hypot(x2 - x1, y2 - y1) * scaleToM;
+    if (lenM < 0.2) return;
+    const s = layer.toUpperCase();
+    if (/(GRID|AXIS|DIM|TEXT|ANNO|TITLE|BORDER|FRAME|DEFPOINTS|HATCH)/i.test(s)) return;
+    const role = roleOverrides[layer] || inferLayerRole(layer, 'architectural');
+    if (role === 'annotation') return;
+    const isParapet =
+      role === 'parapet' ||
+      /(PARAPET|PRPT|BALCONY.*WALL|TERRACE.*WALL|RAILING)/i.test(s) ||
+      /(PARAPET|PRPT|BALCONY|TERRACE)/i.test(role);
+    segments.push({ x1, y1, x2, y2, isParapet, layer });
+  };
+
+  for (const ln of rawData?.lines || []) {
+    addSeg(ln.start[0], ln.start[1], ln.end[0], ln.end[1], ln.layer);
+  }
+  for (const pl of rawData?.polylines || []) {
+    const pts = pl.points;
+    if (!pts || pts.length < 2) continue;
+    for (let i = 0; i < pts.length - 1; i++) {
+      addSeg(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], pl.layer);
+    }
+    if (pl.closed && pts.length >= 3) {
+      addSeg(pts[pts.length - 1][0], pts[pts.length - 1][1], pts[0][0], pts[0][1], pl.layer);
+    }
+  }
+
+  if (segments.length === 0) return null;
+
+  // Door opening bridge segments (close small gaps 0.65m - 1.4m between wall endpoints near seed)
+  const localEndpoints: { x: number; y: number }[] = [];
+  for (const seg of segments) {
+    if (Math.hypot(seg.x1 - seedX, seg.y1 - seedY) * scaleToM <= 16.0) {
+      localEndpoints.push({ x: seg.x1, y: seg.y1 });
+    }
+    if (Math.hypot(seg.x2 - seedX, seg.y2 - seedY) * scaleToM <= 16.0) {
+      localEndpoints.push({ x: seg.x2, y: seg.y2 });
+    }
+  }
+  for (let i = 0; i < localEndpoints.length; i++) {
+    for (let j = i + 1; j < localEndpoints.length; j++) {
+      const dM =
+        Math.hypot(localEndpoints[i].x - localEndpoints[j].x, localEndpoints[i].y - localEndpoints[j].y) *
+        scaleToM;
+      if (dM >= 0.65 && dM <= 1.35) {
+        segments.push({
+          x1: localEndpoints[i].x,
+          y1: localEndpoints[i].y,
+          x2: localEndpoints[j].x,
+          y2: localEndpoints[j].y,
+          isParapet: false,
+          layer: 'VIRTUAL_DOOR_CLOSURE',
+        });
       }
     }
-    if (a >= 0.4 && b >= 0.4 && a <= 50 && b <= 50) return [a, b];
+  }
+
+  const maxSearchDist = 20.0 / scaleToM;
+  const minHitDist = 0.12 / scaleToM;
+  const rayAngles: number[] = [];
+
+  // 1) 90 radial rays at 4-degree intervals
+  const numRegular = 90;
+  for (let i = 0; i < numRegular; i++) {
+    rayAngles.push((i * 2 * Math.PI) / numRegular);
+  }
+
+  // 2) Rays towards segment endpoints within search distance
+  for (const seg of segments) {
+    for (const [px, py] of [
+      [seg.x1, seg.y1],
+      [seg.x2, seg.y2],
+    ]) {
+      const dist = Math.hypot(px - seedX, py - seedY);
+      if (dist > minHitDist && dist < maxSearchDist) {
+        const ang = Math.atan2(py - seedY, px - seedX);
+        const normAng = ang < 0 ? ang + 2 * Math.PI : ang;
+        rayAngles.push(normAng);
+        rayAngles.push((normAng - 0.001 + 2 * Math.PI) % (2 * Math.PI));
+        rayAngles.push((normAng + 0.001) % (2 * Math.PI));
+      }
+    }
+  }
+
+  rayAngles.sort((a, b) => a - b);
+
+  const rawHitPoints: { pt: [number, number]; isParapet: boolean; dist: number }[] = [];
+  let prevAngle = -1;
+
+  for (const ang of rayAngles) {
+    if (prevAngle >= 0 && Math.abs(ang - prevAngle) < 1e-4) continue;
+    prevAngle = ang;
+    const dx = Math.cos(ang);
+    const dy = Math.sin(ang);
+
+    let closestT = Infinity;
+    let hitParapet = false;
+
+    for (const seg of segments) {
+      const deltaX = seg.x2 - seg.x1;
+      const deltaY = seg.y2 - seg.y1;
+      const det = deltaX * dy - deltaY * dx;
+      if (Math.abs(det) < 1e-9) continue;
+
+      const t = (deltaX * (seg.y1 - seedY) - deltaY * (seg.x1 - seedX)) / det;
+      if (t <= minHitDist || t >= closestT || t >= maxSearchDist) continue;
+
+      const u = (dx * (seg.y1 - seedY) - dy * (seg.x1 - seedX)) / det;
+      if (u >= -0.002 && u <= 1.002) {
+        closestT = t;
+        hitParapet = seg.isParapet;
+      }
+    }
+
+    if (closestT < maxSearchDist) {
+      rawHitPoints.push({
+        pt: [seedX + closestT * dx, seedY + closestT * dy],
+        isParapet: hitParapet,
+        dist: closestT,
+      });
+    }
+  }
+
+  if (rawHitPoints.length < 8) return null;
+
+  // Deduplicate points within 0.05m
+  const deduped: [number, number][] = [];
+  for (const h of rawHitPoints) {
+    if (
+      deduped.length === 0 ||
+      Math.hypot(h.pt[0] - deduped[deduped.length - 1][0], h.pt[1] - deduped[deduped.length - 1][1]) * scaleToM > 0.05
+    ) {
+      deduped.push(h.pt);
+    }
+  }
+
+  if (deduped.length < 3) return null;
+
+  // Simplify using Ramer-Douglas-Peucker with 0.06m tolerance
+  const simplified = rdpSimplifyPolygon(deduped, 0.06 / scaleToM);
+  if (simplified.length < 3) return null;
+
+  // Shoelace Area & Euclidean Perimeter
+  let areaSum = 0;
+  let perimSum = 0;
+  const xs: number[] = [];
+  const ys: number[] = [];
+
+  for (let i = 0; i < simplified.length; i++) {
+    const p1 = simplified[i];
+    const p2 = simplified[(i + 1) % simplified.length];
+    areaSum += p1[0] * p2[1] - p2[0] * p1[1];
+    perimSum += Math.hypot(p2[0] - p1[0], p2[1] - p1[1]);
+    xs.push(p1[0]);
+    ys.push(p1[1]);
+  }
+
+  const areaM2 = Math.round(Math.abs(areaSum) * 0.5 * scaleToM * scaleToM * 100) / 100;
+  const perimeterM = Math.round(perimSum * scaleToM * 100) / 100;
+
+  if (areaM2 < 1.2 || areaM2 > 500) return null;
+
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const widthM = Math.round((maxX - minX) * scaleToM * 100) / 100;
+  const lengthM = Math.round((maxY - minY) * scaleToM * 100) / 100;
+
+  // Detect parapet boundary length along simplified edges
+  let parapetLengthM = 0;
+  for (let i = 0; i < simplified.length; i++) {
+    const p1 = simplified[i];
+    const p2 = simplified[(i + 1) % simplified.length];
+    const mx = (p1[0] + p2[0]) * 0.5;
+    const my = (p1[1] + p2[1]) * 0.5;
+    const edgeLenM = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) * scaleToM;
+
+    for (const seg of segments) {
+      if (!seg.isParapet) continue;
+      const d = perpDistance([mx, my], [seg.x1, seg.y1], [seg.x2, seg.y2]) * scaleToM;
+      if (d < 0.25) {
+        parapetLengthM += edgeLenM;
+        break;
+      }
+    }
+  }
+  parapetLengthM = Math.round(parapetLengthM * 10) / 10;
+  const isParapetEnclosed = parapetLengthM >= 0.8;
+
+  return {
+    boundaryPolygon: simplified,
+    areaM2,
+    perimeterM,
+    parapetLengthM,
+    isParapetEnclosed,
+    widthM,
+    lengthM,
+    bbox: {
+      min_x: minX,
+      min_y: minY,
+      max_x: maxX,
+      max_y: maxY,
+      width: maxX - minX,
+      height: maxY - minY,
+    },
+  };
+}
+
+function raycastRoomEnclosure(
+  tx: number,
+  ty: number,
+  rawData: any,
+  scaleToM: number,
+  box?: WorldBBox | null
+): { wM: number; hM: number; bbox: WorldBBox } | null {
+  const maxSearchWorld = 16.0 / scaleToM;
+  const minSearchWorld = 0.35 / scaleToM;
+  const doorGapTolWorld = 0.55 / scaleToM;
+
+  let xLeft: number | null = null;
+  let xRight: number | null = null;
+  let yBottom: number | null = null;
+  let yTop: number | null = null;
+
+  const testSeg = (x1: number, y1: number, x2: number, y2: number, layer?: string) => {
+    if (layer && /(GRID|AXIS|DIM|TEXT|ANNO|TITLE|HATCH)/i.test(layer)) return;
+    const dx = Math.abs(x2 - x1);
+    const dy = Math.abs(y2 - y1);
+    const lenM = Math.hypot(dx, dy) * scaleToM;
+    if (lenM < 0.45) return;
+
+    if (dx <= dy * 0.08) {
+      const vx = (x1 + x2) * 0.5;
+      const minY = Math.min(y1, y2) - doorGapTolWorld;
+      const maxY = Math.max(y1, y2) + doorGapTolWorld;
+      if (ty >= minY && ty <= maxY) {
+        const dist = vx - tx;
+        if (dist < -minSearchWorld && dist > -maxSearchWorld) {
+          if (xLeft === null || vx > xLeft) xLeft = vx;
+        } else if (dist > minSearchWorld && dist < maxSearchWorld) {
+          if (xRight === null || vx < xRight) xRight = vx;
+        }
+      }
+    } else if (dy <= dx * 0.08) {
+      const hy = (y1 + y2) * 0.5;
+      const minX = Math.min(x1, x2) - doorGapTolWorld;
+      const maxX = Math.max(x1, x2) + doorGapTolWorld;
+      if (tx >= minX && tx <= maxX) {
+        const dist = hy - ty;
+        if (dist < -minSearchWorld && dist > -maxSearchWorld) {
+          if (yBottom === null || hy > yBottom) yBottom = hy;
+        } else if (dist > minSearchWorld && dist < maxSearchWorld) {
+          if (yTop === null || hy < yTop) yTop = hy;
+        }
+      }
+    }
+  };
+
+  for (const ln of rawData?.lines || []) {
+    if (!inBox(ln.start[0], ln.start[1], box) && !inBox(ln.end[0], ln.end[1], box)) continue;
+    testSeg(ln.start[0], ln.start[1], ln.end[0], ln.end[1], ln.layer);
+  }
+  for (const pl of rawData?.polylines || []) {
+    const pts = pl.points;
+    if (!pts || pts.length < 2) continue;
+    if (!pts.some((p: number[]) => inBox(p[0], p[1], box))) continue;
+    for (let i = 0; i < pts.length - 1; i++) {
+      testSeg(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], pl.layer);
+    }
+    if (pl.closed && pts.length >= 3) {
+      testSeg(pts[pts.length - 1][0], pts[pts.length - 1][1], pts[0][0], pts[0][1], pl.layer);
+    }
+  }
+
+  if (xLeft !== null && xRight !== null && yBottom !== null && yTop !== null) {
+    const wM = Math.round((xRight - xLeft) * scaleToM * 100) / 100;
+    const hM = Math.round((yTop - yBottom) * scaleToM * 100) / 100;
+    if (wM >= 0.85 && hM >= 0.85 && wM <= 24 && hM <= 24 && wM * hM >= 1.5 && wM * hM <= 320) {
+      return {
+        wM,
+        hM,
+        bbox: {
+          min_x: xLeft,
+          min_y: yBottom,
+          max_x: xRight,
+          max_y: yTop,
+          width: xRight - xLeft,
+          height: yTop - yBottom,
+        },
+      };
+    }
   }
   return null;
 }
@@ -226,14 +644,14 @@ function parseDimTokenToMeters(str: string): [number, number] | null {
 // 1. ARCHITECTURAL LAYER & GEOMETRY INFERENCE
 // ============================================================================
 export interface ArchInferenceResult {
-  rooms: (RoomDefinition & { sourceLayer?: string })[];
-  openings: (OpeningDefinition & { sourceLayer?: string })[];
+  rooms: RoomDefinition[];
+  openings: OpeningDefinition[];
   paramPatch: Partial<ArchitecturalParameters>;
   summaryNote: string;
 }
 
 const ROOM_NAME_RE =
-  /\b(living|dining|drawing|hall|lounge|foyer|lobby|verandah|bedroom|master\s*bed|guest\s*bed|kids\s*bed|bed\s*room|kitchen|utility|wash|store|pantry|pooja|puja|study|office|cabin|conference|reception|toilet|bath|wc|powder|dress|balcony|sit\s*out|deck|terrace|corridor|passage|stair|lift)\b/i;
+  /\b(living|dining|drawing|hall|lounge|foyer|lobby|verandah|sit\s*out|bedroom|master\s*bed|guest\s*bed|kids\s*bed|children\s*bed|bed\s*room|m\.?\s*bed|kitchen|utility|wash|store|pantry|pooja|puja|mandir|study|office|cabin|conference|reception|toilet|bath|w\.?c\.?|powder|dress|balcony|deck|terrace|corridor|passage|stair|lift|parking|porch|garage|servant|maid)\b/i;
 
 export function inferArchitecturalFromCad(
   rawData: any,
@@ -244,146 +662,310 @@ export function inferArchitecturalFromCad(
   const layerStats = analyzeCadLayers(rawData, 'architectural', box, roleOverrides);
   const roleByLayer = new Map(layerStats.map((l) => [l.name, l.inferredRole]));
 
-  // 1) Infer external vs internal wall lengths (accounting for double-line CAD walls: divide by 2)
+  // 1) Infer external vs internal vs parapet wall lengths (accounting for double-line CAD walls: divide by 2)
   let extLineM = 0;
   let intLineM = 0;
+  let parapetLineM = 0;
   let genericWallLineM = 0;
   for (const st of layerStats) {
     if (st.inferredRole === 'ext_wall') extLineM += st.lineLengthM;
     else if (st.inferredRole === 'int_wall') intLineM += st.lineLengthM;
+    else if (st.inferredRole === 'parapet') parapetLineM += st.lineLengthM;
     else if (st.inferredRole === 'wall') genericWallLineM += st.lineLengthM;
   }
 
   let extWallLengthM = Math.round((extLineM / 2) * 10) / 10;
   let intWallLengthM = Math.round((intLineM / 2) * 10) / 10;
+  let parapetWallLengthM = Math.round((parapetLineM > 0 ? parapetLineM / 2 : 0) * 10) / 10;
   if (genericWallLineM > 0) {
-    // Double-line CAD wall centerline = total edge length / 2, split ~45% external / 55% internal
     const centerLen = genericWallLineM / 2;
     extWallLengthM = Math.round((extWallLengthM + centerLen * 0.45) * 10) / 10;
     intWallLengthM = Math.round((intWallLengthM + centerLen * 0.55) * 10) / 10;
   }
 
-  // 2) Scan rooms from CAD texts + nearby dimension labels or closed polylines
+  // 2) Collect closed polylines for deterministic Point-in-Polygon enclosure
   const texts = (rawData?.texts || []).filter((t: any) => t.text && inBox(t.x, t.y, box));
-  const closedRoomPolys: { pts: number[][]; areaM2: number; perimM: number; layer: string; cx: number; cy: number }[] = [];
+  const closedRoomPolys: {
+    pts: number[][];
+    areaM2: number;
+    perimM: number;
+    layer: string;
+    bbox: WorldBBox;
+  }[] = [];
+
   for (const pl of rawData?.polylines || []) {
     if (!pl.points || pl.points.length < 4) continue;
     if (!pl.points.some((p: number[]) => inBox(p[0], p[1], box))) continue;
+    const isClosed =
+      pl.closed ||
+      Math.hypot(
+        pl.points[0][0] - pl.points[pl.points.length - 1][0],
+        pl.points[0][1] - pl.points[pl.points.length - 1][1]
+      ) *
+        scaleToM <
+        0.25;
+    if (!isClosed) continue;
     const areaM2 = polyAreaWorld(pl.points) * scaleToM * scaleToM;
-    if (areaM2 < 1.8 || areaM2 > 450) continue;
+    if (areaM2 < 1.2 || areaM2 > 420) continue;
     const perimM = polyLengthWorld(pl.points, true) * scaleToM;
-    const cx = pl.points.reduce((a: number, p: number[]) => a + p[0], 0) / pl.points.length;
-    const cy = pl.points.reduce((a: number, p: number[]) => a + p[1], 0) / pl.points.length;
-    closedRoomPolys.push({ pts: pl.points, areaM2, perimM, layer: pl.layer || '0', cx, cy });
+    const xs = pl.points.map((p: number[]) => p[0]);
+    const ys = pl.points.map((p: number[]) => p[1]);
+    closedRoomPolys.push({
+      pts: pl.points,
+      areaM2,
+      perimM,
+      layer: pl.layer || '0',
+      bbox: {
+        min_x: Math.min(...xs),
+        min_y: Math.min(...ys),
+        max_x: Math.max(...xs),
+        max_y: Math.max(...ys),
+      },
+    });
   }
 
-  const rooms: (RoomDefinition & { sourceLayer?: string })[] = [];
+  const rooms: RoomDefinition[] = [];
   const seenRoomCoords: [number, number][] = [];
 
   for (const t of texts) {
-    const rawStr = String(t.text || '').trim();
-    if (rawStr.length < 2 || rawStr.length > 48) continue;
-    if (!ROOM_NAME_RE.test(rawStr)) continue;
-    // Deduplicate overlapping multi-line labels at almost identical coordinates
-    if (seenRoomCoords.some(([rx, ry]) => Math.hypot((rx - t.x) * scaleToM, (ry - t.y) * scaleToM) < 1.1)) {
+    const cleanedText = stripDxfMtext(String(t.text || ''));
+    if (cleanedText.length < 2 || cleanedText.length > 72) continue;
+    if (!ROOM_NAME_RE.test(cleanedText)) continue;
+    if (/\b(schedule|note|detail|section|elevation|scale|drawing)\b/i.test(cleanedText)) continue;
+
+    if (
+      seenRoomCoords.some(
+        ([rx, ry]) => Math.hypot((rx - t.x) * scaleToM, (ry - t.y) * scaleToM) < 0.95
+      )
+    ) {
       continue;
     }
 
-    // Look for inline or nearby dimension text (within 2.5m)
-    let dims = parseDimTokenToMeters(rawStr);
-    if (!dims) {
-      const nearby = texts.find(
-        (other: any) =>
-          other !== t &&
-          Math.hypot((other.x - t.x) * scaleToM, (other.y - t.y) * scaleToM) < 2.6 &&
-          parseDimTokenToMeters(String(other.text || '')) !== null
-      );
-      if (nearby) dims = parseDimTokenToMeters(String(nearby.text));
-    }
+    // Priority A: Inline dimension on the same MText/Text label, or adjacent dimension text right below/near the room name
+    let parsedDims = parseDimTokenWithLabel(cleanedText);
+    if (!parsedDims) {
+      const candidates = texts
+        .filter((other: any) => {
+          if (other === t) return false;
+          const otherText = stripDxfMtext(String(other.text || ''));
+          const otherLayer = other.layer || '0';
+          const otherRole = roleOverrides[otherLayer] || inferLayerRole(otherLayer, 'architectural');
+          if (otherRole === 'door' || otherRole === 'window') return false;
+          if (/\b(M?D\d*|FD\d*|SD\d*|K?W\d*|F?V\d*|C\d+|B\d+|door|window|vent)\b/i.test(otherText)) {
+            return false;
+          }
+          if (ROOM_NAME_RE.test(otherText)) return false;
+          const dxM = Math.abs(other.x - t.x) * scaleToM;
+          const dyM = (other.y - t.y) * scaleToM;
+          return dxM <= 2.4 && dyM >= -2.5 && dyM <= 1.2;
+        })
+        .map((other: any) => {
+          const d = parseDimTokenWithLabel(String(other.text || ''));
+          if (!d) return null;
+          const distScore =
+            Math.abs(other.x - t.x) * scaleToM * 1.3 + Math.abs(other.y - t.y) * scaleToM;
+          return { ...d, distScore };
+        })
+        .filter(Boolean) as { wM: number; hM: number; label: string; distScore: number }[];
 
-    let areaM2 = 0;
-    let perimeterM = 0;
-    if (dims) {
-      areaM2 = Math.round(dims[0] * dims[1] * 100) / 100;
-      perimeterM = Math.round(2 * (dims[0] + dims[1]) * 100) / 100;
-    } else {
-      // Check nearest reasonable closed room polyline
-      const nearPoly = closedRoomPolys
-        .filter((cp) => Math.hypot((cp.cx - t.x) * scaleToM, (cp.cy - t.y) * scaleToM) < 5.0)
-        .sort(
-          (a, b) =>
-            Math.hypot(a.cx - t.x, a.cy - t.y) - Math.hypot(b.cx - t.x, b.cy - t.y)
-        )[0];
-      if (nearPoly) {
-        areaM2 = Math.round(nearPoly.areaM2 * 100) / 100;
-        perimeterM = Math.round(nearPoly.perimM * 100) / 100;
-      } else {
-        // Sensible room-type geometric defaults when unclosed lines are used
-        const low = rawStr.toLowerCase();
-        if (/toilet|bath|wc|powder|store|pooja|puja|utility/.test(low)) {
-          areaM2 = 4.2;
-          perimeterM = 8.4;
-        } else if (/kitchen|balcony|foyer|study|passage|corridor/.test(low)) {
-          areaM2 = 9.6;
-          perimeterM = 12.6;
-        } else if (/living|dining|hall|lounge|conference/.test(low)) {
-          areaM2 = 22.0;
-          perimeterM = 19.2;
-        } else {
-          areaM2 = 14.4;
-          perimeterM = 15.2;
-        }
+      candidates.sort((a, b) => a.distScore - b.distScore);
+      if (candidates.length > 0) {
+        parsedDims = candidates[0];
       }
     }
 
-    const cleanName = rawStr
-      .replace(/(\d+.*)/, '')
-      .replace(/[_-]+/g, ' ')
-      .trim() || rawStr;
+    // Priority B: Smallest closed CAD polyline that physically encloses (t.x, t.y)
+    const enclosingPoly = closedRoomPolys
+      .filter((cp) => pointInPoly(t.x, t.y, cp.pts))
+      .sort((a, b) => a.areaM2 - b.areaM2)[0];
+
+    // Priority C: Wall & Parapet Boundary Enclosure (dense radial ray-sweep against wall segments)
+    const wallEnclosure = traceWallBoundaryEnclosure(t.x, t.y, rawData, scaleToM, box, roleOverrides);
+    const wallBox = wallEnclosure || raycastRoomEnclosure(t.x, t.y, rawData, scaleToM, box);
+
+    let areaM2 = 0;
+    let perimeterM = 0;
+    let widthM: number | undefined;
+    let lengthM: number | undefined;
+    let derivationMethod: RoomDefinition['derivationMethod'] = 'manual';
+    let dimensionText: string | undefined;
+    let boundaryPolygon: [number, number][] | undefined =
+      wallEnclosure?.boundaryPolygon || (enclosingPoly ? (enclosingPoly.pts as [number, number][]) : undefined);
+    let parapetLengthM: number | undefined = wallEnclosure?.parapetLengthM;
+    let isParapetEnclosed: boolean | undefined = wallEnclosure?.isParapetEnclosed;
+    let roomBbox: WorldBBox | undefined = wallEnclosure?.bbox || enclosingPoly?.bbox || wallBox?.bbox;
+    let isVerified = false;
+
+    if (parsedDims) {
+      widthM = Math.round(parsedDims.wM * 100) / 100;
+      lengthM = Math.round(parsedDims.hM * 100) / 100;
+      areaM2 = Math.round(parsedDims.wM * parsedDims.hM * 100) / 100;
+      perimeterM = Math.round(2 * (parsedDims.wM + parsedDims.hM) * 100) / 100;
+      derivationMethod = 'cad_dims';
+      dimensionText = `${parsedDims.label} (${widthM.toFixed(2)}m × ${lengthM.toFixed(2)}m)`;
+      isVerified = true;
+      if (wallEnclosure && Math.abs(wallEnclosure.areaM2 - areaM2) / areaM2 < 0.18) {
+        areaM2 = wallEnclosure.areaM2;
+        perimeterM = wallEnclosure.perimeterM;
+        boundaryPolygon = wallEnclosure.boundaryPolygon;
+      }
+      if (!roomBbox) {
+        const hw = parsedDims.wM / (2 * scaleToM);
+        const hh = parsedDims.hM / (2 * scaleToM);
+        roomBbox = { min_x: t.x - hw, min_y: t.y - hh, max_x: t.x + hw, max_y: t.y + hh };
+      }
+    } else if (enclosingPoly) {
+      areaM2 = Math.round(enclosingPoly.areaM2 * 100) / 100;
+      perimeterM = Math.round(enclosingPoly.perimM * 100) / 100;
+      widthM =
+        Math.round(Math.abs(enclosingPoly.bbox.max_x - enclosingPoly.bbox.min_x) * scaleToM * 100) /
+        100;
+      lengthM =
+        Math.round(Math.abs(enclosingPoly.bbox.max_y - enclosingPoly.bbox.min_y) * scaleToM * 100) /
+        100;
+      derivationMethod = 'cad_polygon';
+      boundaryPolygon = enclosingPoly.pts as [number, number][];
+      dimensionText = `CAD Polygon (${widthM.toFixed(2)}m × ${lengthM.toFixed(2)}m)`;
+      isVerified = true;
+    } else if (wallEnclosure) {
+      widthM = wallEnclosure.widthM;
+      lengthM = wallEnclosure.lengthM;
+      areaM2 = wallEnclosure.areaM2;
+      perimeterM = wallEnclosure.perimeterM;
+      derivationMethod = 'wall_enclosure';
+      boundaryPolygon = wallEnclosure.boundaryPolygon;
+      parapetLengthM = wallEnclosure.parapetLengthM;
+      isParapetEnclosed = wallEnclosure.isParapetEnclosed;
+      dimensionText = wallEnclosure.isParapetEnclosed
+        ? `Parapet Balcony (${areaM2} m² · ${parapetLengthM}m parapet)`
+        : `Wall Enclosure (${widthM.toFixed(2)}m × ${lengthM.toFixed(2)}m)`;
+      isVerified = true;
+    } else if (wallBox && 'wM' in wallBox) {
+      widthM = wallBox.wM;
+      lengthM = wallBox.hM;
+      areaM2 = Math.round(wallBox.wM * wallBox.hM * 100) / 100;
+      perimeterM = Math.round(2 * (wallBox.wM + wallBox.hM) * 100) / 100;
+      derivationMethod = 'wall_enclosure';
+      dimensionText = `Wall Enclosure (${widthM.toFixed(2)}m × ${lengthM.toFixed(2)}m)`;
+      isVerified = true;
+    } else {
+      const low = cleanedText.toLowerCase();
+      if (/toilet|bath|wc|powder|store|pooja|puja|utility/.test(low)) {
+        widthM = 1.8;
+        lengthM = 2.4;
+      } else if (/kitchen|balcony|foyer|study|passage|corridor/.test(low)) {
+        widthM = 2.8;
+        lengthM = 3.4;
+      } else if (/living|dining|hall|lounge|conference/.test(low)) {
+        widthM = 4.2;
+        lengthM = 5.2;
+      } else {
+        widthM = 3.6;
+        lengthM = 4.0;
+      }
+      areaM2 = Math.round(widthM * lengthM * 100) / 100;
+      perimeterM = Math.round(2 * (widthM + lengthM) * 100) / 100;
+      derivationMethod = 'manual';
+      dimensionText = 'Needs CAD verification';
+      isVerified = false;
+      const hw = widthM / (2 * scaleToM);
+      const hh = lengthM / (2 * scaleToM);
+      roomBbox = { min_x: t.x - hw, min_y: t.y - hh, max_x: t.x + hw, max_y: t.y + hh };
+    }
+
+    const firstLine = cleanedText.split('\n')[0] || cleanedText;
+    const cleanName =
+      firstLine
+        .replace(/(\d+\s*['’"”xX×*].*)/, '')
+        .replace(/[_-]+/g, ' ')
+        .trim() || firstLine;
     const finish = /master\s*bed|lounge/i.test(cleanName)
       ? 'wooden'
-      : /lobby|foyer|stair/i.test(cleanName)
+      : /lobby|foyer|stair|parking|porch/i.test(cleanName)
       ? 'granite'
+      : isParapetEnclosed || /balcony|terrace|verandah|sit\s*out/i.test(cleanName)
+      ? 'concrete'
       : 'vitrified_tile';
 
     seenRoomCoords.push([t.x, t.y]);
     rooms.push({
       id: `rm_${rooms.length + 1}_${Date.now().toString(36)}`,
-      name: cleanName.length >= 2 ? cleanName : rawStr,
+      name: cleanName.length >= 2 ? cleanName : firstLine,
       areaM2,
       perimeterM,
+      widthM,
+      lengthM,
       floorFinish: finish,
+      included: true,
+      derivationMethod,
+      dimensionText,
       sourceLayer: t.layer || '0',
+      isVerified,
+      bbox: roomBbox,
+      boundaryPolygon,
+      parapetLengthM,
+      isParapetEnclosed,
     });
   }
 
   // If drawing has closed room polylines on room/area layers but no room text tags
   if (rooms.length === 0 && closedRoomPolys.length > 0) {
     closedRoomPolys.slice(0, 16).forEach((cp, idx) => {
+      const wM = Math.round(Math.abs(cp.bbox.max_x - cp.bbox.min_x) * scaleToM * 100) / 100;
+      const hM = Math.round(Math.abs(cp.bbox.max_y - cp.bbox.min_y) * scaleToM * 100) / 100;
       rooms.push({
         id: `rm_poly_${idx + 1}`,
         name: `Enclosed Space ${idx + 1}`,
         areaM2: Math.round(cp.areaM2 * 100) / 100,
         perimeterM: Math.round(cp.perimM * 100) / 100,
+        widthM: wM,
+        lengthM: hM,
         floorFinish: 'vitrified_tile',
+        included: true,
+        derivationMethod: 'cad_polygon',
+        dimensionText: `CAD Polygon (${wM}m × ${hM}m)`,
         sourceLayer: cp.layer,
+        isVerified: true,
+        bbox: cp.bbox,
+        boundaryPolygon: cp.pts as [number, number][],
       });
     });
   }
 
-  // 3) Scan Door / Window / Ventilator tags (MD, D1..D12, W1..W12, V1..V6, FD1, SD1) + Door Swing Arcs
-  const openingCounts = new Map<string, { type: 'door' | 'window' | 'ventilator'; count: number; w: number; h: number; layer: string }>();
-  const tagRe = /^(MD\d*|FD\d*|SD\d*|D\d{0,2}|W\d{0,2}|KW\d*|V\d{0,2})$/i;
+  // 3) Scan Door / Window / Ventilator Schedule & Tags (MD, D1..D12, W1..W12, V1..V6, FD1, SD1)
+  const scheduleSizeByMark = new Map<string, [number, number]>();
+  const schedLineRe = /\b(MD\d*|FD\d*|SD\d*|D\d{1,2}|W\d{1,2}|KW\d*|V\d{1,2})\b[\s:=\-–]*(.+)/i;
+  for (const t of texts) {
+    const cleaned = stripDxfMtext(String(t.text || ''));
+    for (const line of cleaned.split('\n')) {
+      const m = line.match(schedLineRe);
+      if (m) {
+        const mark = m[1].toUpperCase();
+        const dims = parseDimTokenToMeters(m[2]);
+        if (dims && dims[0] >= 0.4 && dims[0] <= 4.5 && dims[1] >= 0.4 && dims[1] <= 3.5) {
+          scheduleSizeByMark.set(mark, dims);
+        }
+      }
+    }
+  }
+
+  const openingCounts = new Map<
+    string,
+    { type: 'door' | 'window' | 'ventilator'; count: number; w: number; h: number; layer: string }
+  >();
+  const tagRe = /^(MD\d*|FD\d*|SD\d*|D\d{1,2}|W\d{1,2}|KW\d*|V\d{1,2}|D|W|V)(?:\b|[\s(:-])/i;
 
   for (const t of texts) {
-    const token = String(t.text || '').trim().toUpperCase();
-    if (!tagRe.test(token)) continue;
+    const line0 = stripDxfMtext(String(t.text || '')).split('\n')[0].trim();
+    const tagMatch = line0.match(tagRe);
+    if (!tagMatch) continue;
+    const token = tagMatch[1].toUpperCase();
     let type: 'door' | 'window' | 'ventilator' = 'door';
     let w = 0.9;
     let h = 2.1;
     if (token.startsWith('W') || token.startsWith('KW')) {
       type = 'window';
-      w = token === 'W1' ? 1.5 : 1.2;
+      w = token === 'W1' ? 1.5 : token === 'W2' ? 1.2 : 1.0;
       h = 1.2;
     } else if (token.startsWith('V')) {
       type = 'ventilator';
@@ -396,28 +978,39 @@ export function inferArchitecturalFromCad(
       w = 0.75;
       h = 2.1;
     }
+    const schedDims = scheduleSizeByMark.get(token);
+    if (schedDims) {
+      w = Math.round(schedDims[0] * 100) / 100;
+      h = Math.round(schedDims[1] * 100) / 100;
+    }
     const existing = openingCounts.get(token);
     if (existing) existing.count++;
     else openingCounts.set(token, { type, count: 1, w, h, layer: t.layer || '0' });
   }
 
-  // Fallback to 90-degree door swing arcs on door/wall layers if no text tags were placed
   if (openingCounts.size === 0) {
-    let doorArcs = 0;
     for (const ac of rawData?.arcs_circles || []) {
       if (ac.type !== 'ARC' || !ac.center || !inBox(ac.center[0], ac.center[1], box)) continue;
       const rM = (ac.radius || 0) * scaleToM;
       const role = roleByLayer.get(ac.layer || '0');
-      if (rM >= 0.65 && rM <= 1.25 && (role === 'door' || role === 'wall' || role === 'general')) {
-        doorArcs++;
+      if (rM >= 0.65 && rM <= 1.35 && (role === 'door' || role === 'wall' || role === 'general')) {
+        const roundedW = rM >= 1.0 ? 1.05 : rM >= 0.85 ? 0.9 : 0.75;
+        const mark = roundedW >= 1.0 ? 'MD' : roundedW >= 0.85 ? 'D1' : 'D2';
+        const cur = openingCounts.get(mark);
+        if (cur) cur.count++;
+        else
+          openingCounts.set(mark, {
+            type: 'door',
+            count: 1,
+            w: roundedW,
+            h: 2.1,
+            layer: ac.layer || 'ARC-SWING',
+          });
       }
-    }
-    if (doorArcs > 0) {
-      openingCounts.set('D1', { type: 'door', count: doorArcs, w: 0.9, h: 2.1, layer: 'ARC-SWING' });
     }
   }
 
-  const openings: (OpeningDefinition & { sourceLayer?: string })[] = Array.from(openingCounts.entries()).map(
+  const openings: OpeningDefinition[] = Array.from(openingCounts.entries()).map(
     ([mark, info], idx) => ({
       id: `op_${idx + 1}_${mark}`,
       mark,
@@ -425,12 +1018,13 @@ export function inferArchitecturalFromCad(
       widthM: info.w,
       heightM: info.h,
       count: info.count,
+      included: true,
       description:
         info.type === 'door'
-          ? 'Detected CAD Door Mark'
+          ? `CAD Door (${info.w.toFixed(2)}m × ${info.h.toFixed(2)}m)`
           : info.type === 'window'
-          ? 'Detected CAD Window Mark'
-          : 'Detected CAD Ventilator',
+          ? `CAD Window (${info.w.toFixed(2)}m × ${info.h.toFixed(2)}m)`
+          : `CAD Ventilator (${info.w.toFixed(2)}m × ${info.h.toFixed(2)}m)`,
       sourceLayer: info.layer,
     })
   );
@@ -451,15 +1045,23 @@ export function inferArchitecturalFromCad(
     }
   }
 
+  if (parapetWallLengthM === 0) {
+    const roomParapetSum = Math.round(
+      rooms.reduce((a, r) => a + (r.parapetLengthM || 0), 0) * 10
+    ) / 10;
+    if (roomParapetSum > 0) parapetWallLengthM = roomParapetSum;
+  }
+
   const paramPatch: Partial<ArchitecturalParameters> = {};
   if (extWallLengthM > 0) paramPatch.extWallLengthM = extWallLengthM;
   if (intWallLengthM > 0) paramPatch.intWallLengthM = intWallLengthM;
+  if (parapetWallLengthM > 0) paramPatch.parapetWallLengthM = parapetWallLengthM;
 
   return {
     rooms,
     openings,
     paramPatch,
-    summaryNote: `Inferred ${rooms.length} room(s), ${openings.reduce((a, o) => a + o.count, 0)} opening(s), Ext Wall ${extWallLengthM}m, Int Wall ${intWallLengthM}m`,
+    summaryNote: `Inferred ${rooms.length} room(s), ${openings.reduce((a, o) => a + o.count, 0)} opening(s), Ext Wall ${extWallLengthM}m, Int Wall ${intWallLengthM}m${parapetWallLengthM > 0 ? `, Parapet ${parapetWallLengthM}m` : ''}`,
   };
 }
 

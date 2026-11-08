@@ -3,6 +3,7 @@ import {
   BbsBarItem,
   CivilAuditAnomaly,
   DiameterSummary,
+  LongitudinalSectionDefinition,
   StructuralEstimateState,
   StructuralMemberDefinition,
 } from './types';
@@ -323,7 +324,6 @@ export function generateBbsFromMemberDefinitions(
         const effDepth = Math.max(150, depth - cover);
         const suppSpacing =
           m.stirrups.supportSpacingMm ||
-          m.supportStirrupSpacingMm ||
           (parameters?.seismicDuctileDetailing ? Math.min(100, Math.round(effDepth / 4)) : 0);
 
         let stirrupCount = Math.max(3, Math.round(span / m.stirrups.spacingMm) + 1);
@@ -591,6 +591,284 @@ export function generateBbsFromMemberDefinitions(
   }
 
   return result;
+}
+
+/**
+ * Calculates continuous multi-span beam reinforcement from Longitudinal Sections (L-Sections).
+ * Accounts for continuous bottom & top bars across supports, stock length lap splices (> 12m),
+ * mid-span curtailments, support hogging top extras, and confinement zone stirrup spacing.
+ */
+export function generateBbsFromLongitudinalSections(
+  longitudinalSections: LongitudinalSectionDefinition[] = [],
+  parameters?: Partial<StructuralEstimateState['parameters']>
+): BbsBarItem[] {
+  const result: BbsBarItem[] = [];
+  const lapMult = parameters?.lapLengthMultiplier ?? 50;
+  const hookMult = parameters?.hookAllowanceMultiplier ?? 24;
+  const maxStockLengthM = parameters?.maxStockLengthM ?? 12.0;
+  const calcOpts = { maxStockLengthM, lapLengthMultiplier: lapMult, hookAllowanceMultiplier: hookMult };
+
+  for (const ls of longitudinalSections) {
+    if (!ls.spans || ls.spans.length === 0) continue;
+
+    const spans = ls.spans;
+    const numSpans = spans.length;
+    const lsTitle = ls.name || `LS (${spans.map((s) => s.beamMark).join(' + ')})`;
+
+    // Compute continuous clear spans and column support widths
+    const totalClearSpanMm = spans.reduce((sum, s) => sum + (s.clearSpanMm || 3500), 0);
+    const totalIntermediateColWidthMm = spans.slice(0, -1).reduce((sum, s, idx) => {
+      const colW = s.supportColRightMm || spans[idx + 1]?.supportColLeftMm || 350;
+      return sum + colW;
+    }, 0);
+
+    const firstSpan = spans[0];
+    const lastSpan = spans[numSpans - 1];
+
+    // 1. Continuous Bottom Bars
+    if (ls.reinforcement.bottomContinuousBars && ls.reinforcement.bottomContinuousBars.count > 0) {
+      const dia = ls.reinforcement.bottomContinuousBars.diameter;
+      const count = ls.reinforcement.bottomContinuousBars.count;
+      const devLength = lapMult * dia;
+      const baseContLen = totalClearSpanMm + totalIntermediateColWidthMm + 2 * devLength;
+
+      // Check stock length lapping (> 12.0m)
+      const numLaps = Math.max(0, Math.floor(baseContLen / (maxStockLengthM * 1000)));
+      const lapAllowanceMm = numLaps * (lapMult * dia);
+      const totalCutLenMm = baseContLen + lapAllowanceMm;
+
+      result.push(
+        recalculateBarItem(
+          {
+            memberId: lsTitle,
+            memberType: 'beam',
+            mark: `Bottom Continuous (${spans.map((s) => s.beamMark).join('~')})`,
+            diameter: dia,
+            shape: 'u_hook',
+            dimA: totalCutLenMm,
+            dimB: devLength,
+            dimC: devLength,
+            numMembers: 1,
+            barsPerMember: count,
+            notes: `Continuous over ${numSpans} spans (${(totalClearSpanMm / 1000).toFixed(2)}m)${
+              numLaps > 0
+                ? ` with ${numLaps} lap splice(s) (${lapMult}d=${(lapAllowanceMm / 1000).toFixed(2)}m)`
+                : ' (single stock cut)'
+            }`,
+          },
+          calcOpts
+        )
+      );
+    }
+
+    // 2. Mid-Span Curtailed Bottom Bars (Per Span)
+    if (ls.reinforcement.bottomCurtailedBars && ls.reinforcement.bottomCurtailedBars.count > 0) {
+      const dia = ls.reinforcement.bottomCurtailedBars.diameter;
+      const count = ls.reinforcement.bottomCurtailedBars.count;
+      const ratio = ls.reinforcement.bottomCurtailedBars.curtailRatio || 0.15;
+
+      for (const s of spans) {
+        const curLen = Math.round(s.clearSpanMm * (1 - 2 * ratio));
+        result.push(
+          recalculateBarItem(
+            {
+              memberId: lsTitle,
+              memberType: 'beam',
+              mark: `Bottom Curtailed (${s.beamMark})`,
+              diameter: dia,
+              shape: 'straight',
+              dimA: curLen,
+              numMembers: 1,
+              barsPerMember: count,
+              notes: `${s.beamMark} mid-span curtailment (${ratio * 100}% offset each side, span ${(s.clearSpanMm / 1000).toFixed(2)}m)`,
+            },
+            calcOpts
+          )
+        );
+      }
+    }
+
+    // 3. Continuous Top Hanger / Anchor Bars
+    if (ls.reinforcement.topContinuousBars && ls.reinforcement.topContinuousBars.count > 0) {
+      const dia = ls.reinforcement.topContinuousBars.diameter;
+      const count = ls.reinforcement.topContinuousBars.count;
+      const devLength = lapMult * dia;
+      const baseTopLen = totalClearSpanMm + totalIntermediateColWidthMm + 2 * devLength;
+      const numLaps = Math.max(0, Math.floor(baseTopLen / (maxStockLengthM * 1000)));
+      const lapAllowanceMm = numLaps * (lapMult * dia);
+      const totalCutLenMm = baseTopLen + lapAllowanceMm;
+
+      result.push(
+        recalculateBarItem(
+          {
+            memberId: lsTitle,
+            memberType: 'beam',
+            mark: `Top Continuous Hanger (${spans.map((s) => s.beamMark).join('~')})`,
+            diameter: dia,
+            shape: 'u_hook',
+            dimA: totalCutLenMm,
+            dimB: devLength,
+            dimC: devLength,
+            numMembers: 1,
+            barsPerMember: count,
+            notes: `Top continuous hanger bars across ${numSpans} spans${
+              numLaps > 0 ? ` with ${numLaps} lap(s)` : ''
+            }`,
+          },
+          calcOpts
+        )
+      );
+    }
+
+    // 4. Support Top Extra Bars (Hogging Moment Bars Over Supports)
+    if (ls.reinforcement.supportTopExtraBars && ls.reinforcement.supportTopExtraBars.count > 0) {
+      const dia = ls.reinforcement.supportTopExtraBars.diameter;
+      const count = ls.reinforcement.supportTopExtraBars.count;
+      const extRatio = ls.reinforcement.supportTopExtraBars.extensionRatio || 0.33;
+
+      // Over intermediate supports
+      for (let i = 0; i < numSpans - 1; i++) {
+        const leftSpan = spans[i];
+        const rightSpan = spans[i + 1];
+        const colW = leftSpan.supportColRightMm || rightSpan.supportColLeftMm || 350;
+        const leftExt = Math.round(leftSpan.clearSpanMm * extRatio);
+        const rightExt = Math.round(rightSpan.clearSpanMm * extRatio);
+        const totalExtraLen = leftExt + colW + rightExt;
+
+        result.push(
+          recalculateBarItem(
+            {
+              memberId: lsTitle,
+              memberType: 'beam',
+              mark: `Top Extra over Support (${leftSpan.beamMark} | ${rightSpan.beamMark})`,
+              diameter: dia,
+              shape: 'straight',
+              dimA: totalExtraLen,
+              numMembers: 1,
+              barsPerMember: count,
+              notes: `Extends L/3 (${(leftExt / 1000).toFixed(2)}m left + ${(colW / 1000).toFixed(2)}m col + ${(rightExt / 1000).toFixed(2)}m right)`,
+            },
+            calcOpts
+          )
+        );
+      }
+
+      // Over end supports (anchored into end column + extending L/4 or L/3 into span)
+      const endExtLeft = Math.round(firstSpan.clearSpanMm * 0.25);
+      const endDevLeft = lapMult * dia;
+      result.push(
+        recalculateBarItem(
+          {
+            memberId: lsTitle,
+            memberType: 'beam',
+            mark: `Top Extra @ End Support (${firstSpan.beamMark})`,
+            diameter: dia,
+            shape: 'l_bend',
+            dimA: endExtLeft,
+            dimB: endDevLeft,
+            numMembers: 1,
+            barsPerMember: count,
+            notes: `End support anchorage into col (${(endExtLeft / 1000).toFixed(2)}m in span + Ld)`,
+          },
+          calcOpts
+        )
+      );
+
+      const endExtRight = Math.round(lastSpan.clearSpanMm * 0.25);
+      const endDevRight = lapMult * dia;
+      result.push(
+        recalculateBarItem(
+          {
+            memberId: lsTitle,
+            memberType: 'beam',
+            mark: `Top Extra @ End Support (${lastSpan.beamMark})`,
+            diameter: dia,
+            shape: 'l_bend',
+            dimA: endExtRight,
+            dimB: endDevRight,
+            numMembers: 1,
+            barsPerMember: count,
+            notes: `End support anchorage into col (${(endExtRight / 1000).toFixed(2)}m in span + Ld)`,
+          },
+          calcOpts
+        )
+      );
+    }
+
+    // 5. Stirrups (Confinement Zones + Mid-Span Zone Per Span)
+    if (ls.reinforcement.stirrups && ls.reinforcement.stirrups.diameter > 0) {
+      const st = ls.reinforcement.stirrups;
+      const dia = st.diameter || 8;
+      const spEnd = st.spacingEndMm || 100;
+      const spMid = st.spacingMidMm || 175;
+
+      for (const s of spans) {
+        const spanW = s.widthMm || 230;
+        const spanD = s.depthMm || 450;
+        const cover = 25;
+        const stirrupA = Math.max(80, spanW - 2 * cover);
+        const stirrupB = Math.max(80, spanD - 2 * cover);
+        const effDepth = Math.max(150, spanD - cover);
+
+        const confZoneLen = st.confinementZoneMm || 2 * effDepth; // 2d confinement zone per IS 13920
+        const endCount = 2 * Math.ceil(confZoneLen / spEnd);
+        const midLen = Math.max(0, s.clearSpanMm - 2 * confZoneLen);
+        const midCount = Math.ceil(midLen / spMid) + 1;
+        const totalStirrupsForSpan = endCount + midCount;
+
+        result.push(
+          recalculateBarItem(
+            {
+              memberId: lsTitle,
+              memberType: 'beam',
+              mark: `Stirrups (${s.beamMark})`,
+              diameter: dia,
+              shape: 'stirrup_rect',
+              dimA: stirrupA,
+              dimB: stirrupB,
+              numMembers: 1,
+              barsPerMember: totalStirrupsForSpan,
+              notes: `${s.beamMark} (${spanW}×${spanD}mm): ${endCount} in 2d confinement (@${spEnd}mm) + ${midCount} mid (@${spMid}mm)`,
+            },
+            calcOpts
+          )
+        );
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Combines Longitudinal Section bar items with remaining individual structural members,
+ * ensuring beams covered by an LS are not counted twice.
+ */
+export function generateCompleteBbs(
+  members: StructuralMemberDefinition[],
+  longitudinalSections: LongitudinalSectionDefinition[] = [],
+  parameters?: Partial<StructuralEstimateState['parameters']>
+): BbsBarItem[] {
+  const coveredBeamMarks = new Set<string>();
+  for (const ls of longitudinalSections) {
+    for (const span of ls.spans || []) {
+      if (span.beamMark) {
+        coveredBeamMarks.add(span.beamMark.trim().toUpperCase());
+      }
+    }
+  }
+
+  const nonCoveredMembers = members.filter((m) => {
+    if (m.category === 'beam') {
+      return !coveredBeamMarks.has(m.mark.trim().toUpperCase());
+    }
+    return true;
+  });
+
+  const memberBars = generateBbsFromMemberDefinitions(nonCoveredMembers, parameters);
+  const lsBars = generateBbsFromLongitudinalSections(longitudinalSections, parameters);
+
+  return [...lsBars, ...memberBars];
 }
 
 /**

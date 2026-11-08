@@ -43,15 +43,22 @@ def init_db() -> None:
             conn.execute(text("ALTER TABLE plan ADD COLUMN user_id VARCHAR"))
         if "structural_estimate_json" not in cols:
             conn.execute(text("ALTER TABLE plan ADD COLUMN structural_estimate_json TEXT NOT NULL DEFAULT '{}'"))
+        if "measurements_json" not in cols:
+            conn.execute(text("ALTER TABLE plan ADD COLUMN measurements_json TEXT NOT NULL DEFAULT '[]'"))
 
-    from app.models.schema import Plan
+    from app.models.schema import Plan, User
     from app.services.dxf_parser import infer_discipline, infer_project_name
 
     with Session(engine) as session:
+        users = session.exec(select(User)).all()
+        valid_uids = {u.id for u in users}
         plans = session.exec(select(Plan).order_by(Plan.id)).all()
         known_projects = [p.project_name for p in plans if p.project_name and p.project_name != "Default Project"]
         dirty = False
         for p in plans:
+            if p.user_id and p.user_id not in valid_uids:
+                p.user_id = users[0].id if len(users) == 1 else None
+                dirty = True
             src_name = p.dwg_filename or p.pdf_filename or p.name
             if not p.project_name or p.project_name == "Default Project":
                 inferred_proj = infer_project_name(src_name, known_projects)

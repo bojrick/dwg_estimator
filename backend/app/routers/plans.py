@@ -46,7 +46,7 @@ from app.services.structural_ai import (
     analyze_sheets_and_specs,
     associate_sections_and_callouts,
     audit_bbs_is456,
-    clean_names_and_sheets_ai,
+    infer_longitudinal_section_ai,
     normalize_schedule_tables,
 )
 
@@ -72,6 +72,7 @@ class UpdatePlanRequest(BaseModel):
     scale_to_m: Optional[float] = None
     sheets: Optional[List[Dict[str, Any]]] = None
     structural_estimate: Optional[Dict[str, Any]] = None
+    measurements: Optional[List[Dict[str, Any]]] = None
 
 
 class SaveStructuralEstimateRequest(BaseModel):
@@ -102,16 +103,10 @@ class MatchSectionsAuditRequest(BaseModel):
     parameters: Dict[str, Any] = {}
 
 
-class CleanNamesRequest(BaseModel):
-    filename: Optional[str] = ""
-    current_title: Optional[str] = None
-    discipline: Optional[str] = None
-    sheets: List[Dict[str, Any]] = []
-    candidate_texts: List[str] = []
-    apply: Optional[bool] = False
-    custom_title: Optional[str] = None
-    custom_discipline: Optional[str] = None
-    custom_sheets: Optional[List[Dict[str, Any]]] = None
+class InferLongitudinalSectionRequest(BaseModel):
+    window_texts: List[str] = []
+    candidate_beams: List[str] = []
+    scale_to_m: float = 0.001
 
 
 
@@ -158,6 +153,7 @@ def _serialize_plan(plan: Plan) -> Dict[str, Any]:
         "active_sheet_name": plan.active_sheet_name,
         "match_reason": plan.match_reason,
         "sheets": json.loads(plan.sheets_json or "[]"),
+        "measurements": json.loads(getattr(plan, "measurements_json", "[]") or "[]"),
         "summary": json.loads(plan.summary_json or "{}"),
         "structural_estimate": est_blob,
         "architectural_estimate": disciplines_map.get("architectural_estimate", {}),
@@ -278,16 +274,11 @@ def _resolve_uid(user_id: Any) -> Optional[str]:
 
 def _get_owned_plan(session: Session, plan_id: int, user_id: Optional[str]) -> Plan:
     uid = _resolve_uid(user_id)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required to access plan")
     plan = session.get(Plan, plan_id)
-    if not plan:
+    if not plan or plan.user_id != uid:
         raise HTTPException(status_code=404, detail="Plan not found")
-    if uid:
-        if plan.user_id and plan.user_id != uid:
-            raise HTTPException(status_code=404, detail="Plan not found")
-        if plan.user_id is None:
-            plan.user_id = uid
-            session.add(plan)
-            session.commit()
     return plan
 
 
@@ -536,21 +527,17 @@ async def merge_preview_cad(
 @router.get("/plans")
 def list_plans(
     session: Session = Depends(get_session),
-    user_id: Optional[str] = Depends(get_current_user_id),
+    user_id: Optional[str] = Depends(get_optional_user_id),
 ):
     uid = _resolve_uid(user_id)
-    if uid:
-        # Claim pre-auth legacy plans for the user signing in
-        unclaimed = session.exec(select(Plan).where(Plan.user_id == None)).all()  # noqa: E711
-        for p in unclaimed:
-            p.user_id = uid
-            session.add(p)
-        if unclaimed:
-            session.commit()
-        stmt = select(Plan).where((Plan.user_id == uid) | (Plan.user_id == None)).order_by(Plan.updated_at.desc())
-    else:
-        stmt = select(Plan).order_by(Plan.updated_at.desc())
+    if not uid:
+        return {
+            "storage_backend": get_storage_backend_name(),
+            "projects": [],
+            "plans": [],
+        }
 
+    stmt = select(Plan).where(Plan.user_id == uid).order_by(Plan.updated_at.desc())
     plans = session.exec(stmt).all()
     projects = sorted({p.project_name or "Default Project" for p in plans})
     return {
@@ -776,10 +763,21 @@ def _load_plan_payload(plan: Plan, preloaded_raw: Optional[Dict[str, Any]] = Non
 @router.get("/plans/{plan_id}")
 def get_plan(
     plan_id: int,
+    share: Optional[str] = None,
     session: Session = Depends(get_session),
-    user_id: Optional[str] = Depends(get_current_user_id),
+    user_id: Optional[str] = Depends(get_optional_user_id),
 ):
-    plan = _get_owned_plan(session, plan_id, user_id)
+    plan = session.get(Plan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plan not found")
+    if share and share == plan.share_token:
+        return _load_plan_payload(plan)
+
+    uid = _resolve_uid(user_id)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required to access plan")
+    if plan.user_id != uid:
+        raise HTTPException(status_code=404, detail="Plan not found")
     return _load_plan_payload(plan)
 
 
@@ -933,6 +931,8 @@ def update_plan_view_or_units(
         plan.sheets_json = json.dumps(req.sheets)
     if req.structural_estimate is not None:
         plan.structural_estimate_json = json.dumps(req.structural_estimate)
+    if req.measurements is not None:
+        plan.measurements_json = json.dumps(req.measurements)
 
     cleaned_raw = None
     if (req.sheets is not None or req.active_sheet_id is not None or req.scale_to_m is not None) and plan.full_parsed_json_key:
@@ -987,7 +987,7 @@ def get_structural_estimate(
     plan_id: int,
     share: Optional[str] = None,
     session: Session = Depends(get_session),
-    user_id: Optional[str] = Depends(get_current_user_id),
+    user_id: Optional[str] = Depends(get_optional_user_id),
 ):
     if share:
         plan = session.exec(select(Plan).where(Plan.id == plan_id, Plan.share_token == share)).first()
@@ -1049,9 +1049,10 @@ def share_table_with_project(
     session: Session = Depends(get_session),
     user_id: Optional[str] = Depends(get_current_user_id),
 ):
-    query = select(Plan).where(Plan.project_name == project_name)
-    if is_auth_enabled() and user_id:
-        query = query.where(Plan.user_id == user_id)
+    uid = _resolve_uid(user_id)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    query = select(Plan).where(Plan.project_name == project_name, Plan.user_id == uid)
     plans = session.exec(query).all()
     if not plans:
         raise HTTPException(status_code=404, detail=f"No plans found in project '{project_name}'")
@@ -1094,12 +1095,15 @@ def get_plan_file(
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    if is_auth_enabled() and not (share and share == plan.share_token):
+    if not (share and share == plan.share_token):
         raw_token = extract_bearer_token(authorization if isinstance(authorization, str) else None) or token
         if not raw_token:
             raise HTTPException(status_code=401, detail="Authentication required")
-        uid = verify_supabase_token(raw_token)["id"]
-        if plan.user_id and plan.user_id != uid:
+        try:
+            uid = verify_token(raw_token)["id"]
+        except Exception:
+            raise HTTPException(status_code=401, detail="Invalid or expired session token")
+        if plan.user_id != uid:
             raise HTTPException(status_code=404, detail="Plan not found")
 
     if kind == "pdf":
@@ -1178,15 +1182,14 @@ def rename_project(
     user_id: Optional[str] = Depends(get_current_user_id),
 ):
     uid = _resolve_uid(user_id)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required")
     decoded_name = urllib.parse.unquote(project_name).strip()
     new_name = req.new_name.strip()
     if not new_name:
         raise HTTPException(status_code=400, detail="Project name cannot be empty")
 
-    if uid:
-        stmt = select(Plan).where((Plan.project_name == decoded_name) & ((Plan.user_id == uid) | (Plan.user_id == None)))
-    else:
-        stmt = select(Plan).where(Plan.project_name == decoded_name)
+    stmt = select(Plan).where((Plan.project_name == decoded_name) & (Plan.user_id == uid))
     plans = session.exec(stmt).all()
     if not plans:
         raise HTTPException(status_code=404, detail="Project not found or contains no plans")
@@ -1206,12 +1209,11 @@ def delete_project(
     user_id: Optional[str] = Depends(get_current_user_id),
 ):
     uid = _resolve_uid(user_id)
+    if not uid:
+        raise HTTPException(status_code=401, detail="Authentication required")
     decoded_name = urllib.parse.unquote(project_name).strip()
 
-    if uid:
-        stmt = select(Plan).where((Plan.project_name == decoded_name) & ((Plan.user_id == uid) | (Plan.user_id == None)))
-    else:
-        stmt = select(Plan).where(Plan.project_name == decoded_name)
+    stmt = select(Plan).where((Plan.project_name == decoded_name) & (Plan.user_id == uid))
     plans = session.exec(stmt).all()
     if not plans:
         raise HTTPException(status_code=404, detail="Project not found or contains no plans")
@@ -1237,7 +1239,9 @@ def api_analyze_sheets_and_specs(
     plan_id: int,
     req: AnalyzeSheetsSpecsRequest,
     session: Session = Depends(get_session),
+    user_id: Optional[str] = Depends(get_current_user_id),
 ):
+    _get_owned_plan(session, plan_id, user_id)
     return analyze_sheets_and_specs(session, req.sheets, req.general_notes_texts)
 
 
@@ -1246,7 +1250,9 @@ def api_normalize_schedule_tables(
     plan_id: int,
     req: NormalizeTablesRequest,
     session: Session = Depends(get_session),
+    user_id: Optional[str] = Depends(get_current_user_id),
 ):
+    _get_owned_plan(session, plan_id, user_id)
     return normalize_schedule_tables(session, req.tables, req.known_layout_marks)
 
 
@@ -1255,7 +1261,9 @@ def api_match_sections_and_audit(
     plan_id: int,
     req: MatchSectionsAuditRequest,
     session: Session = Depends(get_session),
+    user_id: Optional[str] = Depends(get_current_user_id),
 ):
+    _get_owned_plan(session, plan_id, user_id)
     sec_res = associate_sections_and_callouts(
         session,
         req.members,
@@ -1269,96 +1277,21 @@ def api_match_sections_and_audit(
     }
 
 
-def _extract_sheet_context_texts(raw_blob: Dict[str, Any], sheets: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], List[str]]:
-    all_texts = raw_blob.get("texts") or []
-    sorted_texts = sorted(all_texts, key=lambda t: -(float(t.get("height") or 0)))
-    general_texts = [str(t.get("text") or "").strip() for t in sorted_texts if t.get("text")][:45]
-    enriched_sheets: List[Dict[str, Any]] = []
-    for s in sheets:
-        s_copy = dict(s)
-        if not s_copy.get("candidate_texts") and isinstance(s_copy.get("bbox"), dict):
-            b = s_copy["bbox"]
-            min_x, max_x = float(b.get("min_x", -1e9)), float(b.get("max_x", 1e9))
-            min_y, max_y = float(b.get("min_y", -1e9)), float(b.get("max_y", 1e9))
-            in_box = [
-                str(t.get("text") or "").strip()
-                for t in sorted_texts
-                if t.get("text")
-                and min_x <= float(t.get("x", 0)) <= max_x
-                and min_y <= float(t.get("y", 0)) <= max_y
-            ][:25]
-            if in_box:
-                s_copy["candidate_texts"] = in_box
-        enriched_sheets.append(s_copy)
-    return enriched_sheets, general_texts
-
-
-@router.post("/plans/{plan_id}/ai-clean-names")
-def api_clean_names_and_sheets_for_plan(
+@router.post("/plans/{plan_id}/structural-ai/infer-longitudinal-section")
+def api_infer_longitudinal_section(
     plan_id: int,
-    req: CleanNamesRequest,
+    req: InferLongitudinalSectionRequest,
     session: Session = Depends(get_session),
     user_id: Optional[str] = Depends(get_current_user_id),
 ):
-    plan = _get_owned_plan(session, plan_id, user_id)
-    existing_sheets = json.loads(plan.sheets_json or "[]")
+    _get_owned_plan(session, plan_id, user_id)
+    return infer_longitudinal_section_ai(
+        session=session,
+        window_texts=req.window_texts,
+        candidate_beams=req.candidate_beams,
+        scale_to_m=req.scale_to_m,
+    )
 
-    if req.apply:
-        if req.custom_title and req.custom_title.strip():
-            plan.name = req.custom_title.strip()
-        if req.custom_discipline and req.custom_discipline.strip().lower() in VALID_DISCIPLINES:
-            plan.discipline = req.custom_discipline.strip().lower()
-        if req.custom_sheets is not None:
-            name_map = {str(s.get("id")): str(s.get("name")).strip() for s in req.custom_sheets if s.get("id") and s.get("name")}
-            merged_sheets = [{**s, "name": name_map.get(str(s.get("id")), s.get("name"))} for s in existing_sheets]
-            plan.sheets_json = json.dumps(merged_sheets)
-            if plan.active_sheet_id and plan.active_sheet_id in name_map:
-                plan.active_sheet_name = name_map[plan.active_sheet_id]
-            if plan.full_parsed_json_key:
-                try:
-                    full_raw = json.loads(get_object_bytes(plan.full_parsed_json_key).decode("utf-8"))
-                    full_raw["sheets"] = merged_sheets
-                    plan.full_parsed_json_key = put_object(
-                        f"plans/plan_{plan.id}/full_parsed.json",
-                        json.dumps(full_raw).encode("utf-8"),
-                        content_type="application/json",
-                    )
-                except Exception:
-                    pass
-        plan.updated_at = datetime.now(timezone.utc)
-        session.add(plan)
-        session.commit()
-        session.refresh(plan)
-        return {
-            "applied": True,
-            "cleaned_title": plan.name,
-            "discipline": plan.discipline,
-            "sheets": json.loads(plan.sheets_json or "[]"),
-            "plan": _serialize_plan(plan),
-        }
-
-    filename = req.filename or plan.dwg_filename or plan.name or "drawing.dwg"
-    sheets = req.sheets or existing_sheets
-    candidate_texts = list(req.candidate_texts or [])
-    raw_key = plan.full_parsed_json_key or plan.parsed_json_key
-    if raw_key:
-        try:
-            raw_blob = json.loads(get_object_bytes(raw_key).decode("utf-8"))
-            sheets, fallback_texts = _extract_sheet_context_texts(raw_blob, sheets)
-            if not candidate_texts:
-                candidate_texts = fallback_texts
-        except Exception:
-            pass
-    return clean_names_and_sheets_ai(session, filename, sheets, candidate_texts)
-
-
-@router.post("/plans/ai-clean-names")
-def api_clean_names_and_sheets_general(
-    req: CleanNamesRequest,
-    session: Session = Depends(get_session),
-):
-    filename = req.filename or req.current_title or "drawing.dwg"
-    return clean_names_and_sheets_ai(session, filename, req.sheets, req.candidate_texts)
 
 
 

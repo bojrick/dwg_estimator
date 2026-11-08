@@ -32,6 +32,8 @@ export interface CadEstimatorCanvasProps {
   onBoxSelected?: (bbox: WorldBBox) => void;
   onCancelExternalTool?: () => void;
   twoPointPickLabel?: string | null; // When non-null, canvas enters 2-point span pick mode
+  twoPointPickIsRect?: boolean; // When true, 2-point pick draws a live OSNAP rectangle (W × L = Area)
+  singlePointPickLabel?: string | null; // When non-null, canvas displays banner and routes click to onClickWorld
   onTwoPointPicked?: (distMeters: number, p1: [number, number], p2: [number, number]) => void;
   onClickWorld?: (wx: number, wy: number) => boolean | void;
   renderCustomOverlay?: (
@@ -68,6 +70,8 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
   onBoxSelected,
   onCancelExternalTool,
   twoPointPickLabel = null,
+  twoPointPickIsRect = false,
+  singlePointPickLabel = null,
   onTwoPointPicked,
   onClickWorld,
   renderCustomOverlay,
@@ -458,7 +462,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
       ctx.restore();
     }
 
-    // 2-Point Span Pick preview
+    // 2-Point Span / Room Rectangle Pick preview
     if (twoPointPickLabel && pickFirstPt) {
       const [sx1, sy1] = worldToScreen(pickFirstPt[0], pickFirstPt[1]);
       ctx.fillStyle = '#f59e0b';
@@ -471,11 +475,36 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
         ctx.strokeStyle = '#f59e0b';
         ctx.lineWidth = 1.8;
         ctx.setLineDash([5, 4]);
-        ctx.beginPath();
-        ctx.moveTo(sx1, sy1);
-        ctx.lineTo(sx2, sy2);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        if (twoPointPickIsRect) {
+          const rx = Math.min(sx1, sx2);
+          const ry = Math.min(sy1, sy2);
+          const rw = Math.abs(sx2 - sx1);
+          const rh = Math.abs(sy2 - sy1);
+          ctx.fillStyle = 'rgba(245, 158, 11, 0.14)';
+          ctx.fillRect(rx, ry, rw, rh);
+          ctx.strokeRect(rx, ry, rw, rh);
+          ctx.setLineDash([]);
+          const wM = Math.abs(target[0] - pickFirstPt[0]) * unitScaleToM;
+          const hM = Math.abs(target[1] - pickFirstPt[1]) * unitScaleToM;
+          const areaM2 = wM * hM;
+          const label = `${wM.toFixed(2)}m × ${hM.toFixed(2)}m = ${areaM2.toFixed(2)} m²`;
+          ctx.font = '600 11px ui-monospace, SFMono-Regular, monospace';
+          const tw = ctx.measureText(label).width + 14;
+          const bx = rx + rw / 2 - tw / 2;
+          const by = ry + rh / 2 - 11;
+          ctx.fillStyle = 'rgba(24, 24, 27, 0.92)';
+          ctx.fillRect(bx, by, tw, 22);
+          ctx.strokeStyle = '#f59e0b';
+          ctx.strokeRect(bx, by, tw, 22);
+          ctx.fillStyle = '#fde68a';
+          ctx.fillText(label, bx + 7, by + 15);
+        } else {
+          ctx.beginPath();
+          ctx.moveTo(sx1, sy1);
+          ctx.lineTo(sx2, sy2);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
       }
     }
 
@@ -587,6 +616,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
     layoutBox,
     renderCustomOverlay,
     twoPointPickLabel,
+    twoPointPickIsRect,
     pickFirstPt,
     marquee,
     measureMode,
@@ -853,40 +883,31 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
     !layerFilter.trim() ? true : String(l.name).toLowerCase().includes(layerFilter.toLowerCase())
   );
 
-  const isCrosshair = Boolean(boxSelectLabel || twoPointPickLabel || measureMode !== 'off');
+  const isCrosshair = Boolean(
+    boxSelectLabel || twoPointPickLabel || singlePointPickLabel || measureMode !== 'off'
+  );
 
   return (
     <div className="w-full h-full flex flex-col relative bg-zinc-950 select-none">
-      {/* Top Toolbar: All Sheets Switcher + Measure + Layers + Zoom */}
+      {/* Top Toolbar: Sheet Dropdown + Measure + Layers + Zoom */}
       <div className="h-9 px-2.5 bg-zinc-950 border-b border-zinc-800/80 flex items-center justify-between gap-2 text-xs shrink-0">
-        <div className="flex items-center gap-1 min-w-0 overflow-x-auto">
+        <div className="flex items-center gap-2 min-w-0">
           {sheets.length > 0 ? (
             <>
-              <button
-                type="button"
-                onClick={() => onSelectSheetId('all')}
-                className={`px-2 py-0.5 rounded text-[11px] font-medium transition whitespace-nowrap ${
-                  activeSheetId === 'all'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
-                }`}
+              <span className="text-[11px] text-zinc-400 shrink-0 hidden sm:inline">Sheet:</span>
+              <select
+                value={activeSheetId}
+                onChange={(e) => onSelectSheetId(e.target.value)}
+                className="bg-zinc-900 hover:bg-zinc-800/90 text-zinc-100 text-[11px] font-medium rounded-lg px-2.5 py-1 border border-zinc-700/80 focus:outline-none focus:border-amber-400 max-w-[210px] sm:max-w-[320px] truncate transition-colors"
+                title="Select drawing sheet for takeoff scope"
               >
-                All Sheets ({sheets.length})
-              </button>
-              {sheets.map((s: any, idx: number) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => onSelectSheetId(s.id)}
-                  className={`px-2 py-0.5 rounded text-[11px] font-medium transition whitespace-nowrap ${
-                    activeSheetId === s.id
-                      ? 'bg-zinc-800 text-zinc-100 border border-zinc-700'
-                      : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900'
-                  }`}
-                >
-                  {s.name || `Sheet ${idx + 1}`}
-                </button>
-              ))}
+                {sheets.map((s: any, idx: number) => (
+                  <option key={s.id || idx} value={s.id}>
+                    {idx + 1}. {s.name || `Sheet ${idx + 1}`}
+                  </option>
+                ))}
+                <option value="all">All Sheets Combined ({sheets.length})</option>
+              </select>
             </>
           ) : (
             <span className="text-zinc-400 text-[11px] px-1">Full Drawing Modelspace</span>
@@ -1039,10 +1060,10 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
           </div>
         )}
 
-        {/* External Box / 2-Point Tool Banner */}
-        {(boxSelectLabel || twoPointPickLabel) && (
+        {/* External Box / 2-Point / Single-Point Tool Banner */}
+        {(boxSelectLabel || twoPointPickLabel || singlePointPickLabel) && (
           <div className="absolute top-2.5 left-2.5 z-20 px-3 py-1.5 rounded-lg bg-amber-400 text-zinc-950 text-[11px] font-medium flex items-center gap-2 shadow-lg">
-            <span>{boxSelectLabel || twoPointPickLabel}</span>
+            <span>{boxSelectLabel || twoPointPickLabel || singlePointPickLabel}</span>
             {onCancelExternalTool && (
               <button
                 type="button"

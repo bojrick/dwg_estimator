@@ -21,18 +21,57 @@ import {
   Check,
   FileSpreadsheet,
   ChevronDown,
+  Bookmark,
+  Trash2,
+  CornerDownRight,
+  Crosshair,
 } from 'lucide-react';
 import { PlanDiscipline, DISCIPLINES } from '../types/plan';
-import { AiBadge } from './ui/AiBadge';
 
 export type ViewerTabMode = 'dwg';
 type ToolMode = 'pan' | 'measure';
 type MeasureSubMode = 'distance' | 'area-pick' | 'area-points';
 type ColorMode = 'cad' | 'blueprint' | 'mono';
 
+export interface SavedMeasurement {
+  id: string;
+  name: string;
+  type: 'distance' | 'area';
+  subMode: 'distance' | 'area-pick' | 'area-points';
+  sheetId?: string;
+  points: [number, number][];
+  rawUnits: number;
+  formattedPrimary: string;
+  formattedSecondary: string;
+  metadata?: {
+    deltaX?: number;
+    deltaY?: number;
+    perimeter?: string;
+    color?: string;
+  };
+  createdAt: string;
+}
+
 interface DetectedAreaShape {
   pts: [number, number][];
   label: string;
+}
+
+export interface OtrackGuideInfo {
+  type: 'single' | 'intersection';
+  axis?: 'h' | 'v';
+  coord?: number;
+  label: string;
+  snapOrigin?: [number, number];
+  originH?: [number, number];
+  originV?: [number, number];
+  intersectionPt?: [number, number];
+}
+
+export interface AcquiredTrackPoint {
+  id: string;
+  pt: [number, number];
+  acquiredAt: number;
 }
 
 function pointInPolygon(x: number, y: number, pts: [number, number][]): boolean {
@@ -99,7 +138,7 @@ interface OpenCadViewerProps {
   onUploadDwg: (file: File) => Promise<void>;
   onSavePlan?: () => void;
   onOpenAuth?: (mode: 'signin' | 'signup') => void;
-  onUpdateMetadata?: (patch: { name?: string; sheets?: any[] }) => Promise<void>;
+  onUpdateMetadata?: (patch: { name?: string; sheets?: any[]; measurements?: any[] }) => Promise<void>;
   onOpenStructuralEstimator?: () => void;
   onOpenEstimator?: (discipline: PlanDiscipline) => void;
   isGuest?: boolean;
@@ -158,14 +197,130 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
   const [cursorWorld, setCursorWorld] = useState<[number, number] | null>(null);
   const [snapPt, setSnapPt] = useState<[number, number] | null>(null);
 
+  // Saved Measurements & Focus state
+  const storageKey = `plan_measurements_${plan?.id || 'guest'}`;
+  const [savedMeasurements, setSavedMeasurements] = useState<SavedMeasurement[]>(() => {
+    if (Array.isArray(plan?.measurements) && plan.measurements.length > 0) {
+      return plan.measurements;
+    }
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) return JSON.parse(raw);
+    } catch { }
+    return [];
+  });
+  const [focusedMeasurementId, setFocusedMeasurementId] = useState<string | null>(null);
+  const [showSavedDrawer, setShowSavedDrawer] = useState<boolean>(false);
+  const [namingModal, setNamingModal] = useState<{
+    type: 'distance' | 'area';
+    subMode: 'distance' | 'area-pick' | 'area-points';
+    defaultName: string;
+    points: [number, number][];
+    rawUnits: number;
+    formattedPrimary: string;
+    formattedSecondary: string;
+    metadata?: {
+      deltaX?: number;
+      deltaY?: number;
+      perimeter?: string;
+    };
+  } | null>(null);
+  const [tempMeasureName, setTempMeasureName] = useState<string>('');
+  const [editingMeasureId, setEditingMeasureId] = useState<string | null>(null);
+  const [editingMeasureText, setEditingMeasureText] = useState<string>('');
+
+  // Orthogonal Snapping & Guidelines state (AutoCAD Ortho F8 + Object Snap Tracking F11)
+  const [isOrthoLocked, setIsOrthoLocked] = useState<boolean>(false);
+  const [shiftKeyDown, setShiftKeyDown] = useState<boolean>(false);
+  const [isOtrackEnabled, setIsOtrackEnabled] = useState<boolean>(true);
+  const [acquiredTrackPoints, setAcquiredTrackPoints] = useState<AcquiredTrackPoint[]>([]);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const activeSnapCandidateRef = useRef<[number, number] | null>(null);
+  const [orthoGuideRay, setOrthoGuideRay] = useState<OtrackGuideInfo | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+
+  const showToast = useCallback((msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg((cur) => (cur === msg ? null : cur)), 2600);
+  }, []);
+
+  // Sync saved measurements from plan prop if updated
+  useEffect(() => {
+    if (Array.isArray(plan?.measurements)) {
+      setSavedMeasurements(plan.measurements);
+    }
+  }, [plan?.measurements]);
+
+  // Clean up hover timer on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    };
+  }, []);
+
+  const persistSavedMeasurements = useCallback(
+    (next: SavedMeasurement[]) => {
+      setSavedMeasurements(next);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch { }
+      if (onUpdateMetadata) {
+        onUpdateMetadata({ measurements: next }).catch(() => { });
+      }
+    },
+    [storageKey, onUpdateMetadata]
+  );
+
+  // Global key bindings: Shift for temp Ortho, F8 for Ortho lock, F11 for O-TRACK, Esc to exit focus / cancel
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setShiftKeyDown(true);
+      if (e.key === 'F8') {
+        e.preventDefault();
+        setIsOrthoLocked((prev) => !prev);
+      }
+      if (e.key === 'F11') {
+        e.preventDefault();
+        setIsOtrackEnabled((prev) => {
+          const next = !prev;
+          showToast(`Object Snap Tracking (F11): ${next ? 'ON' : 'OFF'}`);
+          return next;
+        });
+      }
+      if (e.key === 'Escape') {
+        if (acquiredTrackPoints.length > 0) {
+          setAcquiredTrackPoints([]);
+          setOrthoGuideRay(null);
+          showToast('Cleared tracking points');
+        } else if (focusedMeasurementId) {
+          setFocusedMeasurementId(null);
+        } else if (namingModal) {
+          setNamingModal(null);
+        } else if (measurePts.length > 0) {
+          setMeasurePts([]);
+          setOrthoGuideRay(null);
+        } else if (selectedAreaShape) {
+          setSelectedAreaShape(null);
+        }
+      }
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setShiftKeyDown(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [focusedMeasurementId, namingModal, measurePts.length, selectedAreaShape, acquiredTrackPoints.length, showToast]);
+
   // Metadata editing state
   const [editingPlanTitle, setEditingPlanTitle] = useState(false);
   const [tempPlanTitle, setTempPlanTitle] = useState(plan.name || '');
   const [editingSheetMeta, setEditingSheetMeta] = useState(false);
   const [tempSheetName, setTempSheetName] = useState('');
   const [tempSheetDesc, setTempSheetDesc] = useState('');
-  const [sheetAiSuggestion, setSheetAiSuggestion] = useState<string | null>(null);
-  const [sheetAiBusy, setSheetAiBusy] = useState(false);
   const [sheetPreviewUrl, setSheetPreviewUrl] = useState<string | null>(null);
 
   // Pointer & touch gesture tracking
@@ -519,6 +674,222 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
     [rawData, zoom, isLayerVisible]
   );
 
+  const resolveOrthoPoint = useCallback(
+    (
+      wx: number,
+      wy: number,
+      isTouch = false,
+      precomputedSnap?: [number, number] | null
+    ): {
+      point: [number, number];
+      rawSnap: [number, number] | null;
+      guide: OtrackGuideInfo | null;
+    } => {
+      const rawSnap = precomputedSnap !== undefined ? precomputedSnap : findNearestSnapPoint(wx, wy, isTouch);
+      if (measureSubMode === 'area-pick') {
+        return { point: rawSnap || [wx, wy], rawSnap, guide: null };
+      }
+
+      // Collect tracking origins: acquired snap points + last placed measurement point
+      const origins: [number, number][] = [];
+      if (isOtrackEnabled) {
+        for (const ap of acquiredTrackPoints) {
+          origins.push(ap.pt);
+        }
+      }
+      if (measurePts.length >= 1) {
+        const p1 = measurePts[measurePts.length - 1];
+        if (!origins.some((o) => Math.hypot(o[0] - p1[0], o[1] - p1[1]) < 1e-4)) {
+          origins.push(p1);
+        }
+      }
+
+      const cand = rawSnap || [wx, wy];
+      if (origins.length === 0) {
+        return { point: cand, rawSnap, guide: null };
+      }
+
+      const [scx, scy] = worldToScreen(cand[0], cand[1]);
+      const orthoThresholdPx = isTouch ? 28 : 18;
+      const forceOrtho = isOrthoLocked || shiftKeyDown;
+
+      // 1. Dual-Ray Invisible Intersection Snapping (AutoCAD O-TRACK when >= 2 tracking origins exist)
+      if (origins.length >= 2) {
+        let bestIntersection: {
+          pt: [number, number];
+          originH: [number, number];
+          originV: [number, number];
+          distPx: number;
+        } | null = null;
+
+        for (let i = 0; i < origins.length; i++) {
+          for (let j = i + 1; j < origins.length; j++) {
+            const A = origins[i];
+            const B = origins[j];
+
+            // Intersection 1: Vertical from A (x=A[0]), Horizontal from B (y=B[1])
+            if (Math.abs(A[0] - B[0]) > 1e-3 && Math.abs(A[1] - B[1]) > 1e-3) {
+              const int1: [number, number] = [A[0], B[1]];
+              const [isx1, isy1] = worldToScreen(int1[0], int1[1]);
+              const d1 = Math.hypot(scx - isx1, scy - isy1);
+              if (d1 <= orthoThresholdPx * 1.35 && (!bestIntersection || d1 < bestIntersection.distPx)) {
+                bestIntersection = { pt: int1, originH: B, originV: A, distPx: d1 };
+              }
+
+              // Intersection 2: Horizontal from A (y=A[1]), Vertical from B (x=B[0])
+              const int2: [number, number] = [B[0], A[1]];
+              const [isx2, isy2] = worldToScreen(int2[0], int2[1]);
+              const d2 = Math.hypot(scx - isx2, scy - isy2);
+              if (d2 <= orthoThresholdPx * 1.35 && (!bestIntersection || d2 < bestIntersection.distPx)) {
+                bestIntersection = { pt: int2, originH: A, originV: B, distPx: d2 };
+              }
+            }
+          }
+        }
+
+        if (bestIntersection) {
+          const { pt, originH, originV } = bestIntersection;
+          const hAngle = pt[0] >= originH[0] ? 0 : 180;
+          const vAngle = pt[1] >= originV[1] ? 90 : 270;
+          return {
+            point: pt,
+            rawSnap,
+            guide: {
+              type: 'intersection',
+              label: `Apparent Intersection · ${hAngle}° / ${vAngle}°`,
+              originH,
+              originV,
+              intersectionPt: pt,
+            },
+          };
+        }
+      }
+
+      // 2. Single-Ray Orthogonal Tracking (from any acquired point or active anchor)
+      let bestRay: {
+        pt: [number, number];
+        axis: 'h' | 'v';
+        coord: number;
+        origin: [number, number];
+        distPx: number;
+        label: string;
+      } | null = null;
+
+      for (const origin of origins) {
+        const [sox, soy] = worldToScreen(origin[0], origin[1]);
+        const sdx = scx - sox;
+        const sdy = scy - soy;
+        const absSdx = Math.abs(sdx);
+        const absSdy = Math.abs(sdy);
+
+        const isNearH = forceOrtho ? absSdx >= absSdy : absSdy <= orthoThresholdPx;
+        const isNearV = forceOrtho ? absSdy > absSdx : absSdx <= orthoThresholdPx;
+
+        if (isNearH) {
+          const pt: [number, number] = [cand[0], origin[1]];
+          const distPx = absSdy;
+          if (!bestRay || distPx < bestRay.distPx) {
+            bestRay = {
+              pt,
+              axis: 'h',
+              coord: origin[1],
+              origin,
+              distPx,
+              label: `${cand[0] >= origin[0] ? 0 : 180}° · Ortho H`,
+            };
+          }
+        } else if (isNearV) {
+          const pt: [number, number] = [origin[0], cand[1]];
+          const distPx = absSdx;
+          if (!bestRay || distPx < bestRay.distPx) {
+            bestRay = {
+              pt,
+              axis: 'v',
+              coord: origin[0],
+              origin,
+              distPx,
+              label: `${cand[1] >= origin[1] ? 90 : 270}° · Ortho V`,
+            };
+          }
+        }
+      }
+
+      if (bestRay) {
+        return {
+          point: bestRay.pt,
+          rawSnap,
+          guide: {
+            type: 'single',
+            axis: bestRay.axis,
+            coord: bestRay.coord,
+            label: bestRay.label,
+            snapOrigin: bestRay.origin,
+          },
+        };
+      }
+
+      return { point: cand, rawSnap, guide: null };
+    },
+    [
+      findNearestSnapPoint,
+      measurePts,
+      measureSubMode,
+      worldToScreen,
+      isOrthoLocked,
+      shiftKeyDown,
+      isOtrackEnabled,
+      acquiredTrackPoints,
+    ]
+  );
+
+  const zoomToMeasurement = useCallback(
+    (m: SavedMeasurement) => {
+      if (!m.points || m.points.length === 0) return;
+      setFocusedMeasurementId(m.id);
+
+      let minX = Infinity,
+        maxX = -Infinity,
+        minY = Infinity,
+        maxY = -Infinity;
+      for (const [x, y] of m.points) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const spanX = Math.max(0.6 / Math.max(unitScaleToM, 1e-6), maxX - minX);
+      const spanY = Math.max(0.6 / Math.max(unitScaleToM, 1e-6), maxY - minY);
+
+      const targetZoom = Math.max(
+        1e-5,
+        Math.min((canvasSize.w * 0.48) / spanX, (canvasSize.h * 0.48) / spanY, 8000)
+      );
+
+      const startCenter: [number, number] = [viewCenter[0], viewCenter[1]];
+      const startZoom = zoom;
+      const startTime = performance.now();
+      const duration = 350;
+
+      const animate = (now: number) => {
+        const elapsed = now - startTime;
+        const t = Math.min(1, elapsed / duration);
+        const ease = 1 - Math.pow(1 - t, 3);
+        const curX = startCenter[0] + (cx - startCenter[0]) * ease;
+        const curY = startCenter[1] + (cy - startCenter[1]) * ease;
+        const curZ = startZoom + (targetZoom - startZoom) * ease;
+        setViewCenter([curX, curY]);
+        setZoom(curZ);
+        if (t < 1) {
+          requestAnimationFrame(animate);
+        }
+      };
+      requestAnimationFrame(animate);
+    },
+    [canvasSize.w, canvasSize.h, viewCenter, zoom, unitScaleToM]
+  );
+
   // Render cleaned 2D CAD view & measurement overlay
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -563,6 +934,12 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
         ctx.lineTo(canvasSize.w, sy);
       }
       ctx.stroke();
+    }
+
+    const isFocusActive = Boolean(focusedMeasurementId);
+    if (isFocusActive) {
+      ctx.save();
+      ctx.globalAlpha = 0.16;
     }
 
     // Hatches
@@ -701,6 +1078,108 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
         } else {
           ctx.fillText(t.text, sx, sy);
         }
+      }
+      ctx.restore();
+    }
+
+    if (isFocusActive) {
+      ctx.restore();
+    }
+
+    // Saved Measurements Overlay
+    if (savedMeasurements.length > 0) {
+      ctx.save();
+      for (const sm of savedMeasurements) {
+        const isThisFocused = sm.id === focusedMeasurementId;
+        if (isFocusActive && !isThisFocused) continue; // In focus mode, clearly show ONLY that measurement
+
+        ctx.save();
+        const color = sm.metadata?.color || (isThisFocused ? '#10b981' : '#34d399');
+        if (sm.type === 'distance' && sm.points.length === 2) {
+          const p1 = sm.points[0];
+          const p2 = sm.points[1];
+          const [sx1, sy1] = worldToScreen(p1[0], p1[1]);
+          const [sx2, sy2] = worldToScreen(p2[0], p2[1]);
+
+          ctx.strokeStyle = color;
+          ctx.lineWidth = isThisFocused ? 3.5 : 2;
+          ctx.beginPath();
+          ctx.moveTo(sx1, sy1);
+          ctx.lineTo(sx2, sy2);
+          ctx.stroke();
+
+          // End witness perpendicular ticks
+          const ang = Math.atan2(sy2 - sy1, sx2 - sx1);
+          const tickLen = isThisFocused ? 10 : 7;
+          const cosP = Math.cos(ang + Math.PI / 2);
+          const sinP = Math.sin(ang + Math.PI / 2);
+
+          ctx.beginPath();
+          ctx.moveTo(sx1 - cosP * tickLen, sy1 - sinP * tickLen);
+          ctx.lineTo(sx1 + cosP * tickLen, sy1 + sinP * tickLen);
+          ctx.moveTo(sx2 - cosP * tickLen, sy2 - sinP * tickLen);
+          ctx.lineTo(sx2 + cosP * tickLen, sy2 + sinP * tickLen);
+          ctx.stroke();
+
+          // End vertices
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(sx1, sy1, isThisFocused ? 5.5 : 4, 0, Math.PI * 2);
+          ctx.arc(sx2, sy2, isThisFocused ? 5.5 : 4, 0, Math.PI * 2);
+          ctx.fill();
+
+          // Badge
+          const midX = (sx1 + sx2) / 2;
+          const midY = (sy1 + sy2) / 2;
+          const label = isThisFocused
+            ? `${sm.name}: ${sm.formattedPrimary}`
+            : `${sm.name} · ${sm.formattedPrimary}`;
+          ctx.font = '700 12px ui-monospace, SFMono-Regular, monospace';
+          const tw = ctx.measureText(label).width + 18;
+          const bx = Math.max(8, Math.min(canvasSize.w - tw - 8, midX - tw / 2));
+          const by = Math.max(toolMode === 'measure' ? 96 : 14, Math.min(canvasSize.h - 32, midY - 14));
+
+          ctx.fillStyle = isThisFocused ? 'rgba(6, 78, 59, 0.98)' : 'rgba(15, 23, 42, 0.9)';
+          ctx.fillRect(bx, by, tw, 24);
+          ctx.strokeStyle = color;
+          ctx.lineWidth = isThisFocused ? 2 : 1.2;
+          ctx.strokeRect(bx, by, tw, 24);
+          ctx.fillStyle = '#ecfdf5';
+          ctx.fillText(label, bx + 9, by + 16);
+        } else if (sm.points.length >= 3) {
+          ctx.beginPath();
+          const [sx0, sy0] = worldToScreen(sm.points[0][0], sm.points[0][1]);
+          ctx.moveTo(sx0, sy0);
+          for (let i = 1; i < sm.points.length; i++) {
+            const [sxi, syi] = worldToScreen(sm.points[i][0], sm.points[i][1]);
+            ctx.lineTo(sxi, syi);
+          }
+          ctx.closePath();
+          ctx.fillStyle = isThisFocused ? 'rgba(16, 185, 129, 0.28)' : 'rgba(16, 185, 129, 0.12)';
+          ctx.fill();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = isThisFocused ? 3 : 1.8;
+          ctx.stroke();
+
+          const { centroid } = computePolygonAreaAndPerimeter(sm.points);
+          const [cx, cy] = worldToScreen(centroid[0], centroid[1]);
+          const label = isThisFocused
+            ? `${sm.name}: ${sm.formattedPrimary}`
+            : `${sm.name} · ${sm.formattedPrimary}`;
+          ctx.font = '700 12px ui-monospace, SFMono-Regular, monospace';
+          const tw = ctx.measureText(label).width + 18;
+          const bx = Math.max(8, Math.min(canvasSize.w - tw - 8, cx - tw / 2));
+          const by = Math.max(toolMode === 'measure' ? 96 : 14, Math.min(canvasSize.h - 32, cy - 14));
+
+          ctx.fillStyle = isThisFocused ? 'rgba(6, 78, 59, 0.98)' : 'rgba(15, 23, 42, 0.9)';
+          ctx.fillRect(bx, by, tw, 24);
+          ctx.strokeStyle = color;
+          ctx.lineWidth = isThisFocused ? 2 : 1.2;
+          ctx.strokeRect(bx, by, tw, 24);
+          ctx.fillStyle = '#ecfdf5';
+          ctx.fillText(label, bx + 9, by + 16);
+        }
+        ctx.restore();
       }
       ctx.restore();
     }
@@ -856,6 +1335,135 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
           ctx.stroke();
         }
 
+        // Draw AutoCAD F11 Acquired Object Snap Tracking Points (+)
+        if (toolMode === 'measure' && isOtrackEnabled && acquiredTrackPoints.length > 0) {
+          ctx.save();
+          for (const ap of acquiredTrackPoints) {
+            const [asx, asy] = worldToScreen(ap.pt[0], ap.pt[1]);
+            // Subtle glowing ring
+            ctx.strokeStyle = 'rgba(16, 185, 129, 0.4)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(asx, asy, 8, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // AutoCAD + glyph
+            ctx.strokeStyle = '#10b981';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(asx - 5, asy);
+            ctx.lineTo(asx + 5, asy);
+            ctx.moveTo(asx, asy - 5);
+            ctx.lineTo(asx, asy + 5);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        // Draw Object Snap Guidelines (Single ray or Dual-ray Invisible Intersection)
+        if (orthoGuideRay) {
+          ctx.save();
+          ctx.strokeStyle = '#06b6d4';
+          ctx.lineWidth = 1.4;
+          ctx.setLineDash([6, 5]);
+
+          if (
+            orthoGuideRay.type === 'intersection' &&
+            orthoGuideRay.originH &&
+            orthoGuideRay.originV &&
+            orthoGuideRay.intersectionPt
+          ) {
+            const [hsx, hsy] = worldToScreen(orthoGuideRay.originH[0], orthoGuideRay.originH[1]);
+            const [vsx, vsy] = worldToScreen(orthoGuideRay.originV[0], orthoGuideRay.originV[1]);
+            const [isx, isy] = worldToScreen(orthoGuideRay.intersectionPt[0], orthoGuideRay.intersectionPt[1]);
+
+            // Horizontal ray from originH to intersectionPt (and slightly beyond)
+            const hDir = Math.sign(isx - hsx) || 1;
+            ctx.beginPath();
+            ctx.moveTo(hsx, isy);
+            ctx.lineTo(isx + hDir * 36, isy);
+            ctx.stroke();
+
+            // Vertical ray from originV to intersectionPt (and slightly beyond)
+            const vDir = Math.sign(isy - vsy) || 1;
+            ctx.beginPath();
+            ctx.moveTo(isx, vsy);
+            ctx.lineTo(isx, isy + vDir * 36);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Draw intersection glyph ⨁
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(isx, isy, 7, 0, Math.PI * 2);
+            ctx.moveTo(isx - 10, isy);
+            ctx.lineTo(isx + 10, isy);
+            ctx.moveTo(isx, isy - 10);
+            ctx.lineTo(isx, isy + 10);
+            ctx.stroke();
+
+            // Tooltip badge
+            const txt = orthoGuideRay.label;
+            ctx.font = '600 11px ui-monospace, SFMono-Regular, monospace';
+            const tw = ctx.measureText(txt).width + 16;
+            const bx = Math.min(canvasSize.w - tw - 8, Math.max(8, isx + 14));
+            const by = Math.max(toolMode === 'measure' ? 96 : 14, Math.min(canvasSize.h - 32, isy - 24));
+            ctx.fillStyle = 'rgba(8, 47, 73, 0.95)';
+            ctx.fillRect(bx, by, tw, 22);
+            ctx.strokeStyle = '#38bdf8';
+            ctx.lineWidth = 1.3;
+            ctx.strokeRect(bx, by, tw, 22);
+            ctx.fillStyle = '#e0f2fe';
+            ctx.fillText(txt, bx + 8, by + 15);
+          } else {
+            // Single ray guideline
+            ctx.beginPath();
+            if (orthoGuideRay.axis === 'h' && orthoGuideRay.coord !== undefined) {
+              const [, gsy] = worldToScreen(0, orthoGuideRay.coord);
+              ctx.moveTo(0, gsy);
+              ctx.lineTo(canvasSize.w, gsy);
+            } else if (orthoGuideRay.axis === 'v' && orthoGuideRay.coord !== undefined) {
+              const [gsx] = worldToScreen(orthoGuideRay.coord, 0);
+              ctx.moveTo(gsx, 0);
+              ctx.lineTo(gsx, canvasSize.h);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            // Angle badge near cursor/snap
+            const liveTarget = snapPt || cursorWorld;
+            if (liveTarget) {
+              const [lx, ly] = worldToScreen(liveTarget[0], liveTarget[1]);
+              const txt = orthoGuideRay.label;
+              ctx.font = '600 11px ui-monospace, SFMono-Regular, monospace';
+              const tw = ctx.measureText(txt).width + 14;
+              const bx = Math.min(canvasSize.w - tw - 8, Math.max(8, lx + 12));
+              const by = Math.max(toolMode === 'measure' ? 96 : 14, Math.min(canvasSize.h - 32, ly - 22));
+              ctx.fillStyle = 'rgba(8, 47, 73, 0.95)';
+              ctx.fillRect(bx, by, tw, 20);
+              ctx.strokeStyle = '#38bdf8';
+              ctx.lineWidth = 1.2;
+              ctx.strokeRect(bx, by, tw, 20);
+              ctx.fillStyle = '#e0f2fe';
+              ctx.fillText(txt, bx + 7, by + 14);
+            }
+
+            if (orthoGuideRay.snapOrigin) {
+              const [sox, soy] = worldToScreen(orthoGuideRay.snapOrigin[0], orthoGuideRay.snapOrigin[1]);
+              ctx.strokeStyle = '#38bdf8';
+              ctx.lineWidth = 1.5;
+              ctx.beginPath();
+              ctx.moveTo(sox - 8, soy);
+              ctx.lineTo(sox + 8, soy);
+              ctx.moveTo(sox, soy - 8);
+              ctx.lineTo(sox, soy + 8);
+              ctx.stroke();
+            }
+          }
+          ctx.restore();
+        }
+
         if (measurePts.length >= 1) {
           const p1 = measurePts[0];
           const p2 = measurePts.length >= 2 ? measurePts[1] : snapPt || cursorWorld;
@@ -912,6 +1520,11 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
     getEntityColor,
     formatMeasurement,
     formatAreaMeasurement,
+    savedMeasurements,
+    focusedMeasurementId,
+    orthoGuideRay,
+    isOtrackEnabled,
+    acquiredTrackPoints,
   ]);
 
   const lastTouchRef = useRef(0);
@@ -923,12 +1536,20 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
       setHoverAreaShape(shape);
       return;
     }
-    const snapped = findNearestSnapPoint(wx, wy, isTouch) || [wx, wy];
+    const resolved = resolveOrthoPoint(wx, wy, isTouch);
+    const snapped = resolved.point;
     setSnapPt(snapped);
+    setOrthoGuideRay(null);
     if (measureSubMode === 'area-points') {
       setMeasurePts((prev) => [...prev, snapped]);
     } else {
-      setMeasurePts((prev) => (prev.length >= 2 ? [snapped] : [...prev, snapped]));
+      setMeasurePts((prev) => {
+        if (prev.length === 1) {
+          setAcquiredTrackPoints([]);
+          return [...prev, snapped];
+        }
+        return prev.length >= 2 ? [snapped] : [...prev, snapped];
+      });
     }
   };
 
@@ -959,9 +1580,56 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
     if (toolMode === 'measure' && !dragRef.current.active) {
       if (measureSubMode === 'area-pick') {
         setSnapPt(null);
+        setOrthoGuideRay(null);
         setHoverAreaShape(findClosedAreaAtPoint(wx, wy));
       } else {
-        setSnapPt(findNearestSnapPoint(wx, wy));
+        const rawSnap = findNearestSnapPoint(wx, wy, false);
+
+        // AutoCAD F11 Object Snap Tracking: hover acquisition / release
+        if (isOtrackEnabled && rawSnap) {
+          const isSameSnap =
+            activeSnapCandidateRef.current &&
+            Math.abs(activeSnapCandidateRef.current[0] - rawSnap[0]) < 1e-4 &&
+            Math.abs(activeSnapCandidateRef.current[1] - rawSnap[1]) < 1e-4;
+
+          if (!isSameSnap) {
+            activeSnapCandidateRef.current = rawSnap;
+            if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+            hoverTimerRef.current = setTimeout(() => {
+              setAcquiredTrackPoints((prev) => {
+                const existingIdx = prev.findIndex(
+                  (p) => Math.hypot(p.pt[0] - rawSnap[0], p.pt[1] - rawSnap[1]) < 1e-4
+                );
+                if (existingIdx >= 0) {
+                  // Re-hovering an acquired point releases it
+                  const updated = [...prev];
+                  updated.splice(existingIdx, 1);
+                  showToast('Released tracking point');
+                  return updated;
+                } else {
+                  // Acquire point (up to 7 points)
+                  const newPt: AcquiredTrackPoint = {
+                    id: Math.random().toString(36).substring(2, 9),
+                    pt: rawSnap,
+                    acquiredAt: Date.now(),
+                  };
+                  showToast('Acquired tracking point (+)');
+                  return [...prev.slice(-6), newPt];
+                }
+              });
+            }, 300);
+          }
+        } else if (!rawSnap) {
+          activeSnapCandidateRef.current = null;
+          if (hoverTimerRef.current) {
+            clearTimeout(hoverTimerRef.current);
+            hoverTimerRef.current = null;
+          }
+        }
+
+        const resolved = resolveOrthoPoint(wx, wy, false, rawSnap);
+        setSnapPt(resolved.point);
+        setOrthoGuideRay(resolved.guide);
       }
     }
 
@@ -1091,8 +1759,8 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
     measureSubMode === 'area-pick'
       ? (selectedAreaShape || hoverAreaShape)?.pts || []
       : measureSubMode === 'area-points'
-      ? measurePts
-      : [];
+        ? measurePts
+        : [];
   const activeAreaMetrics =
     activeAreaPts.length >= 3 ? computePolygonAreaAndPerimeter(activeAreaPts) : null;
   const activeAreaFormatted =
@@ -1102,9 +1770,37 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
 
   const sheets = plan.sheets || rawData?.sheets || [];
   const layers = rawData?.layers || [];
+  const focusedMeasurement = savedMeasurements.find((m) => m.id === focusedMeasurementId);
+
+  const handleCommitSave = () => {
+    if (!namingModal) return;
+    const name = tempMeasureName.trim() || namingModal.defaultName;
+    const newM: SavedMeasurement = {
+      id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name,
+      type: namingModal.type,
+      subMode: namingModal.subMode,
+      sheetId: plan?.active_sheet_id || 'all',
+      points: namingModal.points,
+      rawUnits: namingModal.rawUnits,
+      formattedPrimary: namingModal.formattedPrimary,
+      formattedSecondary: namingModal.formattedSecondary,
+      metadata: namingModal.metadata,
+      createdAt: new Date().toISOString(),
+    };
+    persistSavedMeasurements([...savedMeasurements, newM]);
+    setNamingModal(null);
+    setTempMeasureName('');
+  };
 
   return (
-    <div className="flex-1 flex flex-col bg-zinc-950 overflow-hidden">
+    <div className="flex-1 flex flex-col bg-zinc-950 overflow-hidden relative">
+      {toastMsg && (
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-emerald-600/95 backdrop-blur-md text-white text-xs font-medium px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 pointer-events-none">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>{toastMsg}</span>
+        </div>
+      )}
       {/* Hidden file input for replacing DWG */}
       <input
         ref={dwgInputRef}
@@ -1127,7 +1823,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
       {/* Header: row 1 = back, title, actions; row 2 = view switcher, sheet selector */}
       <div className="bg-zinc-900 border-b border-zinc-800 px-3 pb-2 pt-[max(8px,env(safe-area-inset-top))] shrink-0 space-y-2">
         <div className="flex items-center gap-2">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <button
               onClick={onBack}
               className="p-2.5 sm:p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition shrink-0"
@@ -1194,141 +1890,140 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
               </div>
             </div>
           </div>
-  
-  
-          <div className="flex items-center gap-1.5 shrink-0">
-          {onOpenAuth && (
-            <>
-              <button
-                onClick={() => onOpenAuth('signin')}
-                className="hidden sm:inline-flex px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
-              >
-                Sign In
-              </button>
-              {!isGuest && (
-                <button
-                  onClick={() => onOpenAuth('signup')}
-                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shadow transition"
-                >
-                  Sign Up
-                </button>
-              )}
-            </>
-          )}
-          {isGuest && onSavePlan && (
-            <button
-              onClick={onSavePlan}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shadow transition"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>{onOpenAuth ? 'Sign Up & Save' : 'Save Plan'}</span>
-            </button>
-          )}
 
-          {/* Multi-discipline Estimator Launcher */}
-          {(onOpenEstimator || onOpenStructuralEstimator) && (
-            <div className="relative">
-              <div className="flex items-center rounded-lg bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700 overflow-hidden shadow-sm">
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {onOpenAuth && (
+              <>
                 <button
-                  onClick={() => {
-                    if (onOpenEstimator) {
-                      onOpenEstimator(currentDiscipline);
-                    } else if (onOpenStructuralEstimator) {
-                      onOpenStructuralEstimator();
-                    }
-                  }}
-                  className="flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 text-zinc-100 hover:text-white text-xs font-medium transition"
-                  title={`Open ${currentDisciplineInfo.estimatorLabel}`}
+                  onClick={() => onOpenAuth('signin')}
+                  className="hidden sm:inline-flex px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 transition"
                 >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-blue-400" />
-                  <span className="hidden sm:inline font-mono text-[11px] uppercase tracking-wider text-zinc-400 mr-0.5">
-                    {currentDiscipline}
-                  </span>
-                  <span className="hidden sm:inline">{currentDisciplineInfo.estimatorLabel}</span>
-                  <span className="sm:hidden">Estimator</span>
+                  Sign In
                 </button>
-                {onOpenEstimator && (
+                {!isGuest && (
                   <button
-                    onClick={() => setShowEstimatorMenu((v) => !v)}
-                    className="p-1.5 sm:py-1.5 border-l border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition"
-                    title="Switch discipline estimator"
+                    onClick={() => onOpenAuth('signup')}
+                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shadow transition"
                   >
-                    <ChevronDown className="w-3.5 h-3.5" />
+                    Sign Up
                   </button>
                 )}
-              </div>
+              </>
+            )}
+            {isGuest && onSavePlan && (
+              <button
+                onClick={onSavePlan}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium shadow transition"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>{onOpenAuth ? 'Sign Up & Save' : 'Save Plan'}</span>
+              </button>
+            )}
 
-              {showEstimatorMenu && onOpenEstimator && (
-                <div className="absolute right-0 mt-1.5 w-64 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1.5 z-40 text-xs space-y-1">
-                  <div className="px-2.5 py-1 text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
-                    Select Estimator
-                  </div>
-                  {DISCIPLINES.map((d) => (
+            {/* Multi-discipline Estimator Launcher */}
+            {(onOpenEstimator || onOpenStructuralEstimator) && (
+              <div className="relative">
+                <div className="flex items-center rounded-lg bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700 overflow-hidden shadow-sm">
+                  <button
+                    onClick={() => {
+                      if (onOpenEstimator) {
+                        onOpenEstimator(currentDiscipline);
+                      } else if (onOpenStructuralEstimator) {
+                        onOpenStructuralEstimator();
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 sm:px-2.5 sm:py-1.5 text-zinc-100 hover:text-white text-xs font-medium transition"
+                    title={`Open ${currentDisciplineInfo.estimatorLabel}`}
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-blue-400" />
+                    <span className="hidden sm:inline font-mono text-[11px] uppercase tracking-wider text-zinc-400 mr-0.5">
+                      {currentDiscipline}
+                    </span>
+                    <span className="hidden sm:inline">{currentDisciplineInfo.estimatorLabel}</span>
+                    <span className="sm:hidden">Estimator</span>
+                  </button>
+                  {onOpenEstimator && (
                     <button
-                      key={d.id}
-                      onClick={() => {
-                        setShowEstimatorMenu(false);
-                        onOpenEstimator(d.id);
-                      }}
-                      className={`w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left transition ${
-                        d.id === currentDiscipline
-                          ? 'bg-blue-600/15 border border-blue-500/30 text-blue-200'
-                          : 'hover:bg-zinc-800 text-zinc-300'
-                      }`}
+                      onClick={() => setShowEstimatorMenu((v) => !v)}
+                      className="p-1.5 sm:py-1.5 border-l border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition"
+                      title="Switch discipline estimator"
                     >
-                      <FileSpreadsheet className="w-4 h-4 mt-0.5 shrink-0 text-zinc-400" />
-                      <div>
-                        <div className="font-medium text-zinc-200">{d.estimatorLabel}</div>
-                        <div className="text-[11px] text-zinc-400 leading-tight">{d.estimatorDesc}</div>
-                      </div>
+                      <ChevronDown className="w-3.5 h-3.5" />
                     </button>
-                  ))}
+                  )}
                 </div>
-              )}
-            </div>
-          )}
 
-          <button
-            onClick={() => onShare(plan)}
-            className="flex items-center gap-1.5 px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition"
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Share</span>
-          </button>
-
-          <div className="relative">
-            <button
-              onClick={() => setShowDownloadMenu((v) => !v)}
-              className="p-2.5 sm:p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition"
-              title="Download or Update Plan Files"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-            {showDownloadMenu && (
-              <div className="absolute right-0 mt-1.5 w-52 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1.5 z-40 text-xs space-y-1">
-                {plan.has_dwg && (
-                  <>
-                    <a
-                      href={apiUrl(`/api/plans/${plan.id}/file/dxf?share=${encodeURIComponent(plan.share_token || '')}`)}
-                      download
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-200"
-                    >
-                      <Download className="w-3.5 h-3.5 text-zinc-300" />
-                      Download Cleaned .DXF
-                    </a>
-                    <a
-                      href={apiUrl(`/api/plans/${plan.id}/file/dwg?share=${encodeURIComponent(plan.share_token || '')}`)}
-                      download
-                      className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-200"
-                    >
-                      <Download className="w-3.5 h-3.5 text-blue-400" />
-                      Download Original .DWG
-                    </a>
-                  </>
+                {showEstimatorMenu && onOpenEstimator && (
+                  <div className="absolute right-0 mt-1.5 w-64 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1.5 z-40 text-xs space-y-1">
+                    <div className="px-2.5 py-1 text-[11px] font-mono text-zinc-400 uppercase tracking-wider">
+                      Select Estimator
+                    </div>
+                    {DISCIPLINES.map((d) => (
+                      <button
+                        key={d.id}
+                        onClick={() => {
+                          setShowEstimatorMenu(false);
+                          onOpenEstimator(d.id);
+                        }}
+                        className={`w-full flex items-start gap-2.5 px-2.5 py-2 rounded-lg text-left transition ${d.id === currentDiscipline
+                            ? 'bg-blue-600/15 border border-blue-500/30 text-blue-200'
+                            : 'hover:bg-zinc-800 text-zinc-300'
+                          }`}
+                      >
+                        <FileSpreadsheet className="w-4 h-4 mt-0.5 shrink-0 text-zinc-400" />
+                        <div>
+                          <div className="font-medium text-zinc-200">{d.estimatorLabel}</div>
+                          <div className="text-[11px] text-zinc-400 leading-tight">{d.estimatorDesc}</div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
-          </div>
+
+            <button
+              onClick={() => onShare(plan)}
+              className="flex items-center gap-1.5 px-3 py-2.5 sm:px-2.5 sm:py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition"
+            >
+              <Share2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Share</span>
+            </button>
+
+            <div className="relative">
+              <button
+                onClick={() => setShowDownloadMenu((v) => !v)}
+                className="p-2.5 sm:p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition"
+                title="Download or Update Plan Files"
+              >
+                <Download className="w-4 h-4" />
+              </button>
+              {showDownloadMenu && (
+                <div className="absolute right-0 mt-1.5 w-52 bg-zinc-900 border border-zinc-700 rounded-xl shadow-xl p-1.5 z-40 text-xs space-y-1">
+                  {plan.has_dwg && (
+                    <>
+                      <a
+                        href={apiUrl(`/api/plans/${plan.id}/file/dxf?share=${encodeURIComponent(plan.share_token || '')}`)}
+                        download
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-200"
+                      >
+                        <Download className="w-3.5 h-3.5 text-zinc-300" />
+                        Download Cleaned .DXF
+                      </a>
+                      <a
+                        href={apiUrl(`/api/plans/${plan.id}/file/dwg?share=${encodeURIComponent(plan.share_token || '')}`)}
+                        download
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-200"
+                      >
+                        <Download className="w-3.5 h-3.5 text-blue-400" />
+                        Download Original .DWG
+                      </a>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -1372,36 +2067,12 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                     if (cur) {
                       setTempSheetName(cur.name || '');
                       setTempSheetDesc(cur.description || '');
-                      setSheetAiSuggestion(null);
                       try {
                         setSheetPreviewUrl(canvasRef.current ? canvasRef.current.toDataURL('image/png') : null);
                       } catch {
                         setSheetPreviewUrl(null);
                       }
                       setEditingSheetMeta(true);
-                      const sheetTexts = (rawData?.texts || [])
-                        .slice()
-                        .sort((a: any, b: any) => (Number(b.height) || 0) - (Number(a.height) || 0))
-                        .map((t: any) => String(t.text || '').trim())
-                        .filter(Boolean)
-                        .slice(0, 25);
-                      setSheetAiBusy(true);
-                      authFetch('/api/plans/ai-clean-names', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          filename: plan.dwg_filename || plan.name || 'plan.dwg',
-                          sheets: [{ id: cur.id, name: cur.name, candidate_texts: sheetTexts }],
-                          candidate_texts: sheetTexts,
-                        }),
-                      })
-                        .then((r) => (r.ok ? r.json() : null))
-                        .then((d) => {
-                          const sName = d?.sheets?.[0]?.name?.trim();
-                          if (sName) setSheetAiSuggestion(sName);
-                        })
-                        .catch(() => {})
-                        .finally(() => setSheetAiBusy(false));
                     }
                   }}
                   className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition"
@@ -1429,43 +2100,67 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
           ref={containerRef}
           className="relative flex-1 overflow-hidden bg-zinc-950"
         >
-            {!rawData ? (
-              <div className="h-full flex flex-col items-center justify-center p-6 text-center gap-3">
-                <FileCode2 className="w-10 h-10 text-zinc-500" />
-                <div className="text-sm font-medium text-white">No DWG File Attached Yet</div>
-                <p className="text-xs text-zinc-400 max-w-xs">
-                  Upload the .DWG or .DXF file for this plan to clean up the view and measure distances.
-                </p>
-                <button
-                  onClick={() => dwgInputRef.current?.click()}
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-2"
-                >
-                  <Upload className="w-4 h-4" /> Upload .DWG / .DXF
-                </button>
-              </div>
-            ) : (
-              <>
-                {/* Native iOS left-edge swipe guard so touch-none on canvas does not block edge back gesture */}
-                <div className="absolute inset-y-0 left-0 w-5 z-10 sm:hidden" />
-                <canvas
-                  ref={canvasRef}
-                  onMouseDown={handleMouseDown}
-                  onMouseMove={handleMouseMove}
-                  onMouseUp={handleMouseUp}
-                  onWheel={handleWheel}
-                  onTouchStart={handleTouchStart}
-                  onTouchMove={handleTouchMove}
-                  onTouchEnd={handleTouchEnd}
-                  className={`w-full h-full block touch-none select-none ${
-                    toolMode === 'measure' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+          {!rawData ? (
+            <div className="h-full flex flex-col items-center justify-center p-6 text-center gap-3">
+              <FileCode2 className="w-10 h-10 text-zinc-500" />
+              <div className="text-sm font-medium text-white">No DWG File Attached Yet</div>
+              <p className="text-xs text-zinc-400 max-w-xs">
+                Upload the .DWG or .DXF file for this plan to clean up the view and measure distances.
+              </p>
+              <button
+                onClick={() => dwgInputRef.current?.click()}
+                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium flex items-center gap-2"
+              >
+                <Upload className="w-4 h-4" /> Upload .DWG / .DXF
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* Native iOS left-edge swipe guard so touch-none on canvas does not block edge back gesture */}
+              <div className="absolute inset-y-0 left-0 w-5 z-10 sm:hidden" />
+              <canvas
+                ref={canvasRef}
+                onMouseDown={handleMouseDown}
+                onMouseMove={handleMouseMove}
+                onMouseUp={handleMouseUp}
+                onWheel={handleWheel}
+                onTouchStart={handleTouchStart}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                className={`w-full h-full block touch-none select-none ${toolMode === 'measure' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
                   }`}
-                />
+              />
 
-                {/* Top Floating Measurement HUD Banner */}
-                {toolMode === 'measure' && (
-                  <div className="absolute top-0 inset-x-0 z-20 bg-zinc-900/95 backdrop-blur-md border-b border-white/10 px-3 py-2 space-y-1.5">
-                    {/* Sub-mode switcher: Distance | Area: Pick Closed | Area: Points */}
-                    <div className="grid grid-cols-3 gap-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
+              {/* Focused Measurement Mode Top Banner */}
+              {focusedMeasurement && (
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2.5 bg-zinc-900/95 backdrop-blur-md border border-emerald-500/50 px-4 py-2 rounded-2xl shadow-2xl max-w-[94vw]">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-white truncate">
+                      {focusedMeasurement.name}
+                    </div>
+                    <div className="text-[11px] font-mono text-emerald-300 truncate">
+                      {focusedMeasurement.formattedPrimary}{' '}
+                      <span className="text-zinc-400">({focusedMeasurement.formattedSecondary})</span>
+                    </div>
+                  </div>
+                  <div className="h-5 w-px bg-zinc-700 mx-1 shrink-0" />
+                  <button
+                    onClick={() => setFocusedMeasurementId(null)}
+                    className="px-2.5 py-1 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition shrink-0"
+                    title="Exit focus and show all (Esc)"
+                  >
+                    Show All (Esc)
+                  </button>
+                </div>
+              )}
+
+              {/* Top Floating Measurement HUD Banner */}
+              {toolMode === 'measure' && (
+                <div className="absolute top-0 inset-x-0 z-20 bg-zinc-900/95 backdrop-blur-md border-b border-white/10 px-3 py-2 space-y-1.5">
+                  {/* Sub-mode switcher: Distance | Area: Pick Closed | Area: Points + Ortho lock */}
+                  <div className="flex items-center gap-1.5">
+                    <div className="grid grid-cols-3 gap-1 flex-1 bg-zinc-950 p-1 rounded-xl border border-zinc-800">
                       {(
                         [
                           { id: 'distance', label: 'Distance' },
@@ -1480,98 +2175,110 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                             setMeasurePts([]);
                             setSelectedAreaShape(null);
                             setHoverAreaShape(null);
+                            setOrthoGuideRay(null);
                           }}
-                          className={`py-2 px-1 rounded-lg text-[11px] font-medium transition active:scale-95 truncate ${
-                            measureSubMode === m.id
+                          className={`py-2 px-1 rounded-lg text-[11px] font-medium transition active:scale-95 truncate ${measureSubMode === m.id
                               ? 'bg-blue-600 text-white shadow-xs'
                               : 'text-zinc-400 hover:text-zinc-200'
-                          }`}
+                            }`}
                         >
                           {m.label}
                         </button>
                       ))}
                     </div>
+                    <button
+                      onClick={() => setIsOrthoLocked((v) => !v)}
+                      className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[11px] font-medium transition active:scale-95 shrink-0 border ${isOrthoLocked
+                          ? 'bg-cyan-600 border-cyan-400 text-white shadow-xs'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      title="Toggle Orthogonal Guidelines & Snapping (F8 or hold Shift)"
+                    >
+                      <CornerDownRight className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Ortho</span>
+                      <span>{isOrthoLocked ? 'ON' : 'OFF'}</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setIsOtrackEnabled((v) => {
+                          const next = !v;
+                          showToast(`Object Snap Tracking (F11): ${next ? 'ON' : 'OFF'}`);
+                          return next;
+                        });
+                      }}
+                      className={`flex items-center gap-1 px-2.5 py-2 rounded-xl text-[11px] font-medium transition active:scale-95 shrink-0 border ${isOtrackEnabled
+                          ? 'bg-emerald-600 border-emerald-400 text-white shadow-xs'
+                          : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      title="Toggle AutoCAD Object Snap Tracking (F11) - Hover snap points to acquire tracking lines & invisible intersections"
+                    >
+                      <Crosshair className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">O-TRACK</span>
+                      <span>{isOtrackEnabled ? 'ON' : 'OFF'}</span>
+                    </button>
+                    {acquiredTrackPoints.length > 0 && (
+                      <button
+                        onClick={() => {
+                          setAcquiredTrackPoints([]);
+                          setOrthoGuideRay(null);
+                          showToast('Cleared tracking points');
+                        }}
+                        className="flex items-center gap-1 px-2 py-2 rounded-xl text-[10px] font-mono bg-zinc-900 border border-zinc-700 text-emerald-400 hover:text-emerald-300 shrink-0"
+                        title="Click or press Esc to clear acquired tracking points"
+                      >
+                        +{acquiredTrackPoints.length}
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
 
-                    {measureSubMode === 'distance' ? (
-                      activeMeasureFormatted && measurePts.length === 2 ? (
-                        <div className="flex items-center justify-between gap-2">
-                          <div>
-                            <div className="text-[10px] font-medium text-zinc-300">
-                              Measured Distance (OSNAP)
-                            </div>
-                            <div className="text-base sm:text-lg font-semibold font-mono text-white">
-                              {activeMeasureFormatted.meters}{' '}
-                              <span className="text-xs font-semibold text-zinc-300">
-                                ({activeMeasureFormatted.feetInches} | {activeMeasureFormatted.mm})
-                              </span>
-                            </div>
-                            <div className="text-[11px] font-mono text-zinc-400">
-                              ΔX: {(Math.abs(measurePts[1][0] - measurePts[0][0]) * unitScaleToM).toFixed(3)}m · ΔY:{' '}
-                              {(Math.abs(measurePts[1][1] - measurePts[0][1]) * unitScaleToM).toFixed(3)}m
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => setMeasurePts([])}
-                            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 shrink-0"
-                          >
-                            Clear
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between gap-2 text-xs text-blue-200">
-                          <div className="flex items-center gap-2">
-                            <Ruler className="w-4 h-4 text-zinc-300 shrink-0" />
-                            <span>
-                              {measurePts.length === 0
-                                ? 'Tap 1st point on DWG to measure distance'
-                                : 'Tap 2nd point to complete measurement'}
-                            </span>
-                          </div>
-                          {measurePts.length > 0 && (
-                            <button
-                              onClick={() => setMeasurePts([])}
-                              className="text-[11px] underline text-zinc-300"
-                            >
-                              Reset
-                            </button>
-                          )}
-                        </div>
-                      )
-                    ) : activeAreaFormatted ? (
+                  {measureSubMode === 'distance' ? (
+                    activeMeasureFormatted && measurePts.length === 2 ? (
                       <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-medium text-zinc-300 truncate">
-                            {measureSubMode === 'area-pick'
-                              ? (selectedAreaShape || hoverAreaShape)?.label || 'Closed Area'
-                              : `Polygon Area (${measurePts.length} pts)`}
+                        <div>
+                          <div className="text-[10px] font-medium text-zinc-300">
+                            Measured Distance (OSNAP & Ortho)
                           </div>
                           <div className="text-base sm:text-lg font-semibold font-mono text-white">
-                            {activeAreaFormatted.sqm}{' '}
+                            {activeMeasureFormatted.meters}{' '}
                             <span className="text-xs font-semibold text-zinc-300">
-                              ({activeAreaFormatted.sqft}
-                              {unitName === 'mm' ? ` | ${activeAreaFormatted.sqmm}` : ''})
+                              ({activeMeasureFormatted.feetInches} | {activeMeasureFormatted.mm})
                             </span>
                           </div>
                           <div className="text-[11px] font-mono text-zinc-400">
-                            Perimeter: {activeAreaFormatted.perim.meters} ({activeAreaFormatted.perim.feetInches})
+                            ΔX: {(Math.abs(measurePts[1][0] - measurePts[0][0]) * unitScaleToM).toFixed(3)}m · ΔY:{' '}
+                            {(Math.abs(measurePts[1][1] - measurePts[0][1]) * unitScaleToM).toFixed(3)}m
                           </div>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
-                          {measureSubMode === 'area-points' && measurePts.length > 0 && (
-                            <button
-                              onClick={() => setMeasurePts((prev) => prev.slice(0, -1))}
-                              className="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[11px] font-medium text-zinc-200"
-                            >
-                              Undo
-                            </button>
-                          )}
                           <button
                             onClick={() => {
-                              setMeasurePts([]);
-                              setSelectedAreaShape(null);
-                              setHoverAreaShape(null);
+                              const distCount = savedMeasurements.filter((m) => m.type === 'distance').length + 1;
+                              const defName = `Span #${distCount} (${activeMeasureFormatted.primary})`;
+                              setNamingModal({
+                                type: 'distance',
+                                subMode: 'distance',
+                                defaultName: defName,
+                                points: [measurePts[0], measurePts[1]],
+                                rawUnits: activeMeasureDistance!,
+                                formattedPrimary: activeMeasureFormatted.primary,
+                                formattedSecondary: `${activeMeasureFormatted.feetInches} | ${activeMeasureFormatted.mm}`,
+                                metadata: {
+                                  deltaX: Number((Math.abs(measurePts[1][0] - measurePts[0][0]) * unitScaleToM).toFixed(3)),
+                                  deltaY: Number((Math.abs(measurePts[1][1] - measurePts[0][1]) * unitScaleToM).toFixed(3)),
+                                },
+                              });
+                              setTempMeasureName(defName);
                             }}
-                            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200"
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-white flex items-center gap-1 shadow-sm transition active:scale-95"
+                            title="Save this measurement"
+                          >
+                            <Bookmark className="w-3.5 h-3.5" />
+                            <span>Save</span>
+                          </button>
+                          <button
+                            onClick={() => setMeasurePts([])}
+                            className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 shrink-0"
                           >
                             Clear
                           </button>
@@ -1582,9 +2289,9 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                         <div className="flex items-center gap-2">
                           <Ruler className="w-4 h-4 text-zinc-300 shrink-0" />
                           <span>
-                            {measureSubMode === 'area-pick'
-                              ? 'Tap inside any closed polygon or room to get its area'
-                              : `Tap 3+ points (OSNAP) to measure polygon area (${measurePts.length} pts)`}
+                            {measurePts.length === 0
+                              ? 'Tap 1st point on DWG to measure distance'
+                              : 'Tap 2nd point to complete measurement (snaps to ortho)'}
                           </span>
                         </div>
                         {measurePts.length > 0 && (
@@ -1596,165 +2303,429 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                           </button>
                         )}
                       </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Right Zoom Controls */}
-                <div className="absolute right-2 bottom-24 flex flex-col gap-1.5 z-20">
-                  <button
-                    onClick={() => setZoom((z) => z * 1.3)}
-                    className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
-                    title="Zoom In"
-                  >
-                    <ZoomIn className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => setZoom((z) => z / 1.3)}
-                    className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
-                    title="Zoom Out"
-                  >
-                    <ZoomOut className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={fitDrawing}
-                    className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
-                    title="Fit Plan to Screen"
-                  >
-                    <Maximize2 className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* Bottom Mobile-First Floating Tool Dock */}
-                <div className="absolute bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/90 p-1 rounded-2xl shadow-2xl max-w-[96vw]">
-                  <button
-                    onClick={() => setToolMode('pan')}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${
-                      toolMode === 'pan'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-zinc-300 hover:bg-zinc-800'
-                    }`}
-                  >
-                    <Hand className="w-3.5 h-3.5" />
-                    <span>Pan</span>
-                  </button>
-
-                  <button
-                    onClick={() => setToolMode((m) => (m === 'measure' ? 'pan' : 'measure'))}
-                    className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${
-                      toolMode === 'measure'
-                        ? 'bg-blue-600 text-white shadow-sm'
-                        : 'bg-zinc-900 text-zinc-300 border border-blue-500/30 hover:bg-blue-900/60'
-                    }`}
-                  >
-                    <Ruler className="w-3.5 h-3.5" />
-                    <span>Measure</span>
-                  </button>
-
-                  <div className="h-5 w-px bg-zinc-800 mx-0.5 shrink-0" />
-
-                  {/* Drawing Unit Scale Selector */}
-                  <select
-                    value={unitScaleToM}
-                    onChange={(e) => onChangeUnitScale(Number(e.target.value))}
-                    className="bg-zinc-950 border border-zinc-700 rounded-xl px-2 py-2 text-xs font-medium text-zinc-200 shrink-0 max-w-[84px]"
-                    title="Calibrate DWG Measurement Units"
-                  >
-                    {UNIT_OPTIONS.map((u) => (
-                      <option key={u.label} value={u.scale}>
-                        {u.label}
-                      </option>
-                    ))}
-                  </select>
-
-                  <button
-                    onClick={() => setShowLayersSheet((v) => !v)}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${
-                      showLayersSheet ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-zinc-800'
-                    }`}
-                  >
-                    <Layers className="w-3.5 h-3.5" />
-                    <span>Layers</span>
-                  </button>
-
-                  <button
-                    onClick={() =>
-                      setColorMode((c) => (c === 'cad' ? 'blueprint' : c === 'blueprint' ? 'mono' : 'cad'))
-                    }
-                    className="px-2.5 py-2 rounded-xl text-xs font-semibold text-zinc-300 hover:bg-zinc-800 shrink-0"
-                    title="Cycle CAD Color Mode"
-                  >
-                    {colorMode}
-                  </button>
-                </div>
-
-                {/* Slide-up Layer Drawer */}
-                {showLayersSheet && (
-                  <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-[92%] max-w-sm max-h-72 bg-zinc-900/95 backdrop-blur-md border border-zinc-700 rounded-2xl shadow-2xl z-30 flex flex-col overflow-hidden">
-                    <div className="px-3.5 py-2.5 border-b border-zinc-800 flex items-center justify-between">
-                      <span className="text-xs font-medium text-white">
-                        Cleaned View Layers ({layers.length})
-                      </span>
-                      <div className="flex items-center gap-2">
-                        {hiddenLayers.size > 0 && (
+                    )
+                  ) : activeAreaFormatted ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-[10px] font-medium text-zinc-300 truncate">
+                          {measureSubMode === 'area-pick'
+                            ? (selectedAreaShape || hoverAreaShape)?.label || 'Closed Area'
+                            : `Polygon Area (${measurePts.length} pts)`}
+                        </div>
+                        <div className="text-base sm:text-lg font-semibold font-mono text-white">
+                          {activeAreaFormatted.sqm}{' '}
+                          <span className="text-xs font-semibold text-zinc-300">
+                            ({activeAreaFormatted.sqft}
+                            {unitName === 'mm' ? ` | ${activeAreaFormatted.sqmm}` : ''})
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-mono text-zinc-400">
+                          Perimeter: {activeAreaFormatted.perim.meters} ({activeAreaFormatted.perim.feetInches})
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          onClick={() => {
+                            const areaCount = savedMeasurements.filter((m) => m.type === 'area').length + 1;
+                            const roomLabel = (selectedAreaShape || hoverAreaShape)?.label;
+                            const defName = roomLabel
+                              ? roomLabel.replace(/Closed Polyline |Hatch Area /i, '')
+                              : `Area #${areaCount} (${activeAreaFormatted.sqm})`;
+                            setNamingModal({
+                              type: 'area',
+                              subMode: measureSubMode,
+                              defaultName: defName,
+                              points: activeAreaPts,
+                              rawUnits: activeAreaMetrics!.rawArea,
+                              formattedPrimary: activeAreaFormatted.sqm,
+                              formattedSecondary: `${activeAreaFormatted.sqft}${unitName === 'mm' ? ` | ${activeAreaFormatted.sqmm}` : ''}`,
+                              metadata: {
+                                perimeter: activeAreaFormatted.perim.meters,
+                              },
+                            });
+                            setTempMeasureName(defName);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-white flex items-center gap-1 shadow-sm transition active:scale-95"
+                          title="Save this area measurement"
+                        >
+                          <Bookmark className="w-3.5 h-3.5" />
+                          <span>Save</span>
+                        </button>
+                        {measureSubMode === 'area-points' && measurePts.length > 0 && (
                           <button
-                            onClick={() => setHiddenLayers(new Set())}
-                            className="text-[11px] text-blue-400 hover:underline"
+                            onClick={() => setMeasurePts((prev) => prev.slice(0, -1))}
+                            className="px-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[11px] font-medium text-zinc-200"
                           >
-                            Show All
+                            Undo
                           </button>
                         )}
                         <button
-                          onClick={() => setShowLayersSheet(false)}
-                          className="p-1 text-zinc-400 hover:text-white"
+                          onClick={() => {
+                            setMeasurePts([]);
+                            setSelectedAreaShape(null);
+                            setHoverAreaShape(null);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200"
                         >
-                          <X className="w-4 h-4" />
+                          Clear
                         </button>
                       </div>
                     </div>
-                    <div className="overflow-y-auto divide-y divide-zinc-800/60 p-1.5">
-                      {layers.map((lyr: any) => {
-                        const visible = !hiddenLayers.has(lyr.name);
-                        return (
-                          <button
-                            key={lyr.name}
-                            onClick={() => {
-                              setHiddenLayers((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(lyr.name)) next.delete(lyr.name);
-                                else next.add(lyr.name);
-                                return next;
-                              });
-                            }}
-                            className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between hover:bg-zinc-800/60 text-xs"
-                          >
-                            <div className="flex items-center gap-2 truncate">
-                              <span
-                                className="w-2.5 h-2.5 rounded-full shrink-0"
-                                style={{ backgroundColor: lyr.color_hex || '#f8fafc' }}
-                              />
-                              <span className={`font-mono truncate ${visible ? 'text-zinc-100' : 'text-zinc-500 line-through'}`}>
-                                {lyr.name}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="text-[10px] text-zinc-400">{lyr.entity_count}</span>
-                              {visible ? (
-                                <Eye className="w-3.5 h-3.5 text-zinc-300" />
-                              ) : (
-                                <EyeOff className="w-3.5 h-3.5 text-zinc-500" />
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
+                  ) : (
+                    <div className="flex items-center justify-between gap-2 text-xs text-blue-200">
+                      <div className="flex items-center gap-2">
+                        <Ruler className="w-4 h-4 text-zinc-300 shrink-0" />
+                        <span>
+                          {measureSubMode === 'area-pick'
+                            ? 'Tap inside any closed polygon or room to get its area'
+                            : `Tap 3+ points (OSNAP) to measure polygon area (${measurePts.length} pts)`}
+                        </span>
+                      </div>
+                      {measurePts.length > 0 && (
+                        <button
+                          onClick={() => setMeasurePts([])}
+                          className="text-[11px] underline text-zinc-300"
+                        >
+                          Reset
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Right Zoom Controls */}
+              <div className="absolute right-2 bottom-24 flex flex-col gap-1.5 z-20">
+                <button
+                  onClick={() => setZoom((z) => z * 1.3)}
+                  className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
+                  title="Zoom In"
+                >
+                  <ZoomIn className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => setZoom((z) => z / 1.3)}
+                  className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
+                  title="Zoom Out"
+                >
+                  <ZoomOut className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={fitDrawing}
+                  className="p-3 rounded-xl bg-zinc-900/90 border border-zinc-700 text-zinc-200 hover:bg-zinc-800 active:scale-95 shadow-lg"
+                  title="Fit Plan to Screen"
+                >
+                  <Maximize2 className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Bottom Mobile-First Floating Tool Dock */}
+              <div className="absolute bottom-[max(12px,env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 bg-zinc-900/95 backdrop-blur-md border border-zinc-700/90 p-1 rounded-2xl shadow-2xl max-w-[96vw]">
+                <button
+                  onClick={() => setToolMode('pan')}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${toolMode === 'pan'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                >
+                  <Hand className="w-3.5 h-3.5" />
+                  <span>Pan</span>
+                </button>
+
+                <button
+                  onClick={() => setToolMode((m) => (m === 'measure' ? 'pan' : 'measure'))}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${toolMode === 'measure'
+                      ? 'bg-blue-600 text-white shadow-sm'
+                      : 'bg-zinc-900 text-zinc-300 border border-blue-500/30 hover:bg-blue-900/60'
+                    }`}
+                >
+                  <Ruler className="w-3.5 h-3.5" />
+                  <span>Measure</span>
+                </button>
+
+                <button
+                  onClick={() => setShowSavedDrawer((v) => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${showSavedDrawer
+                      ? 'bg-emerald-600 text-white'
+                      : savedMeasurements.length > 0
+                        ? 'bg-zinc-900 text-emerald-300 border border-emerald-500/40 hover:bg-zinc-800'
+                        : 'text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                  title="View saved measurements"
+                >
+                  <Bookmark className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Saved ({savedMeasurements.length})</span>
+                </button>
+
+                <div className="h-5 w-px bg-zinc-800 mx-0.5 shrink-0" />
+
+                {/* Drawing Unit Scale Selector */}
+                <select
+                  value={unitScaleToM}
+                  onChange={(e) => onChangeUnitScale(Number(e.target.value))}
+                  className="bg-zinc-950 border border-zinc-700 rounded-xl px-2 py-2 text-xs font-medium text-zinc-200 shrink-0 max-w-[84px]"
+                  title="Calibrate DWG Measurement Units"
+                >
+                  {UNIT_OPTIONS.map((u) => (
+                    <option key={u.label} value={u.scale}>
+                      {u.label}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  onClick={() => setShowLayersSheet((v) => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium transition shrink-0 active:scale-95 min-h-[40px] ${showLayersSheet ? 'bg-blue-600 text-white' : 'text-zinc-300 hover:bg-zinc-800'
+                    }`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>Layers</span>
+                </button>
+
+                <button
+                  onClick={() =>
+                    setColorMode((c) => (c === 'cad' ? 'blueprint' : c === 'blueprint' ? 'mono' : 'cad'))
+                  }
+                  className="px-2.5 py-2 rounded-xl text-xs font-semibold text-zinc-300 hover:bg-zinc-800 shrink-0"
+                  title="Cycle CAD Color Mode"
+                >
+                  {colorMode}
+                </button>
+              </div>
+
+              {/* Slide-up Layer Drawer */}
+              {showLayersSheet && (
+                <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-[92%] max-w-sm max-h-72 bg-zinc-900/95 backdrop-blur-md border border-zinc-700 rounded-2xl shadow-2xl z-30 flex flex-col overflow-hidden">
+                  <div className="px-3.5 py-2.5 border-b border-zinc-800 flex items-center justify-between">
+                    <span className="text-xs font-medium text-white">
+                      Cleaned View Layers ({layers.length})
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {hiddenLayers.size > 0 && (
+                        <button
+                          onClick={() => setHiddenLayers(new Set())}
+                          className="text-[11px] text-blue-400 hover:underline"
+                        >
+                          Show All
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setShowLayersSheet(false)}
+                        className="p-1 text-zinc-400 hover:text-white"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
                     </div>
                   </div>
-                )}
-              </>
-            )}
-          </div>
+                  <div className="overflow-y-auto divide-y divide-zinc-800/60 p-1.5">
+                    {layers.map((lyr: any) => {
+                      const visible = !hiddenLayers.has(lyr.name);
+                      return (
+                        <button
+                          key={lyr.name}
+                          onClick={() => {
+                            setHiddenLayers((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(lyr.name)) next.delete(lyr.name);
+                              else next.add(lyr.name);
+                              return next;
+                            });
+                          }}
+                          className="w-full px-2.5 py-1.5 rounded-lg flex items-center justify-between hover:bg-zinc-800/60 text-xs"
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: lyr.color_hex || '#f8fafc' }}
+                            />
+                            <span className={`font-mono truncate ${visible ? 'text-zinc-100' : 'text-zinc-500 line-through'}`}>
+                              {lyr.name}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] text-zinc-400">{lyr.entity_count}</span>
+                            {visible ? (
+                              <Eye className="w-3.5 h-3.5 text-zinc-300" />
+                            ) : (
+                              <EyeOff className="w-3.5 h-3.5 text-zinc-500" />
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Slide-up Saved Measurements Drawer */}
+              {showSavedDrawer && (
+                <div className="absolute bottom-16 right-3 sm:right-6 w-[94%] max-w-sm max-h-80 bg-zinc-900/95 backdrop-blur-md border border-zinc-700 rounded-2xl shadow-2xl z-40 flex flex-col overflow-hidden">
+                  <div className="px-3.5 py-2.5 border-b border-zinc-800 flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Bookmark className="w-4 h-4 text-emerald-400 shrink-0" />
+                      <span className="text-xs font-semibold text-white truncate">
+                        Saved Measurements ({savedMeasurements.length})
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {savedMeasurements.length > 0 && (
+                        <button
+                          onClick={() => {
+                            if (window.confirm('Clear all saved measurements?')) {
+                              persistSavedMeasurements([]);
+                              setFocusedMeasurementId(null);
+                            }
+                          }}
+                          className="text-[11px] text-zinc-400 hover:text-red-400 transition"
+                        >
+                          Clear All
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setShowSavedDrawer(false)}
+                        className="p-1 text-zinc-400 hover:text-white"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-y-auto divide-y divide-zinc-800/60 p-1.5 space-y-1">
+                    {savedMeasurements.length === 0 ? (
+                      <div className="py-8 text-center text-zinc-400 text-xs space-y-1">
+                        <Bookmark className="w-6 h-6 mx-auto text-zinc-600" />
+                        <p className="font-medium text-zinc-300">No saved measurements yet</p>
+                        <p className="text-[11px] text-zinc-500 max-w-xs mx-auto">
+                          Use the Measure tool to measure distances or room areas, then tap Save to keep them.
+                        </p>
+                      </div>
+                    ) : (
+                      savedMeasurements.map((m) => {
+                        const isFocused = m.id === focusedMeasurementId;
+                        const isEditing = m.id === editingMeasureId;
+                        return (
+                          <div
+                            key={m.id}
+                            className={`p-2.5 rounded-xl transition ${isFocused
+                                ? 'bg-emerald-950/40 border border-emerald-500/40'
+                                : 'hover:bg-zinc-800/60 border border-transparent'
+                              }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-start gap-2 min-w-0 flex-1">
+                                <span className="mt-0.5 p-1 rounded-lg bg-zinc-800 text-emerald-400 shrink-0">
+                                  {m.type === 'distance' ? (
+                                    <Ruler className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <Maximize2 className="w-3.5 h-3.5" />
+                                  )}
+                                </span>
+                                <div className="min-w-0 flex-1">
+                                  {isEditing ? (
+                                    <div className="flex items-center gap-1">
+                                      <input
+                                        type="text"
+                                        value={editingMeasureText}
+                                        onChange={(e) => setEditingMeasureText(e.target.value)}
+                                        className="bg-zinc-950 border border-emerald-500 rounded px-1.5 py-0.5 text-xs text-white focus:outline-none flex-1"
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                          if (e.key === 'Enter') {
+                                            persistSavedMeasurements(
+                                              savedMeasurements.map((x) =>
+                                                x.id === m.id
+                                                  ? { ...x, name: editingMeasureText.trim() || x.name }
+                                                  : x
+                                              )
+                                            );
+                                            setEditingMeasureId(null);
+                                          } else if (e.key === 'Escape') {
+                                            setEditingMeasureId(null);
+                                          }
+                                        }}
+                                      />
+                                      <button
+                                        onClick={() => {
+                                          persistSavedMeasurements(
+                                            savedMeasurements.map((x) =>
+                                              x.id === m.id
+                                                ? { ...x, name: editingMeasureText.trim() || x.name }
+                                                : x
+                                            )
+                                          );
+                                          setEditingMeasureId(null);
+                                        }}
+                                        className="p-1 rounded bg-emerald-600 text-white"
+                                      >
+                                        <Check className="w-3 h-3" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-xs font-medium text-white truncate min-w-0">
+                                        {m.name}
+                                      </span>
+                                      <button
+                                        onClick={() => {
+                                          setEditingMeasureId(m.id);
+                                          setEditingMeasureText(m.name);
+                                        }}
+                                        className="p-0.5 text-zinc-500 hover:text-zinc-300 transition shrink-0"
+                                        title="Rename measurement"
+                                      >
+                                        <Edit2 className="w-2.5 h-2.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                  <div className="text-sm font-semibold font-mono text-emerald-300 mt-0.5">
+                                    {m.formattedPrimary}
+                                  </div>
+                                  <div className="text-[11px] font-mono text-zinc-400 truncate">
+                                    {m.formattedSecondary}
+                                    {m.metadata?.deltaX !== undefined && m.metadata?.deltaY !== undefined ? (
+                                      <span> · ΔX:{m.metadata.deltaX}m · ΔY:{m.metadata.deltaY}m</span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() => {
+                                    zoomToMeasurement(m);
+                                    if (window.innerWidth < 640) setShowSavedDrawer(false);
+                                  }}
+                                  className={`px-2 py-1 rounded-lg text-xs font-medium transition ${isFocused
+                                      ? 'bg-emerald-600 text-white'
+                                      : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-200'
+                                    }`}
+                                  title="Focus and zoom to measurement"
+                                >
+                                  Focus
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    persistSavedMeasurements(savedMeasurements.filter((x) => x.id !== m.id));
+                                    if (focusedMeasurementId === m.id) setFocusedMeasurementId(null);
+                                  }}
+                                  className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-red-400 transition"
+                                  title="Delete measurement"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
+      </div>
 
       {/* Sheet Metadata Edit Modal */}
       {editingSheetMeta && (
@@ -1778,32 +2749,6 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                 className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
                 placeholder="e.g. Ground Floor Plan"
               />
-              {sheetAiBusy && (
-                <div className="text-[11px] text-zinc-400 flex items-center gap-1.5">
-                  <AiBadge />
-                  <span>Reading sheet layout context for name suggestion...</span>
-                </div>
-              )}
-              {sheetAiSuggestion && sheetAiSuggestion !== tempSheetName && (
-                <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-blue-500/10 border border-blue-500/25 text-xs">
-                  <div className="min-w-0 flex items-center gap-1.5">
-                    <AiBadge />
-                    <span className="text-zinc-200 truncate">
-                      Suggested: <strong>{sheetAiSuggestion}</strong>
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTempSheetName(sheetAiSuggestion);
-                      setSheetAiSuggestion(null);
-                    }}
-                    className="px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-medium text-[11px] shrink-0"
-                  >
-                    Apply
-                  </button>
-                </div>
-              )}
               {sheetPreviewUrl && (
                 <div className="flex items-center gap-2.5 p-2 rounded-xl bg-zinc-950 border border-zinc-800">
                   <img
@@ -1853,6 +2798,71 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                 className="px-4 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-medium text-white shadow"
               >
                 Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Naming / Save Measurement Modal */}
+      {namingModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-sm w-full p-4 space-y-3.5 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Bookmark className="w-4 h-4 text-emerald-400" />
+                <h3 className="text-sm font-medium text-white">Save Measurement</h3>
+              </div>
+              <button
+                onClick={() => setNamingModal(null)}
+                className="p-1 rounded-lg hover:bg-zinc-800 text-zinc-400"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="bg-zinc-950 border border-zinc-800/80 rounded-xl p-2.5">
+              <div className="text-[11px] text-zinc-400">Measured Value</div>
+              <div className="text-base font-semibold font-mono text-emerald-300">
+                {namingModal.formattedPrimary}
+              </div>
+              <div className="text-[11px] font-mono text-zinc-400">
+                {namingModal.formattedSecondary}
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-zinc-300">Measurement Name</label>
+              <input
+                type="text"
+                value={tempMeasureName}
+                onChange={(e) => setTempMeasureName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleCommitSave();
+                  }
+                }}
+                className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                placeholder={namingModal.defaultName}
+                autoFocus
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setNamingModal(null)}
+                className="px-3 py-1.5 rounded-xl bg-zinc-800 text-xs font-medium text-zinc-300 hover:bg-zinc-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCommitSave}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-medium text-white shadow"
+              >
+                Save Measurement
               </button>
             </div>
           </div>

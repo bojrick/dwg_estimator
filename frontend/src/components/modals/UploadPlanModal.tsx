@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, X, FileCode2, RefreshCw, Clock } from 'lucide-react';
 import { PlanDiscipline, DISCIPLINES, UploadProgressState } from '../../types/plan';
-import { AiBadge } from '../ui/AiBadge';
 
 interface UploadPlanModalProps {
   isOpen: boolean;
@@ -21,8 +20,6 @@ interface UploadPlanModalProps {
   uploadProgress: UploadProgressState | null;
   uploadError: string | null;
   onSubmit: (e: React.FormEvent) => void;
-  onCleanTitleAi?: () => void;
-  isAiCleaningTitle?: boolean;
 }
 
 export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
@@ -43,8 +40,6 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
   uploadProgress,
   uploadError,
   onSubmit,
-  onCleanTitleAi,
-  isAiCleaningTitle = false,
 }) => {
   const isCustomProject = Boolean(uploadProject && !distinctProjects.includes(uploadProject));
   const [creatingNewProject, setCreatingNewProject] = useState<boolean>(isCustomProject);
@@ -223,25 +218,11 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
             </div>
           </div>
 
-          {/* 4. Plan Title + AI Clean Button */}
+          {/* 4. Plan Title */}
           <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-medium text-zinc-200">
-                4. Plan Title (Optional — auto-detected from sheet title)
-              </label>
-              {onCleanTitleAi && uploadDwgFiles.length > 0 && (
-                <button
-                  type="button"
-                  onClick={onCleanTitleAi}
-                  disabled={uploading || isAiCleaningTitle}
-                  className="inline-flex items-center gap-1.5 text-[11px] text-zinc-300 hover:text-white transition disabled:opacity-50"
-                  title="Uses AI to clean up raw drawing filename into a standardized title"
-                >
-                  <AiBadge label="AI" />
-                  <span>{isAiCleaningTitle ? 'Cleaning...' : 'Clean title'}</span>
-                </button>
-              )}
-            </div>
+            <label className="block text-xs font-medium text-zinc-200 mb-1">
+              4. Plan Title (Optional — auto-detected from sheet title)
+            </label>
             <input
               type="text"
               value={uploadTitle}

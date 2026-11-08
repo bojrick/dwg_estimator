@@ -45,25 +45,10 @@ def test_infer_discipline_and_project():
 def test_plans_api_project_and_discipline():
     init_db()
     with Session(engine) as session:
-        data = list_plans(session=session)
-        assert "projects" in data
-        assert "plans" in data
-        if data["plans"]:
-            p0 = data["plans"][0]
-            assert "project_name" in p0
-            assert "discipline" in p0
-            orig_disc = p0["discipline"]
-            res = update_plan_view_or_units(
-                p0["id"],
-                UpdatePlanRequest(discipline="fire"),
-                session=session,
-            )
-            assert res["plan"]["discipline"] == "fire"
-            update_plan_view_or_units(
-                p0["id"],
-                UpdatePlanRequest(discipline=orig_disc),
-                session=session,
-            )
+        # Unauthenticated list_plans returns empty plans
+        guest_data = list_plans(session=session)
+        assert guest_data["plans"] == []
+        assert guest_data["projects"] == []
 
 
 def _make_hs256_jwt(sub: str, email: str, secret: str) -> str:
@@ -118,7 +103,9 @@ def test_supabase_user_isolation():
 def test_custom_sheet_and_name_editing():
     init_db()
     with Session(engine) as session:
+        test_uid = "test-org-user"
         test_plan = Plan(
+            user_id=test_uid,
             name="Original Plan Name",
             project_name="Test Project",
             sheets_json=json.dumps([
@@ -157,6 +144,7 @@ def test_custom_sheet_and_name_editing():
                     sheets=custom_sheets,
                 ),
                 session=session,
+                user_id=test_uid,
             )
             assert res["plan"]["name"] == "Edited Master DWG File"
             assert len(res["plan"]["sheets"]) == 2
@@ -164,7 +152,7 @@ def test_custom_sheet_and_name_editing():
             assert "Working layout" in res["plan"]["sheets"][0]["description"]
             assert res["plan"]["sheets"][1]["name"] == "Section A-A"
         finally:
-            delete_plan(test_plan.id, session=session)
+            delete_plan(test_plan.id, session=session, user_id=test_uid)
 
 
 def test_merge_dwg_views_to_single_plan():
@@ -306,10 +294,11 @@ def test_single_sheet_isolation_cleans_clutter():
 
 def test_project_rename_delete_and_move_plan():
     init_db()
+    test_uid = "test-project-user"
     with Session(engine) as session:
         # Create test plans in a unique project
-        p1 = Plan(name="Tower Plan 1", project_name="Alpha Towers")
-        p2 = Plan(name="Tower Plan 2", project_name="Alpha Towers")
+        p1 = Plan(user_id=test_uid, name="Tower Plan 1", project_name="Alpha Towers")
+        p2 = Plan(user_id=test_uid, name="Tower Plan 2", project_name="Alpha Towers")
         session.add(p1)
         session.add(p2)
         session.commit()
@@ -321,6 +310,7 @@ def test_project_rename_delete_and_move_plan():
             "Alpha Towers",
             RenameProjectRequest(new_name="Beta Towers"),
             session=session,
+            user_id=test_uid,
         )
         assert res_rename["renamed"] is True
         assert res_rename["count"] >= 2
@@ -334,13 +324,14 @@ def test_project_rename_delete_and_move_plan():
             p1.id,
             UpdatePlanRequest(project_name="Gamma Complex"),
             session=session,
+            user_id=test_uid,
         )
         assert res_move["plan"]["project_name"] == "Gamma Complex"
         session.refresh(p1)
         assert p1.project_name == "Gamma Complex"
 
         # 3. Delete project Beta Towers (should delete p2)
-        res_del = delete_project("Beta Towers", session=session)
+        res_del = delete_project("Beta Towers", session=session, user_id=test_uid)
         assert res_del["deleted"] is True
         assert res_del["count"] >= 1
         assert session.get(Plan, p2.id) is None
@@ -348,7 +339,7 @@ def test_project_rename_delete_and_move_plan():
         assert session.get(Plan, p1.id) is not None
 
         # Clean up p1
-        delete_plan(p1.id, session=session)
+        delete_plan(p1.id, session=session, user_id=test_uid)
 
 
 if __name__ == "__main__":

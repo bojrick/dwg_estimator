@@ -160,6 +160,14 @@ export interface BbsMemberGroup {
   items: BbsBarItem[];
 }
 
+export type GeneralTableCategory =
+  | 'structural'
+  | 'door_window'
+  | 'room_finish'
+  | 'electrical'
+  | 'plumbing'
+  | 'general';
+
 export interface ExtractedCadTable {
   id: string;
   sheetId?: string;
@@ -172,7 +180,42 @@ export interface ExtractedCadTable {
     max_x: number;
     max_y: number;
   };
-  detectedType?: StructuralMemberType;
+  detectedType?: StructuralMemberType | GeneralTableCategory;
+  category?: GeneralTableCategory;
+}
+
+export type GeneralCadTable = ExtractedCadTable;
+
+export interface LsSpanDefinition {
+  id: string;
+  beamMark: string; // e.g. "B1-1"
+  clearSpanMm: number; // e.g. 3800
+  widthMm: number; // e.g. 230
+  depthMm: number; // e.g. 450
+  supportColLeftMm?: number; // e.g. 300
+  supportColRightMm?: number; // e.g. 400
+}
+
+export interface LongitudinalSectionDefinition {
+  id: string;
+  name: string; // e.g. "BEAM B1 (GRID 1): B1-1 ~ B1-3"
+  sheetId?: string;
+  windowBox?: BoxCoords;
+  spans: LsSpanDefinition[];
+  reinforcement: {
+    bottomContinuousBars?: { count: number; diameter: number };
+    bottomCurtailedBars?: { count: number; diameter: number; curtailRatio?: number };
+    topContinuousBars?: { count: number; diameter: number };
+    supportTopExtraBars?: { count: number; diameter: number; extensionRatio?: number };
+    stirrups?: {
+      diameter: number;
+      legs?: number;
+      spacingEndMm: number;
+      spacingMidMm: number;
+      confinementZoneMm?: number;
+    };
+  };
+  notes?: string;
 }
 
 export interface RebarTextCandidate {
@@ -206,6 +249,7 @@ export interface StructuralEstimateState {
   definedMembers?: StructuralMemberDefinition[];
   members: BbsMemberGroup[];
   scheduleTables: ExtractedCadTable[];
+  longitudinalSections?: LongitudinalSectionDefinition[];
   parameters: {
     wastagePct: number;               // e.g. 3% - 5%
     bindingWirePct: number;           // e.g. 1%

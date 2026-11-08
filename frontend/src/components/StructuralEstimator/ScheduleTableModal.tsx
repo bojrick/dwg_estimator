@@ -28,7 +28,7 @@ interface ScheduleTableModalProps {
   onShareToProject?: (table: ExtractedCadTable) => void;
 }
 
-const CATEGORY_ROLE_OPTIONS: Record<StructuralMemberType, string[]> = {
+const CATEGORY_ROLE_OPTIONS: Record<string, string[]> = {
   beam: [
     'Member ID',
     'Section Size (WxD)',
@@ -74,6 +74,43 @@ const CATEGORY_ROLE_OPTIONS: Record<StructuralMemberType, string[]> = {
   ],
   staircase: ['Member ID', 'Waist Slab Thk', 'Main Waist Rebar', 'Distribution Rebar', 'Remarks / Notes', 'Ignore / Custom'],
   wall: ['Member ID', 'Wall Thickness', 'Vertical Rebar', 'Horizontal Rebar', 'Remarks / Notes', 'Ignore / Custom'],
+  door_window: [
+    'Tag / Mark',
+    'Width (mm)',
+    'Height (mm)',
+    'Sill Height',
+    'Lintel Level',
+    'Type / Shutter',
+    'Material / Glazing',
+    'Location',
+    'Remarks',
+  ],
+  room_finish: [
+    'Room / Area',
+    'Floor Finish',
+    'Skirting',
+    'Wall Finish',
+    'Ceiling Finish',
+    'Remarks',
+  ],
+  electrical: [
+    'Circuit ID',
+    'Connected Load',
+    'Breaker Rating',
+    'Phase',
+    'Wire Gauge',
+    'Conduit Size',
+    'Remarks',
+  ],
+  general: [
+    'Item ID',
+    'Description',
+    'Quantity',
+    'Unit',
+    'Dimensions',
+    'Specification',
+    'Remarks',
+  ],
   other: ['Member ID', 'Section Size (WxD)', 'Main Reinforcement', 'Secondary Rebar', 'Stirrups / Ties', 'Remarks / Notes', 'Ignore / Custom'],
 };
 
@@ -85,17 +122,18 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
   onShareToProject,
 }) => {
   const [table, setTable] = useState<ExtractedCadTable>(initialTable);
-  const [memberType, setMemberType] = useState<StructuralMemberType>(
-    initialTable.detectedType || 'column'
+  const [memberType, setMemberType] = useState<string>(
+    String(initialTable.detectedType || 'column')
   );
 
   // Civil BBS Parameters
   const [clearCoverMm, setClearCoverMm] = useState<number>(() => {
-    return (initialTable.detectedType || 'column') === 'column'
+    const dt = String(initialTable.detectedType || 'column');
+    return dt === 'column'
       ? 40
-      : (initialTable.detectedType || 'column') === 'beam'
+      : dt === 'beam'
       ? 25
-      : (initialTable.detectedType || 'column') === 'footing'
+      : dt === 'footing'
       ? 50
       : 20;
   });
@@ -198,20 +236,20 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
 
   const handleSaveOnly = () => {
     if (onSaveTable) {
-      onSaveTable({ ...table, detectedType: memberType });
+      onSaveTable({ ...table, detectedType: memberType as any });
     }
   };
 
   const handleConvert = () => {
     const items = convertScheduleTableToBbsItems(
-      { ...table, detectedType: memberType },
+      { ...table, detectedType: memberType as any },
       {
         clearCoverMm,
         defaultFloorHeightM: floorHeightM,
         defaultBeamSpanM: beamSpanM,
       }
     );
-    onImportToBbs(items, { ...table, detectedType: memberType });
+    onImportToBbs(items, { ...table, detectedType: memberType as any });
     onClose();
   };
 
@@ -282,11 +320,11 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
         <div className="bg-zinc-900/90 px-6 py-3 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-1.5">
-              <span className="text-zinc-400 font-medium">Schedule Type:</span>
+              <span className="text-zinc-400 font-medium">Table Role:</span>
               <select
                 value={memberType}
                 onChange={(e) => {
-                  const nextType = e.target.value as StructuralMemberType;
+                  const nextType = e.target.value as any;
                   setMemberType(nextType);
                   setClearCoverMm(
                     nextType === 'column' ? 40 : nextType === 'beam' ? 25 : nextType === 'footing' ? 50 : 20
@@ -294,11 +332,21 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
                 }}
                 className="bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1 text-zinc-200 font-medium"
               >
-                <option value="column">Column Schedule</option>
-                <option value="beam">Beam Schedule</option>
-                <option value="footing">Footing Schedule</option>
-                <option value="slab">Slab Schedule</option>
-                <option value="other">General Member</option>
+                <optgroup label="Structural Schedules">
+                  <option value="column">Column Schedule</option>
+                  <option value="beam">Beam Schedule</option>
+                  <option value="footing">Footing Schedule</option>
+                  <option value="slab">Slab Schedule</option>
+                </optgroup>
+                <optgroup label="Architectural Schedules">
+                  <option value="door_window">Door & Window Schedule</option>
+                  <option value="room_finish">Room Finish Schedule</option>
+                </optgroup>
+                <optgroup label="MEP & General">
+                  <option value="electrical">Electrical Schedule</option>
+                  <option value="general">General Bill of Quantities</option>
+                  <option value="other">General CAD Table</option>
+                </optgroup>
               </select>
             </div>
 
@@ -358,8 +406,8 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
           <div className="flex items-center gap-2">
             {onShareToProject && (
               <button
-                onClick={() => onShareToProject({ ...table, detectedType: memberType })}
-                className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-blue-300 text-xs font-semibold flex items-center gap-1 transition"
+                onClick={() => onShareToProject({ ...table, detectedType: memberType as any })}
+                className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-750 text-blue-300 text-xs font-semibold flex items-center gap-1 transition"
                 title="Share this schedule table with all plans in the project"
               >
                 <Share2 className="w-3.5 h-3.5 text-blue-400" />

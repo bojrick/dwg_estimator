@@ -11,7 +11,6 @@ import {
   FileSpreadsheet,
 } from 'lucide-react';
 import { DISCIPLINES, PlanDiscipline } from '../../types/plan';
-import { AiBadge } from '../ui/AiBadge';
 
 interface PlanCardProps {
   plan: any;
@@ -22,7 +21,6 @@ interface PlanCardProps {
   onRenamePlan: (plan: any) => void;
   onSharePlan: (plan: any) => void;
   onDeletePlan: (plan: any) => void;
-  onCleanTitleAi?: (plan: any) => void;
 }
 
 export const PlanCard: React.FC<PlanCardProps> = ({
@@ -34,7 +32,6 @@ export const PlanCard: React.FC<PlanCardProps> = ({
   onRenamePlan,
   onSharePlan,
   onDeletePlan,
-  onCleanTitleAi,
 }) => {
   const s = plan.summary || {};
   const totalSheets = s.total_sheets_in_dwg || (plan.sheets?.length ?? 0);
@@ -63,15 +60,6 @@ export const PlanCard: React.FC<PlanCardProps> = ({
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            {onCleanTitleAi && (
-              <button
-                onClick={() => onCleanTitleAi(plan)}
-                className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-blue-300 transition flex items-center gap-1 text-[11px]"
-                title="Clean plan title with AI"
-              >
-                <AiBadge label="AI" />
-              </button>
-            )}
             <button
               onClick={() => onMovePlan(plan)}
               className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition"

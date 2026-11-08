@@ -574,143 +574,252 @@ def audit_bbs_is456(
     }
 
 
-def _sanitize_display_name(raw_str: str, fallback: str = "") -> str:
-    txt = re.sub(r"\.(dwg|dxf|pdf)$", "", str(raw_str or ""), flags=re.I)
-    txt = re.sub(r"[_]+", " ", txt)
-    txt = re.sub(r"\s+", " ", txt).strip(" -.")
-    if not txt:
-        return fallback
-    if txt.isupper() or txt.islower():
-        txt = " ".join(w if (w.isupper() and len(w) <= 3 and any(c.isdigit() for c in w)) else w.capitalize() for w in txt.split())
-    return txt
-
-
-def _infer_sheet_title_from_texts(box_texts: List[str]) -> Optional[str]:
-    title_kw = re.compile(
-        r"\b(plan|layout|schedule|section|elevation|detail|details|diagram|riser|footing|column|beam|slab|floor|terrace|roof|basement|ground|plumbing|electrical|fire|sprinkler|framing)\b",
-        re.I,
-    )
-    best: Optional[str] = None
-    best_score = 0
-    for raw in box_texts:
-        t = re.sub(r"\s+", " ", str(raw or "")).strip(" -:_.")
-        if len(t) < 4 or len(t) > 56 or re.fullmatch(r"[\d\W]+", t):
-            continue
-        if re.search(r"\b(note|notes|scale|date|drawn|checked|approved|client|architect|consultant|dwg\s*no)\b", t, re.I):
-            continue
-        matches = len(title_kw.findall(t))
-        if matches > 0:
-            score = matches * 10 + (6 if len(t) <= 36 else 0)
-            if score > best_score:
-                best_score = score
-                best = t
-    return _sanitize_display_name(best, "") if best else None
-
-
-def clean_names_and_sheets_ai(
+def infer_longitudinal_section_ai(
     session: Optional[Session],
-    filename: str,
-    sheets: List[Dict[str, Any]],
-    candidate_texts: Optional[List[str]] = None,
+    window_texts: List[str],
+    candidate_beams: Optional[List[str]] = None,
+    scale_to_m: float = 0.001,
 ) -> Dict[str, Any]:
     """
-    On-demand AI assistant to clean raw filenames, standardize sheet names, and infer disciplines.
-    Uses per-sheet bounding-box texts when provided so sheet names reflect actual layout content.
-    Falls back to deterministic regex + CAD title-block keyword extraction if AI API is unavailable.
+    Infers continuous beam Longitudinal Section (L-Section) details from windowed drawing texts.
+    Detects continuous spans, support column widths, continuous top/bottom bars,
+    support top extra bars, and stirrups.
+    Uses DeepInfra JSON LLM when available; falls back to deterministic regex parser.
     """
-    valid_disciplines = {"architectural", "electrical", "structural", "plumbing", "fire"}
-    stem = re.sub(r"\.(dwg|dxf|pdf)$", "", filename or "drawing", flags=re.I)
-    cleaned_stem = re.sub(r"[_.\-]+", " ", stem)
-    cleaned_stem = re.sub(r"\b(rev\s*\d+|final|working|cad|drawing)\b", "", cleaned_stem, flags=re.I).strip()
-    cleaned_title = _sanitize_display_name(cleaned_stem, "Architectural Drawing")
+    clean_texts = [re.sub(r"\s+", " ", str(t or "")).strip() for t in window_texts if str(t or "").strip()]
+    joined_text = " ".join(clean_texts)
 
-    all_sheet_texts: List[str] = list(candidate_texts or [])
-    for s in sheets:
-        for st in (s.get("candidate_texts") or [])[:15]:
-            all_sheet_texts.append(str(st))
+    # 1. Deterministic Baseline Extraction
+    # Name & Marks
+    detected_marks: List[str] = []
+    compound_range = re.search(r"\b([A-Z]{1,4}\d{1,3})-(\d{1,4})\s*(?:TO|THROUGH|THRU|-|–)\s*\1-(\d{1,4})\b", joined_text, re.I)
+    if compound_range:
+        prefix = compound_range.group(1).upper()
+        s_idx, e_idx = int(compound_range.group(2)), int(compound_range.group(3))
+        if 0 < e_idx - s_idx <= 25:
+            detected_marks = [f"{prefix}-{i}" for i in range(s_idx, e_idx + 1)]
 
-    # Infer discipline
-    disc = "architectural"
-    combined_probe = f"{filename} {' '.join(all_sheet_texts[:40])}".lower()
-    if re.search(r"\b(elec|power|light|switch|conduit|db)\b", combined_probe):
-        disc = "electrical"
-    elif re.search(r"\b(struct|beam|col|footing|rcc|slab|rebar)\b", combined_probe):
-        disc = "structural"
-    elif re.search(r"\b(plumb|drain|pipe|sewer|phe|sanitary)\b", combined_probe):
-        disc = "plumbing"
-    elif re.search(r"\b(fire|sprinkler|hydrant|extinguisher)\b", combined_probe):
-        disc = "fire"
+    if not detected_marks:
+        known_set = set((candidate_beams or []))
+        for t in clean_texts:
+            t_u = t.upper()
+            for km in known_set:
+                if km in t_u and km not in detected_marks:
+                    detected_marks.append(km)
 
-    cleaned_sheets: List[Dict[str, Any]] = []
-    for idx, s in enumerate(sheets):
-        sid = s.get("id") or f"sheet_{idx + 1}"
-        orig_name = str(s.get("name") or f"Sheet {idx + 1}").strip()
-        box_texts = [str(x) for x in (s.get("candidate_texts") or []) if x]
-        inferred_from_box = _infer_sheet_title_from_texts(box_texts) if box_texts else None
-        is_generic = bool(re.fullmatch(r"(sheet|view|frame|layout|window)\s*#?\d*", orig_name, re.I))
-        if is_generic and inferred_from_box:
-            s_clean = inferred_from_box
-        else:
-            s_clean = _sanitize_display_name(re.sub(r"[_.\-]+", " ", orig_name), inferred_from_box or f"Sheet {idx + 1}")
-        cleaned_sheets.append({"id": sid, "name": s_clean or f"Sheet {idx + 1}"})
+    if not detected_marks:
+        # Generic match for beam tokens: B1-1, B2-5, etc.
+        found = re.findall(r"\b([1-9]?[PFTBGRCS]?B-?\d{1,4}(?:-\d{1,4}|[A-Z])?)\b", joined_text, re.I)
+        seen = set()
+        for f in found:
+            fu = f.upper()
+            if fu not in seen:
+                seen.add(fu)
+                detected_marks.append(fu)
+
+    section_name = f"L-SEC: {' + '.join(detected_marks[:4])}" if detected_marks else "Longitudinal Section"
+    m_title = re.search(r"\b((?:L-?SEC|LONGITUDINAL\s*SECTION|BEAM\s*ELEVATION)[^,\n]{0,40})\b", joined_text, re.I)
+    if m_title:
+        section_name = m_title.group(1).strip()
+
+    # Dimensions / Spans (numbers >= 1500 and <= 15000 mm, or 1.5 to 15.0 m)
+    spans_found: List[int] = []
+    for t in clean_texts:
+        m_num = re.findall(r"\b(\d{4,5})\b", t)
+        for n in m_num:
+            val = int(n)
+            if 1200 <= val <= 18000:
+                spans_found.append(val)
+        m_m = re.findall(r"\b(\d{1,2}\.\d{1,2})\s*M\b", t, re.I)
+        for nm in m_m:
+            val = round(float(nm) * 1000)
+            if 1200 <= val <= 18000:
+                spans_found.append(val)
+
+    # Size (width x depth)
+    w_mm, d_mm = 230, 450
+    m_sz = re.search(r"(\d{2,4})\s*[*xX×/]\s*(\d{2,4})", joined_text)
+    if m_sz:
+        c_w, c_d = int(m_sz.group(1)), int(m_sz.group(2))
+        if 100 <= c_w <= 1500 and 150 <= c_d <= 2500:
+            w_mm, d_mm = c_w, c_d
+
+    # Column support widths (numbers 200 to 900)
+    col_widths: List[int] = []
+    for t in clean_texts:
+        m_col = re.search(r"(?:col|support|width|c\d+)[^0-9]{0,10}(\d{3})\b", t, re.I)
+        if m_col:
+            cw = int(m_col.group(1))
+            if 200 <= cw <= 1200:
+                col_widths.append(cw)
+    if not col_widths:
+        col_widths = [300, 400]
+
+    # Rebar callouts
+    # Bottom main
+    btm_bars = {"count": 3, "diameter": 20}
+    m_btm = re.search(r"(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:btm|bottom|main)", joined_text, re.I)
+    if m_btm:
+        btm_bars = {"count": int(m_btm.group(1)), "diameter": int(m_btm.group(2))}
+
+    # Curtailed bottom
+    curt_bars = {"count": 2, "diameter": 16, "curtailRatio": 0.15}
+    m_curt = re.search(r"(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:curtail|extra\s*btm)", joined_text, re.I)
+    if m_curt:
+        curt_bars = {"count": int(m_curt.group(1)), "diameter": int(m_curt.group(2)), "curtailRatio": 0.15}
+
+    # Top continuous
+    top_bars = {"count": 2, "diameter": 12}
+    m_top = re.search(r"(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:top|hanger|thru|through)", joined_text, re.I)
+    if m_top:
+        top_bars = {"count": int(m_top.group(1)), "diameter": int(m_top.group(2))}
+
+    # Support top extra
+    top_extra = {"count": 2, "diameter": 20, "extensionRatio": 0.33}
+    m_extra = re.search(r"(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:extra|support|hogging)", joined_text, re.I)
+    if m_extra:
+        top_extra = {"count": int(m_extra.group(1)), "diameter": int(m_extra.group(2)), "extensionRatio": 0.33}
+
+    # Stirrups
+    stirrups = {"diameter": 8, "legs": 2, "spacingEndMm": 100, "spacingMidMm": 175, "confinementZoneMm": int(2 * (d_mm - 40))}
+    m_stir = re.search(r"(\d{1,2})\s*(?:[tTyY#]|dia|mm)?\s*(?:@|at)\s*(\d{2,3})(?:\s*[/&]\s*(\d{2,3}))?", joined_text, re.I)
+    if m_stir:
+        dia = int(m_stir.group(1))
+        sp1 = int(m_stir.group(2))
+        sp2 = int(m_stir.group(3)) if m_stir.group(3) else sp1
+        stirrups["diameter"] = dia
+        stirrups["spacingEndMm"] = min(sp1, sp2)
+        stirrups["spacingMidMm"] = max(sp1, sp2)
+
+    # Build spans list
+    span_count = max(len(detected_marks), len(spans_found), 2)
+    spans_list = []
+    for i in range(span_count):
+        mk = detected_marks[i] if i < len(detected_marks) else f"Span {i + 1}"
+        span_len = spans_found[i] if i < len(spans_found) else 3800
+        c_left = col_widths[i % len(col_widths)]
+        c_right = col_widths[(i + 1) % len(col_widths)]
+        spans_list.append({
+            "id": f"span_{i + 1}",
+            "beamMark": mk,
+            "clearSpanMm": span_len,
+            "widthMm": w_mm,
+            "depthMm": d_mm,
+            "supportColLeftMm": c_left,
+            "supportColRightMm": c_right,
+        })
 
     fallback_result = {
-        "cleaned_title": cleaned_title,
-        "discipline": disc,
-        "sheets": cleaned_sheets,
+        "name": section_name,
+        "beamMarks": [s["beamMark"] for s in spans_list],
+        "spans": spans_list,
+        "reinforcement": {
+            "bottomContinuousBars": btm_bars,
+            "bottomCurtailedBars": curt_bars,
+            "topContinuousBars": top_bars,
+            "supportTopExtraBars": top_extra,
+            "stirrups": stirrups,
+        },
+        "notes": f"Inferred from CAD Longitudinal Section ({len(spans_list)} continuous spans)",
     }
 
+    # 2. AI Enhancement
     system_prompt = (
-        "You are an AEC CAD drawing organizer. Given a raw CAD filename, existing sheets (with optional text snippets "
-        "extracted from inside each sheet's layout box), and general drawing text snippets, "
-        "return a clean, professional, human-readable plan title (no underscores or file extensions), "
-        "the most appropriate discipline (one of 'architectural', 'electrical', 'structural', 'plumbing', 'fire'), "
-        "and concise, descriptive names for each sheet based on its layout box texts and title block (never leave underscores). "
-        "Return strict JSON matching: "
-        '{"cleaned_title": string, "discipline": string, "sheets": [{"id": string, "name": string}]}'
+        "You are an AEC structural CAD detailing expert. Given CAD drawing text and dimension callouts "
+        "extracted from a windowed continuous beam Longitudinal Section (L-Section / elevation), "
+        "parse the continuous spans and reinforcement detailing into JSON: "
+        "{"
+        "\"name\": string, "
+        "\"beamMarks\": [string], "
+        "\"spans\": [{\"beamMark\": string, \"clearSpanMm\": int, \"widthMm\": int, \"depthMm\": int, \"supportColLeftMm\": int, \"supportColRightMm\": int}], "
+        "\"reinforcement\": {"
+        "  \"bottomContinuousBars\": {\"count\": int, \"diameter\": int}, "
+        "  \"bottomCurtailedBars\": {\"count\": int, \"diameter\": int, \"curtailRatio\": float}, "
+        "  \"topContinuousBars\": {\"count\": int, \"diameter\": int}, "
+        "  \"supportTopExtraBars\": {\"count\": int, \"diameter\": int, \"extensionRatio\": float}, "
+        "  \"stirrups\": {\"diameter\": int, \"legs\": int, \"spacingEndMm\": int, \"spacingMidMm\": int, \"confinementZoneMm\": int}"
+        "}, "
+        "\"notes\": string"
+        "}"
     )
 
     user_payload = {
-        "filename": filename,
-        "current_sheets": [
-            {
-                "id": s.get("id") or f"sheet_{i+1}",
-                "name": s.get("name"),
-                "box_texts": [str(x) for x in (s.get("candidate_texts") or [])[:25]],
-            }
-            for i, s in enumerate(sheets)
-        ],
-        "candidate_texts": (candidate_texts or [])[:40],
+        "extracted_texts": clean_texts[:60],
+        "candidate_beams": candidate_beams or [],
+        "scale_to_m": scale_to_m,
     }
 
     ai_result = _call_deepinfra_json(
         session=session,
-        task_name="clean_names_and_sheets",
+        task_name="infer_longitudinal_section_v1",
         model=MODEL_TIER1_FAST,
         system_prompt=system_prompt,
         user_payload=user_payload,
-        max_tokens=600,
+        max_tokens=900,
     )
 
-    if ai_result and isinstance(ai_result, dict) and "cleaned_title" in ai_result:
-        ai_sheets_map = {
-            item.get("id"): _sanitize_display_name(str(item.get("name") or ""), "")
-            for item in (ai_result.get("sheets") or [])
-            if isinstance(item, dict) and item.get("id")
-        }
-        final_sheets = []
-        for s in cleaned_sheets:
-            sid = s["id"]
-            candidate_name = ai_sheets_map.get(sid) or s["name"]
-            final_sheets.append({"id": sid, "name": candidate_name})
-        ai_disc = str(ai_result.get("discipline") or disc).lower().strip()
-        if ai_disc not in valid_disciplines:
-            ai_disc = disc
-        return {
-            "cleaned_title": _sanitize_display_name(str(ai_result.get("cleaned_title") or ""), cleaned_title),
-            "discipline": ai_disc,
-            "sheets": final_sheets,
-        }
+    if ai_result and isinstance(ai_result, dict) and ai_result.get("spans"):
+        try:
+            parsed_spans = []
+            for idx, s in enumerate(ai_result.get("spans") or []):
+                if isinstance(s, dict):
+                    parsed_spans.append({
+                        "id": f"span_{idx + 1}",
+                        "beamMark": str(s.get("beamMark") or f"Span {idx + 1}"),
+                        "clearSpanMm": int(s.get("clearSpanMm") or 3800),
+                        "widthMm": int(s.get("widthMm") or w_mm),
+                        "depthMm": int(s.get("depthMm") or d_mm),
+                        "supportColLeftMm": int(s.get("supportColLeftMm") or 300),
+                        "supportColRightMm": int(s.get("supportColRightMm") or 400),
+                    })
+            if parsed_spans:
+                ai_reinf = ai_result.get("reinforcement") or {}
+                merged_reinf = dict(fallback_result["reinforcement"])
+
+                # Merge stirrups safely
+                if isinstance(ai_reinf.get("stirrups"), dict):
+                    ai_stir = ai_reinf["stirrups"]
+                    fb_stir = merged_reinf.get("stirrups") or {}
+                    try:
+                        merged_reinf["stirrups"] = {
+                            "diameter": int(ai_stir.get("diameter") or fb_stir.get("diameter") or 8),
+                            "legs": int(ai_stir.get("legs") or fb_stir.get("legs") or 2),
+                            "spacingEndMm": int(ai_stir.get("spacingEndMm") or fb_stir.get("spacingEndMm") or 100),
+                            "spacingMidMm": int(ai_stir.get("spacingMidMm") or fb_stir.get("spacingMidMm") or 175),
+                            "confinementZoneMm": int(ai_stir.get("confinementZoneMm") or fb_stir.get("confinementZoneMm") or 800),
+                        }
+                    except (ValueError, TypeError):
+                        pass
+
+                # Merge continuous bars safely
+                for key in ["bottomContinuousBars", "bottomCurtailedBars", "topContinuousBars", "supportTopExtraBars"]:
+                    if isinstance(ai_reinf.get(key), dict):
+                        ai_sub = ai_reinf[key]
+                        fb_sub = merged_reinf.get(key) or {}
+                        try:
+                            m_sub = dict(fb_sub)
+                            if ai_sub.get("count"):
+                                m_sub["count"] = int(ai_sub["count"])
+                            if ai_sub.get("diameter"):
+                                m_sub["diameter"] = int(ai_sub["diameter"])
+                            if "curtailRatio" in ai_sub and ai_sub["curtailRatio"] is not None:
+                                m_sub["curtailRatio"] = float(ai_sub["curtailRatio"])
+                            if "extensionRatio" in ai_sub and ai_sub["extensionRatio"] is not None:
+                                m_sub["extensionRatio"] = float(ai_sub["extensionRatio"])
+                            merged_reinf[key] = m_sub
+                        except (ValueError, TypeError):
+                            pass
+
+                return {
+                    "name": str(ai_result.get("name") or section_name),
+                    "beamMarks": [s["beamMark"] for s in parsed_spans],
+                    "spans": parsed_spans,
+                    "reinforcement": merged_reinf,
+                    "notes": str(ai_result.get("notes") or fallback_result["notes"]),
+                }
+        except Exception:
+            pass
 
     return fallback_result
+
 
