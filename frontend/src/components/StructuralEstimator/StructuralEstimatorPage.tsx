@@ -53,7 +53,10 @@ import {
   isExactTokenMatch,
 } from './tagScanner';
 import { cropRawDataToSheet } from '../SheetSelectorModal';
-import { extractBeamCrossSectionFromBBox } from './cadGeometryEngine';
+import {
+  extractBeamCrossSectionFromBBox,
+  extractContinuousBeamSpansFromWindow,
+} from './cadGeometryEngine';
 import { authFetch } from '../../auth';
 import { CadEstimatorCanvas, WorldBBox } from '../estimators/shared/CadEstimatorCanvas';
 import { VersionHistoryControl } from '../estimators/shared/VersionHistoryControl';
@@ -454,7 +457,7 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
       if (memberMap.has(disc.mark)) {
         const mem = memberMap.get(disc.mark)!;
         mem.countOnLayout = disc.countOnLayout;
-        if (detectedSpan) mem.spanMm = detectedSpan;
+        if (selectedScope !== 'beam' && detectedSpan) mem.spanMm = detectedSpan;
         if (disc.detectedGeometry) mem.detectedGeometry = disc.detectedGeometry;
         if (disc.layers[0]) mem.layerName = disc.layers[0];
         if (disc.sizeSource === 'inline_text' && disc.suggestedWidthMm && disc.suggestedDepthMm) {
@@ -473,7 +476,10 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
           countOnLayout: disc.countOnLayout,
           widthMm: disc.suggestedWidthMm || existing?.widthMm || (selectedScope === 'beam' ? 230 : 300),
           depthMm: disc.suggestedDepthMm || existing?.depthMm || 450,
-          spanMm: detectedSpan || existing?.spanMm || fallbackSpan,
+          spanMm:
+            selectedScope === 'beam'
+              ? existing?.spanMm || 0
+              : detectedSpan || existing?.spanMm || fallbackSpan,
           clearCoverMm: defaultCover,
           sizeSource: disc.sizeSource || 'manual',
           scheduleConflict: disc.scheduleConflict,
@@ -642,37 +648,62 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
           `Extracted section: ${cs.mark || 'Detail'} (${cs.widthMm || 230}×${cs.depthMm || 450}mm)`
         );
       } else if (toolMode === 'select_longitudinal_section') {
-        const textsInBox = (activeRaw?.texts || [])
-          .filter(
-            (t: any) =>
-              t &&
-              t.text &&
-              typeof t.x === 'number' &&
-              typeof t.y === 'number' &&
-              t.x >= bbox.min_x - 0.2 &&
-              t.x <= bbox.max_x + 0.2 &&
-              t.y >= bbox.min_y - 0.2 &&
-              t.y <= bbox.max_y + 0.2
-          )
-          .map((t: any) => String(t.text).trim());
+        const spatialTokensInBox = (activeRaw?.texts || []).filter(
+          (t: any) =>
+            t &&
+            t.text &&
+            typeof t.x === 'number' &&
+            typeof t.y === 'number' &&
+            t.x >= bbox.min_x - 0.2 &&
+            t.x <= bbox.max_x + 0.2 &&
+            t.y >= bbox.min_y - 0.2 &&
+            t.y <= bbox.max_y + 0.2
+        );
+        const textsInBox = spatialTokensInBox.map((t: any) => String(t.text).trim());
+
+        // Extract physical column-to-column center-to-center spans directly from CAD geometry
+        const measured = extractContinuousBeamSpansFromWindow(
+          bbox,
+          activeRaw?.lines || [],
+          activeRaw?.polylines || [],
+          activeRaw?.texts || [],
+          activeRaw?.scale_to_m || 0.001,
+          definedMembers.map((m) => m.mark)
+        );
 
         setIsInferringLs(true);
         const fallbackLs: LongitudinalSectionDefinition = {
           id: `ls_${Date.now()}`,
-          name: 'Longitudinal Section (Inferring...)',
+          name:
+            measured.beamMarks.length > 0
+              ? `L-SEC: ${measured.beamMarks.slice(0, 4).join(' + ')}`
+              : 'Longitudinal Section (Inferring...)',
           sheetId: activeSheetId,
           windowBox: bbox,
-          spans: [
-            {
-              id: 'span_1',
-              beamMark: 'B1-1',
-              clearSpanMm: 3800,
-              widthMm: 230,
-              depthMm: 450,
-              supportColLeftMm: 300,
-              supportColRightMm: 400,
-            },
-          ],
+          spans:
+            measured.spans.length > 0
+              ? measured.spans.map((ms) => ({
+                  id: ms.id,
+                  beamMark: ms.beamMark,
+                  centerToCenterSpanMm: ms.centerToCenterSpanMm,
+                  clearSpanMm: ms.clearSpanMm,
+                  widthMm: ms.widthMm,
+                  depthMm: ms.depthMm,
+                  supportColLeftMm: ms.supportColLeftMm,
+                  supportColRightMm: ms.supportColRightMm,
+                }))
+              : [
+                  {
+                    id: 'span_1',
+                    beamMark: 'B1-1',
+                    centerToCenterSpanMm: 4100,
+                    clearSpanMm: 3800,
+                    widthMm: 230,
+                    depthMm: 450,
+                    supportColLeftMm: 300,
+                    supportColRightMm: 400,
+                  },
+                ],
           reinforcement: {
             bottomContinuousBars: { count: 3, diameter: 20 },
             bottomCurtailedBars: { count: 2, diameter: 16, curtailRatio: 0.15 },
@@ -683,7 +714,7 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
               legs: 2,
               spacingEndMm: 100,
               spacingMidMm: 175,
-              confinementZoneMm: 800,
+              confinementZoneMm: Math.round(2 * (measured.depthMm - 40)),
             },
           },
         };
@@ -694,6 +725,13 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             window_texts: textsInBox,
+            spatial_tokens: spatialTokensInBox.map((t: any) => ({
+              text: String(t.text).trim(),
+              x: t.x,
+              y: t.y,
+              height: t.height || 0.25,
+            })),
+            measured_spans: fallbackLs.spans,
             candidate_beams: definedMembers.map((m) => m.mark),
             scale_to_m: activeRaw?.scale_to_m || 0.001,
           }),
@@ -702,11 +740,11 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
           .then((data) => {
             if (data && data.spans) {
               setActiveLongitudinalSection({
-                id: `ls_${Date.now()}`,
-                name: data.name || 'Longitudinal Section',
+                id: fallbackLs.id,
+                name: data.name || fallbackLs.name,
                 sheetId: activeSheetId,
                 windowBox: bbox,
-                spans: data.spans || [],
+                spans: data.spans || fallbackLs.spans,
                 reinforcement: data.reinforcement || fallbackLs.reinforcement,
                 notes: data.notes || '',
               });
@@ -714,7 +752,7 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
             }
           })
           .catch(() => {
-            showToast('Loaded section with default detailing');
+            showToast('Loaded section with physical CAD spans');
           })
           .finally(() => setIsInferringLs(false));
       }
@@ -860,6 +898,7 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
           activeSheetId,
           definedMembers,
           parameters: estimateState.parameters,
+          longitudinalSections: estimateState.longitudinalSections || [],
           notes: estimateState.notes,
         },
       };
@@ -989,13 +1028,12 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
               if (!v?.snapshot) return;
               if (v.snapshot.activeSheetId) setActiveSheetId(v.snapshot.activeSheetId);
               if (v.snapshot.definedMembers) setDefinedMembers(v.snapshot.definedMembers);
-              if (v.snapshot.parameters) {
-                setEstimateState((prev) => ({
-                  ...prev,
-                  parameters: { ...prev.parameters, ...v.snapshot.parameters },
-                  notes: v.snapshot.notes || prev.notes,
-                }));
-              }
+              setEstimateState((prev) => ({
+                ...prev,
+                parameters: v.snapshot.parameters ? { ...prev.parameters, ...v.snapshot.parameters } : prev.parameters,
+                longitudinalSections: v.snapshot.longitudinalSections || prev.longitudinalSections || [],
+                notes: v.snapshot.notes || prev.notes,
+              }));
               showToast(`Restored Structural BBS v${v.versionNumber} (${v.sheetName})`);
             }}
           />
@@ -1187,6 +1225,15 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
               }
               isLongitudinalSectionToolActive={toolMode === 'select_longitudinal_section'}
               longitudinalSectionsCount={estimateState.longitudinalSections?.length || 0}
+              longitudinalSections={estimateState.longitudinalSections || []}
+              onOpenLongitudinalSectionDrawer={(ls) => setActiveLongitudinalSection(ls)}
+              onDeleteLongitudinalSection={(id) => {
+                setEstimateState((prev) => ({
+                  ...prev,
+                  longitudinalSections: (prev.longitudinalSections || []).filter((ls) => ls.id !== id),
+                }));
+                showToast('Deleted longitudinal section');
+              }}
             />
           )}
 
@@ -1205,6 +1252,8 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
               onSaveAll={handleSaveAll}
               isSaving={isSaving}
               onBackToStep3={() => setCurrentStep('reinforcement')}
+              longitudinalSections={estimateState.longitudinalSections || []}
+              definedMembers={definedMembers}
             />
           )}
         </div>
@@ -1268,6 +1317,7 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
         isOpen={Boolean(activeLongitudinalSection)}
         section={activeLongitudinalSection}
         isInferring={isInferringLs}
+        definedMembers={definedMembers}
         onClose={() => setActiveLongitudinalSection(null)}
         onSave={(updatedLs) => {
           setEstimateState((prev) => {

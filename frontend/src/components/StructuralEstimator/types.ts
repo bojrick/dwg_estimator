@@ -190,10 +190,14 @@ export interface LsSpanDefinition {
   id: string;
   beamMark: string; // e.g. "B1-1"
   clearSpanMm: number; // e.g. 3800
+  centerToCenterSpanMm?: number; // physical CAD distance between column centers (e.g. 4100)
   widthMm: number; // e.g. 230
   depthMm: number; // e.g. 450
   supportColLeftMm?: number; // e.g. 300
   supportColRightMm?: number; // e.g. 400
+  bottomCurtailedOverride?: { count: number; diameter: number; curtailRatio?: number };
+  topExtraLeftOverride?: { count: number; diameter: number; extensionRatio?: number };
+  topExtraRightOverride?: { count: number; diameter: number; extensionRatio?: number };
 }
 
 export interface LongitudinalSectionDefinition {

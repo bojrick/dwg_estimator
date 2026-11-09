@@ -668,19 +668,24 @@ export function generateBbsFromLongitudinalSections(
       const ratio = ls.reinforcement.bottomCurtailedBars.curtailRatio || 0.15;
 
       for (const s of spans) {
-        const curLen = Math.round(s.clearSpanMm * (1 - 2 * ratio));
+        const curDia = s.bottomCurtailedOverride?.diameter || dia;
+        const curCount = s.bottomCurtailedOverride?.count ?? count;
+        const curRatio = s.bottomCurtailedOverride?.curtailRatio ?? ratio;
+        if (curCount <= 0) continue;
+
+        const curLen = Math.round(s.clearSpanMm * (1 - 2 * curRatio));
         result.push(
           recalculateBarItem(
             {
               memberId: lsTitle,
               memberType: 'beam',
               mark: `Bottom Curtailed (${s.beamMark})`,
-              diameter: dia,
+              diameter: curDia,
               shape: 'straight',
               dimA: curLen,
               numMembers: 1,
-              barsPerMember: count,
-              notes: `${s.beamMark} mid-span curtailment (${ratio * 100}% offset each side, span ${(s.clearSpanMm / 1000).toFixed(2)}m)`,
+              barsPerMember: curCount,
+              notes: `${s.beamMark} mid-span curtailment (${curRatio * 100}% offset each side, span ${(s.clearSpanMm / 1000).toFixed(2)}m)`,
             },
             calcOpts
           )
@@ -849,24 +854,22 @@ export function generateCompleteBbs(
   longitudinalSections: LongitudinalSectionDefinition[] = [],
   parameters?: Partial<StructuralEstimateState['parameters']>
 ): BbsBarItem[] {
-  const coveredBeamMarks = new Set<string>();
-  for (const ls of longitudinalSections) {
-    for (const span of ls.spans || []) {
-      if (span.beamMark) {
-        coveredBeamMarks.add(span.beamMark.trim().toUpperCase());
-      }
-    }
-  }
-
-  const nonCoveredMembers = members.filter((m) => {
-    if (m.category === 'beam') {
-      return !coveredBeamMarks.has(m.mark.trim().toUpperCase());
-    }
-    return true;
-  });
-
-  const memberBars = generateBbsFromMemberDefinitions(nonCoveredMembers, parameters);
   const lsBars = generateBbsFromLongitudinalSections(longitudinalSections, parameters);
+
+  // Non-beam members (columns, slabs, footings) always come from member catalog
+  const nonBeamMembers = members.filter((m) => m.category !== 'beam');
+
+  // When Longitudinal Sections are defined, beam BBS comes strictly from those L-Sections!
+  // Unwindowed layout beams are strictly excluded from takeoff (zero assumed reinforcement).
+  const hasLs = longitudinalSections.length > 0;
+  const beamMembersToCalculate = hasLs
+    ? []
+    : members.filter((m) => m.category === 'beam');
+
+  const memberBars = generateBbsFromMemberDefinitions(
+    [...nonBeamMembers, ...beamMembersToCalculate],
+    parameters
+  );
 
   return [...lsBars, ...memberBars];
 }

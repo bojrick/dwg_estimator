@@ -20,6 +20,11 @@ def test_compound_marks_and_distinct_sections():
     # 3. Verify explicit 'TO' range over compound marks expands properly
     assert expand_compound_member_marks("B1-1 TO B1-4") == ["B1-1", "B1-2", "B1-3", "B1-4"]
 
+    # 3b. Verify zero-padding preservation for Neck Beams and Plinth Beams (NB01..NB04)
+    assert expand_compound_member_marks("NB01 TO NB04") == ["NB01", "NB02", "NB03", "NB04"]
+    assert expand_compound_member_marks("PB01 - PB05") == ["PB01", "PB02", "PB03", "PB04", "PB05"]
+    assert expand_compound_member_marks("NB-01 TO NB-04") == ["NB-01", "NB-02", "NB-03", "NB-04"]
+
     # 4. Verify each compound beam mark retains its own distinct cross-section in table normalizer
     sample_table = {
         "title": "BEAM SCHEDULE",
@@ -133,8 +138,54 @@ def test_infer_longitudinal_section():
     print("test_infer_longitudinal_section passed!")
 
 
+def test_measured_spans_and_name_matching():
+    from app.services.structural_ai import infer_longitudinal_section_ai, associate_sections_and_callouts
+
+    # 1. Verify physical measured spans from CAD columns are preserved
+    measured = [
+        {"id": "span_1", "beamMark": "B1-1", "centerToCenterSpanMm": 4200, "clearSpanMm": 3850, "widthMm": 230, "depthMm": 450, "supportColLeftMm": 350, "supportColRightMm": 350},
+        {"id": "span_2", "beamMark": "B1-2", "centerToCenterSpanMm": 4500, "clearSpanMm": 4150, "widthMm": 230, "depthMm": 450, "supportColLeftMm": 350, "supportColRightMm": 400},
+    ]
+    texts = ["L-SEC B1-1 + B1-2", "3-20# BTM CONT", "2-12# TOP CONT", "8# @ 100 / 175 c/c"]
+    res = infer_longitudinal_section_ai(
+        session=None,
+        window_texts=texts,
+        candidate_beams=["B1-1", "B1-2"],
+        measured_spans=measured,
+    )
+    assert len(res["spans"]) == 2
+    assert res["spans"][0]["centerToCenterSpanMm"] == 4200
+    assert res["spans"][0]["clearSpanMm"] == 3850
+    assert res["spans"][1]["centerToCenterSpanMm"] == 4500
+    assert res["reinforcement"]["bottomContinuousBars"]["diameter"] == 20
+    assert res["reinforcement"]["topContinuousBars"]["diameter"] == 12
+
+    # 2. Verify associate_sections_and_callouts matches by beam name, not merely identical dimensions
+    members = [
+        {"mark": "B1-1", "widthMm": 230, "depthMm": 450},
+        {"mark": "B5-1", "widthMm": 230, "depthMm": 450}, # Same size, different beam!
+    ]
+    sections = [
+        {
+            "title": "SECTION OF BEAM B1-1",
+            "widthMm": 230,
+            "depthMm": 450,
+            "topBars": {"count": 2, "diameter": 16},
+            "bottomBars": {"count": 3, "diameter": 20},
+            "stirrups": {"diameter": 8, "spacingMm": 150},
+            "texts": ["BEAM B1-1", "3-T20", "2-T16"],
+        }
+    ]
+    assoc = associate_sections_and_callouts(None, members, sections)
+    matched_marks = [m["memberMark"] for m in assoc.get("matches", [])]
+    assert "B1-1" in matched_marks
+    assert "B5-1" not in matched_marks, "B5-1 must NOT match Section of B1-1 just because dimensions are equal!"
+    print("test_measured_spans_and_name_matching passed!")
+
+
 if __name__ == "__main__":
     test_compound_marks_and_distinct_sections()
     test_is456_and_diameter_constraints_audit()
     test_structural_estimate_and_cache_db()
     test_infer_longitudinal_section()
+    test_measured_spans_and_name_matching()

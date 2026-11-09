@@ -45,7 +45,7 @@ export function expandGroupedMemberMarks(
   const expanded: string[] = [];
 
   const compoundRangeRe = /^([A-Z]{1,4}\d{1,3})-(\d{1,4})\s*(?:TO|THROUGH|THRU|-|–)\s*\1-(\d{1,4})$/i;
-  const simplePrefixRangeRe = /^([A-Z]{1,4})-?(\d{1,4})\s*(?:TO|THROUGH|THRU|-|–)\s*\1-?(\d{1,4})$/i;
+  const simplePrefixRangeRe = /^([A-Z]{1,4})(-?)(\d{1,4})\s*(?:TO|THROUGH|THRU|-|–)\s*\1\2(\d{1,4})$/i;
   const singleMarkRe = /^([1-9]?[A-Z]{1,4}-?\d{1,4}(?:-\d{1,4}|[A-Z]|-[A-Z])?)$/i;
 
   for (const rawPart of parts) {
@@ -63,7 +63,11 @@ export function expandGroupedMemberMarks(
       const startN = parseInt(mComp[2], 10);
       const endN = parseInt(mComp[3], 10);
       if (endN > startN && endN - startN <= 50) {
-        for (let i = startN; i <= endN; i++) expanded.push(`${prefix}-${i}`);
+        const padLen = mComp[2].length;
+        for (let i = startN; i <= endN; i++) {
+          const numStr = padLen > 1 ? String(i).padStart(padLen, '0') : String(i);
+          expanded.push(`${prefix}-${numStr}`);
+        }
         continue;
       }
     }
@@ -72,10 +76,15 @@ export function expandGroupedMemberMarks(
       const mSimp = p.match(simplePrefixRangeRe);
       if (mSimp) {
         const prefix = mSimp[1].toUpperCase();
-        const startN = parseInt(mSimp[2], 10);
-        const endN = parseInt(mSimp[3], 10);
+        const sep = mSimp[2];
+        const startN = parseInt(mSimp[3], 10);
+        const endN = parseInt(mSimp[4], 10);
         if (endN > startN && endN - startN <= 50) {
-          for (let i = startN; i <= endN; i++) expanded.push(`${prefix}${i}`);
+          const padLen = mSimp[3].length;
+          for (let i = startN; i <= endN; i++) {
+            const numStr = padLen > 1 ? String(i).padStart(padLen, '0') : String(i);
+            expanded.push(`${prefix}${sep}${numStr}`);
+          }
           continue;
         }
       }
@@ -183,7 +192,7 @@ export function extractTableFromBoundingBox(
   if (/col|column/i.test(combinedText)) {
     detectedType = 'column';
     category = 'structural';
-  } else if (/beam|plinth|lintel/i.test(combinedText)) {
+  } else if (/beam|plinth|lintel|girder|\b(?:[1-9]?[NPFTBGRCSLWMDU]?B)-?\d{1,4}\b/i.test(combinedText)) {
     detectedType = 'beam';
     category = 'structural';
   } else if (/footing|fnd|foundation|raft/i.test(combinedText)) {
@@ -307,7 +316,7 @@ export function autoDetectScheduleTables(
     // Passed all 4 Gates! 100% verified table
     let detectedType: StructuralMemberType = 'other';
     if (/col|column/i.test(fullText)) detectedType = 'column';
-    else if (/beam|plinth/i.test(fullText)) detectedType = 'beam';
+    else if (/beam|plinth|girder|\b(?:[1-9]?[NPFTBGRCSLWMDU]?B)-?\d{1,4}\b/i.test(fullText)) detectedType = 'beam';
     else if (/footing|foundation|fnd/i.test(fullText)) detectedType = 'footing';
     else if (/slab/i.test(fullText)) detectedType = 'slab';
 

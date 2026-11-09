@@ -65,3 +65,12 @@
 [2026-11-08 13:25:59,512] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out
 [2026-11-08 13:29:59,169] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out
 [2026-11-08 13:31:09,658] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out
+[2026-11-09 09:44:21,983] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out
+[2026-11-09 12:22:11,660] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out
+[2026-11-09 12:35:47,646] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out
+[2026-11-09 13:17:22,046] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: HTTP Error 404: Not Found
+[2026-11-09 13:17:22,919] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: HTTP Error 404: Not Found
+[2026-11-09 13:18:17,907] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out
+[2026-11-09 13:18:43,577] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out
+[2026-11-09 13:18:59,182] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out
+[2026-11-09 17:21:30,233] [WARNING] [planvault] DeepInfra call (infer_longitudinal_section_v1) fallback to deterministic: The read operation timed out

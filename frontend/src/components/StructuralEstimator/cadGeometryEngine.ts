@@ -454,7 +454,8 @@ export function detectMemberGeometry(
 
   switch (scope) {
     case 'beam':
-      return detectBeamSpanFromLayout(tagCoords, lines, polylines, scaleToM, cadTexts);
+      // Beam spans are not guessed from layout corridors; true spans belong to Longitudinal Sections
+      return null;
     case 'column':
       return detectColumnBoundaryFromLayout(tagCoords, polylines, lines, scaleToM);
     case 'slab':
@@ -492,9 +493,9 @@ export function extractBeamCrossSectionFromBBox(
   const allStrings = insideTexts.map((t) => String(t.text).trim()).filter(Boolean);
   result.sourceText = allStrings.join(' | ');
 
-  // 1. Detect Mark (e.g. B1, SEC B1, BEAM 101)
+  // 1. Detect Mark (e.g. B1, SEC B1, NB01, BEAM 101)
   for (const str of allStrings) {
-    const markMatch = str.match(/\b(?:SEC(?:TION)?\s*)?([1-9]?[PFTBGRCS]?B-?\d{1,4}[A-Z]?)\b/i);
+    const markMatch = str.match(/\b(?:SEC(?:TION)?\s*)?([1-9]?[NPFTBGRCSLWMDU]?B-?\d{1,4}[A-Z]?)\b/i);
     if (markMatch) {
       result.mark = markMatch[1].toUpperCase();
       break;
@@ -588,4 +589,291 @@ export function extractBeamCrossSectionFromBBox(
   }
 
   return result;
+}
+
+export interface DetectedContinuousSpan {
+  id: string;
+  beamMark: string;
+  centerToCenterSpanMm: number;
+  clearSpanMm: number;
+  widthMm: number;
+  depthMm: number;
+  supportColLeftMm: number;
+  supportColRightMm: number;
+  colLeftLabel?: string;
+  colRightLabel?: string;
+}
+
+/**
+ * Extracts continuous beam spans from a windowed CAD elevation drawing.
+ * Measures physical center-to-center distance between column supports.
+ */
+export function extractContinuousBeamSpansFromWindow(
+  bbox: { min_x: number; min_y: number; max_x: number; max_y: number },
+  lines: any[] = [],
+  polylines: any[] = [],
+  texts: any[] = [],
+  scaleToM: number = 0.001,
+  candidateBeams: string[] = []
+): {
+  spans: DetectedContinuousSpan[];
+  beamMarks: string[];
+  depthMm: number;
+  widthMm: number;
+} {
+  const scale = scaleToM > 0 ? scaleToM : 0.001;
+  const pad = 0.1 / scale; // 100mm tolerance in CAD units
+
+  const minX = bbox.min_x - pad;
+  const maxX = bbox.max_x + pad;
+  const minY = bbox.min_y - pad;
+  const maxY = bbox.max_y + pad;
+
+  // 1. Filter entities strictly inside window
+  const inTexts = texts.filter(
+    (t) => typeof t.x === 'number' && typeof t.y === 'number' && t.x >= minX && t.x <= maxX && t.y >= minY && t.y <= maxY
+  );
+
+  const allSegs = extractAllSegments(lines, polylines);
+  const inSegs = allSegs.filter(
+    (s) =>
+      Math.max(s.start[0], s.end[0]) >= minX &&
+      Math.min(s.start[0], s.end[0]) <= maxX &&
+      Math.max(s.start[1], s.end[1]) >= minY &&
+      Math.min(s.start[1], s.end[1]) <= maxY
+  );
+
+  // 2. Identify beam depth and section size from texts or geometry
+  let widthMm = 230;
+  let depthMm = 450;
+  for (const t of inTexts) {
+    const s = String(t.text || '').trim();
+    const mSz = s.match(/(\d{2,4})\s*[*xX/×]\s*(\d{2,4})/);
+    if (mSz) {
+      const w = parseInt(mSz[1], 10);
+      const d = parseInt(mSz[2], 10);
+      if (w >= 100 && w <= 1500 && d >= 150 && d <= 2500) {
+        widthMm = w;
+        depthMm = d;
+        break;
+      }
+    }
+  }
+
+  // If size not found in text, measure beam elevation height from horizontal bounding lines
+  const horizSegs = inSegs.filter((s) => Math.abs(s.end[0] - s.start[0]) > Math.abs(s.end[1] - s.start[1]) * 2);
+  if (horizSegs.length >= 2 && depthMm === 450) {
+    const ys = horizSegs.map((s) => (s.start[1] + s.end[1]) / 2).sort((a, b) => a - b);
+    const measuredD = Math.round((ys[ys.length - 1] - ys[0]) * scale * 1000);
+    if (measuredD >= 200 && measuredD <= 2000) {
+      depthMm = measuredD;
+    }
+  }
+
+  // 3. Find column supports along horizontal axis X
+  // Column faces: vertical line segments (dy > dx * 2)
+  const vertSegs = inSegs
+    .filter((s) => Math.abs(s.end[1] - s.start[1]) > Math.abs(s.end[0] - s.start[0]) * 2)
+    .map((s) => ({
+      x: (s.start[0] + s.end[0]) / 2,
+      minY: Math.min(s.start[1], s.end[1]),
+      maxY: Math.max(s.start[1], s.end[1]),
+      len: Math.abs(s.end[1] - s.start[1]),
+    }))
+    .filter((s) => s.len * scale * 1000 >= 150)
+    .sort((a, b) => a.x - b.x);
+
+  // Cluster nearby vertical lines (within 100mm to 800mm) into columns
+  interface ColumnStation {
+    centerX: number;
+    widthMm: number;
+    label?: string;
+  }
+  const colStations: ColumnStation[] = [];
+  const colMaxTolUnits = 0.85 / scale; // up to 850mm column width
+  const colMinTolUnits = 0.12 / scale; // at least 120mm
+
+  let i = 0;
+  while (i < vertSegs.length) {
+    const curr = vertSegs[i];
+    let nextIdx = i + 1;
+    let paired = false;
+
+    while (nextIdx < vertSegs.length) {
+      const cand = vertSegs[nextIdx];
+      const dist = cand.x - curr.x;
+      if (dist >= colMinTolUnits && dist <= colMaxTolUnits) {
+        // Paired left and right face of a column
+        const cX = (curr.x + cand.x) / 2;
+        const wMm = Math.round(dist * scale * 1000);
+        colStations.push({ centerX: cX, widthMm: wMm });
+        i = nextIdx + 1;
+        paired = true;
+        break;
+      }
+      if (dist > colMaxTolUnits) break;
+      nextIdx++;
+    }
+
+    if (!paired) {
+      i++;
+    }
+  }
+
+  // Also look for column and grid text markers (e.g. C1, C2, Grid A, Grid B)
+  const colTextMarkers = inTexts
+    .map((t) => {
+      const str = String(t.text || '').trim();
+      const isColMark = /^(?:[1-9]?[SRC]?C|COL)-?\d{1,4}[A-Z]?$/i.test(str);
+      const isGridMark = /^(?:GRID\s*)?([A-Z]|\d{1,3})$/i.test(str);
+      return { text: str.toUpperCase(), x: t.x, y: t.y, isCol: isColMark, isGrid: isGridMark };
+    })
+    .filter((t) => t.isCol || t.isGrid)
+    .sort((a, b) => a.x - b.x);
+
+  // If physical line pairing found fewer than 2 columns, use column/grid text marker positions
+  if (colStations.length < 2 && colTextMarkers.length >= 2) {
+    colStations.length = 0;
+    for (const tm of colTextMarkers) {
+      colStations.push({
+        centerX: tm.x,
+        widthMm: 350,
+        label: tm.text,
+      });
+    }
+  }
+
+  // Deduplicate column stations that are too close (e.g. within 600mm)
+  const mergedCols: ColumnStation[] = [];
+  for (const cs of colStations) {
+    const last = mergedCols[mergedCols.length - 1];
+    if (!last || Math.abs(cs.centerX - last.centerX) * scale * 1000 > 600) {
+      mergedCols.push(cs);
+    }
+  }
+
+  // Identify beam marks present in the window
+  const detectedMarks: string[] = [];
+  const knownCandidateSet = new Set(candidateBeams.map((m) => m.toUpperCase()));
+
+  for (const t of inTexts) {
+    const s = String(t.text || '').trim().toUpperCase();
+    for (const cand of knownCandidateSet) {
+      if (s === cand || s.includes(cand)) {
+        if (!detectedMarks.includes(cand)) detectedMarks.push(cand);
+      }
+    }
+    // Generic match B1-1, B2-5, NB01, PB1, etc.
+    const genMatch = s.match(/\b([1-9]?[NPFTBGRCSLWMDU]?B-?\d{1,4}(?:-\d{1,4}|[A-Z])?)\b/i);
+    if (genMatch && !detectedMarks.includes(genMatch[1].toUpperCase())) {
+      detectedMarks.push(genMatch[1].toUpperCase());
+    }
+  }
+
+  // Extract direct CAD dimension callouts (e.g. 3800, 4200, 3.80m) in the window
+  const dimCandidates: { valMm: number; x: number; y: number }[] = [];
+  for (const t of inTexts) {
+    const s = String(t.text || '').trim();
+    const mMm = s.match(/^\s*(\d{4,5})\s*(?:mm)?\s*$/i);
+    if (mMm) {
+      const v = parseInt(mMm[1], 10);
+      if (v >= 1200 && v <= 18000) dimCandidates.push({ valMm: v, x: t.x, y: t.y });
+      continue;
+    }
+    const mM = s.match(/^\s*(\d{1,2}\.\d{1,3})\s*(?:m|mtr)?\s*$/i);
+    if (mM) {
+      const v = Math.round(parseFloat(mM[1]) * 1000);
+      if (v >= 1200 && v <= 18000) dimCandidates.push({ valMm: v, x: t.x, y: t.y });
+    }
+  }
+  dimCandidates.sort((a, b) => a.x - b.x);
+
+  // If column stations could not be paired from vectors, construct safe stations
+  if (mergedCols.length < 2) {
+    mergedCols.length = 0;
+    const count = Math.max(detectedMarks.length, dimCandidates.length, 2);
+    // Safe standard spacing (4000mm clear + 350mm col) instead of dividing arbitrary user box
+    const standardSpanMm = dimCandidates.length > 0 ? dimCandidates[0].valMm : 4000;
+    const colStepUnits = ((standardSpanMm + 350) / 1000) / (scale * 1000);
+    const startX = bbox.min_x + pad;
+    for (let k = 0; k <= count; k++) {
+      mergedCols.push({
+        centerX: startX + k * colStepUnits,
+        widthMm: 350,
+        label: `C${k + 1}`,
+      });
+    }
+  }
+
+  // Sort columns strictly left-to-right
+  mergedCols.sort((a, b) => a.centerX - b.centerX);
+
+  // Associate column labels with closest text markers
+  for (const col of mergedCols) {
+    if (!col.label) {
+      const nearby = colTextMarkers.find((tm) => Math.abs(tm.x - col.centerX) * scale * 1000 <= 400);
+      if (nearby) col.label = nearby.text;
+    }
+  }
+
+  // 4. Measure Center-to-Center and Clear Spans (Priority: CAD Dimension > Vector line distance > 4000mm standard)
+  const spans: DetectedContinuousSpan[] = [];
+  const finalMarks: string[] = [];
+
+  for (let sIdx = 0; sIdx < mergedCols.length - 1; sIdx++) {
+    const cLeft = mergedCols[sIdx];
+    const cRight = mergedCols[sIdx + 1];
+
+    let ccDistMm = Math.round(Math.abs(cRight.centerX - cLeft.centerX) * scale * 1000);
+    const colLeftW = cLeft.widthMm || 300;
+    const colRightW = cRight.widthMm || 350;
+    let clearDistMm = Math.max(600, ccDistMm - Math.round((colLeftW + colRightW) / 2));
+
+    // Priority 1: Check for exact CAD dimension text located in this span
+    const spanDim = dimCandidates.find((d) => d.x >= cLeft.centerX - pad && d.x <= cRight.centerX + pad)
+      || dimCandidates[sIdx];
+    if (spanDim) {
+      // Direct CAD dimension callout overrides imprecise vector coordinates
+      clearDistMm = spanDim.valMm;
+      ccDistMm = clearDistMm + Math.round((colLeftW + colRightW) / 2);
+    }
+
+    // Find beam mark in this span interval [cLeft.centerX, cRight.centerX]
+    const spanTexts = inTexts.filter((t) => t.x >= cLeft.centerX - pad && t.x <= cRight.centerX + pad);
+    let spanMark = '';
+    for (const st of spanTexts) {
+      const s = String(st.text || '').trim().toUpperCase();
+      const found = detectedMarks.find((dm) => s.includes(dm));
+      if (found && !finalMarks.includes(found)) {
+        spanMark = found;
+        break;
+      }
+    }
+
+    if (!spanMark) {
+      const unassigned = detectedMarks.find((dm) => !finalMarks.includes(dm));
+      spanMark = unassigned || `B1-${sIdx + 1}`;
+    }
+    finalMarks.push(spanMark);
+
+    spans.push({
+      id: `span_${sIdx + 1}`,
+      beamMark: spanMark,
+      centerToCenterSpanMm: ccDistMm,
+      clearSpanMm: clearDistMm,
+      widthMm,
+      depthMm,
+      supportColLeftMm: colLeftW,
+      supportColRightMm: colRightW,
+      colLeftLabel: cLeft.label,
+      colRightLabel: cRight.label,
+    });
+  }
+
+  return {
+    spans,
+    beamMarks: finalMarks,
+    depthMm,
+    widthMm,
+  };
 }

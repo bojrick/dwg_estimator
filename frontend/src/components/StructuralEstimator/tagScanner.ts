@@ -159,8 +159,8 @@ export function isLayerRelevantForScope(
 export function getStructuralTagPattern(scope: StructuralMemberType): RegExp {
   switch (scope) {
     case 'beam':
-      // Matches B1, B1-1, B2-5, PB1, PB1-1, TB1, FB1, RB1, CB1, GB1, SB1, B-101, B100..B9999, 1B1, B1A, B1-A
-      return /\b((?:[1-9]?[PFTBGRCS]?B|BEAM)-?\d{1,4}(?:[A-Z]|-\d{1,4}|-[A-Z])?)\b/i;
+      // Matches B1, B1-1, B2-5, NB01..NB04, PB1, TB1, FB1, RB1, CB1, GB1, SB1, LB1, WB1, MB1, DB1, HB1, UB1, BEAM-1
+      return /\b((?:[1-9]?[NPFTBGRCSLWMDU]?B|BEAM)-?\d{1,4}(?:[A-Z]|-\d{1,4}|-[A-Z])?)\b/i;
 
     case 'column':
       // Matches C1, C1-1, C1A, C-101, C100..C9999, SC1, RC1, P1, P-1, 1C1
@@ -490,7 +490,8 @@ export function scanGeneralNotesAndSections(fullRawData: any, sheets: any[] = []
   const sectionClusters: any[] = [];
 
   const noteRegex = /\b(concrete\s+grade|steel\s+grade|clear\s+cover|lap\s+length|development\s+length|fe\s*500|fe\s*415|m\s*20|m\s*25|m\s*30|is\s*:\s*456|is\s*:\s*13920)\b/i;
-  const sectionHeaderRegex = /\b(sec(?:tion)?\s*[a-z0-9]{1,3}\s*[-–]\s*[a-z0-9]{1,3}|detail\s+of\s+(?:beam|col|footing)|typical\s+(?:beam|col)\s+sec)\b/i;
+  const sectionHeaderRegex =
+    /\b(sec(?:tion)?\s*[a-z0-9]{1,4}\s*[-–]\s*[a-z0-9]{1,4}|sec(?:tion)?\s*[:\-]?\s*[a-z0-9\-]+|detail\s+of\s+(?:beam|col|footing|continuous\s*beam)s?|typical\s+(?:beam|col)\s+(?:sec|detail)s?|cross\s*section|c\/s\s+of\s+beam|beam\s+(?:details|sections|elevation))\b/i;
 
   for (const t of texts) {
     if (!t || !t.text) continue;
@@ -517,6 +518,53 @@ export function scanGeneralNotesAndSections(fullRawData: any, sheets: any[] = []
           dMm = Math.round(dMm * 25.4);
         }
       }
+
+      // Extract rebar callouts from section cluster text
+      let topBars: { count: number; diameter: number } | undefined;
+      let bottomBars: { count: number; diameter: number } | undefined;
+      let stirrups: { diameter: number; spacingMm: number; legs?: number } | undefined;
+
+      const stMatch = joined.match(
+        /(?:(\d+)\s*L(?:egs?)?[- ]?)?(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:[tTyY#]|dia|mm)?\s*(?:@|at)\s*(\d{2,3})/i
+      );
+      if (stMatch) {
+        const dia = parseInt(stMatch[2], 10);
+        const sp = parseInt(stMatch[3], 10);
+        if (dia >= 6 && dia <= 32 && sp >= 50 && sp <= 450) {
+          stirrups = {
+            diameter: dia,
+            spacingMm: sp,
+            legs: stMatch[1] ? parseInt(stMatch[1], 10) : 2,
+          };
+        }
+      }
+
+      const btmMatch = joined.match(
+        /(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:btm|bottom|main)/i
+      );
+      if (btmMatch) {
+        bottomBars = { count: parseInt(btmMatch[1], 10), diameter: parseInt(btmMatch[2], 10) };
+      }
+
+      const topMatch = joined.match(
+        /(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:top|hanger|thru|anchor)/i
+      );
+      if (topMatch) {
+        topBars = { count: parseInt(topMatch[1], 10), diameter: parseInt(topMatch[2], 10) };
+      }
+
+      if (!bottomBars || !topBars) {
+        const barMatches = Array.from(joined.matchAll(/(\d+)\s*[-#T](\d{1,2})\b/gi));
+        for (const bm of barMatches) {
+          const cnt = parseInt(bm[1], 10);
+          const dia = parseInt(bm[2], 10);
+          if (cnt >= 1 && cnt <= 20 && dia >= 8 && dia <= 40) {
+            if (!bottomBars) bottomBars = { count: cnt, diameter: dia };
+            else if (!topBars) topBars = { count: cnt, diameter: dia };
+          }
+        }
+      }
+
       const sheetObj = sheets.find(
         (s) =>
           s.bbox &&
@@ -530,7 +578,10 @@ export function scanGeneralNotesAndSections(fullRawData: any, sheets: any[] = []
         sheetId: sheetObj?.id || 'all',
         widthMm: wMm,
         depthMm: dMm,
-        texts: nearbyStrs.slice(0, 12),
+        topBars,
+        bottomBars,
+        stirrups,
+        texts: nearbyStrs.slice(0, 15),
       });
     }
   }

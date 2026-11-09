@@ -12,7 +12,7 @@ from app.services.logger import app_logger as logger
 
 DEEPINFRA_URL = "https://api.deepinfra.com/v1/openai/chat/completions"
 MODEL_TIER1_FAST = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-MODEL_TIER2_REASON = "meta-llama/Meta-Llama-3.3-70B-Instruct"
+MODEL_TIER2_REASON = "meta-llama/Llama-3.3-70B-Instruct"
 
 
 def expand_compound_member_marks(
@@ -42,9 +42,9 @@ def expand_compound_member_marks(
     compound_range_re = re.compile(
         r"^([A-Z]{1,4}\d{1,3})-(\d{1,4})\s*(?:TO|THROUGH|THRU|-|–)\s*\1-(\d{1,4})$"
     )
-    # Simple range where BOTH sides have the alpha prefix: e.g. "B1 TO B4" or "C1 - C6"
+    # Simple range where BOTH sides have the alpha prefix: e.g. "B1 TO B4", "NB01 TO NB04", "NB-01 TO NB-04", or "C1 - C6"
     simple_prefix_range_re = re.compile(
-        r"^([A-Z]{1,4})-?(\d{1,4})\s*(?:TO|THROUGH|THRU|-|–)\s*\1-?(\d{1,4})$"
+        r"^([A-Z]{1,4})(-?)(\d{1,4})\s*(?:TO|THROUGH|THRU|-|–)\s*\1\2(\d{1,4})$"
     )
     # Single valid structural mark (including compound B1-1, B2-5, B5-100, C1A)
     single_mark_re = re.compile(
@@ -63,19 +63,23 @@ def expand_compound_member_marks(
         m_comp = compound_range_re.match(p)
         if m_comp:
             prefix, start_s, end_s = m_comp.group(1), int(m_comp.group(2)), int(m_comp.group(3))
+            pad_len = len(m_comp.group(2))
             if 0 < end_s - start_s <= 50:
                 for idx in range(start_s, end_s + 1):
-                    expanded.append(f"{prefix}-{idx}")
+                    num_str = str(idx).zfill(pad_len) if pad_len > 1 else str(idx)
+                    expanded.append(f"{prefix}-{num_str}")
                 continue
 
         # Only treat as simple prefix range if 'TO'/'THRU' is present OR spaces surround hyphen with prefix on both sides
         if re.search(r"\b(?:TO|THROUGH|THRU)\b|\s+[-–]\s+", p):
             m_simp = simple_prefix_range_re.match(p)
             if m_simp:
-                prefix, start_s, end_s = m_simp.group(1), int(m_simp.group(2)), int(m_simp.group(3))
+                prefix, sep, start_s, end_s = m_simp.group(1), m_simp.group(2), int(m_simp.group(3)), int(m_simp.group(4))
+                pad_len = len(m_simp.group(3))
                 if 0 < end_s - start_s <= 50:
                     for idx in range(start_s, end_s + 1):
-                        expanded.append(f"{prefix}{idx}")
+                        num_str = str(idx).zfill(pad_len) if pad_len > 1 else str(idx)
+                        expanded.append(f"{prefix}{sep}{num_str}")
                     continue
 
         m_single = single_mark_re.match(p)
@@ -146,7 +150,7 @@ def _call_deepinfra_json(
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=25) as resp:
             raw_resp = json.loads(resp.read().decode("utf-8"))
             content = raw_resp["choices"][0]["message"]["content"]
             tokens = int(raw_resp.get("usage", {}).get("total_tokens", 0))
@@ -444,9 +448,9 @@ def associate_sections_and_callouts(
             task_name="section_associator_v1",
             model=MODEL_TIER1_FAST,
             system_prompt=(
-                "Match unmatched structural members to the most appropriate cross-section detail cluster. "
-                "Keep compound marks (B1-1, B2-5, B3-6, B4-10, B5-100) distinct—only match if section title, "
-                "range, or dimensions clearly correspond. Return JSON: "
+                "Match unmatched structural members to cross-section detail clusters. "
+                "CRITICAL: Match strictly based on beam names or beam series (e.g. B1-1, B2-5, or family B1). "
+                "NEVER match different beam names merely because they have identical dimensions. Return JSON: "
                 "{\"matches\": [{\"memberMark\": str, \"sectionIndex\": int, \"confidence\": float}]}"
             ),
             user_payload={
@@ -470,6 +474,20 @@ def associate_sections_and_callouts(
                 conf = float(item.get("confidence") or 0.0)
                 if isinstance(idx, int) and 0 <= idx < len(section_clusters) and conf >= 0.65:
                     sec = section_clusters[idx]
+                    mm = str(item.get("memberMark") or "").strip().upper()
+                    sec_title = str(sec.get("title") or "").upper()
+                    sec_texts = " ".join(str(t) for t in (sec.get("texts") or [])).upper()
+                    sec_comb = f"{sec_title} {sec_texts}"
+                    base_pre = mm.split("-")[0] if "-" in mm else mm
+
+                    # Strictly verify that beam name or family corresponds before accepting match
+                    has_name_match = bool(
+                        re.search(rf"(^|[^A-Z0-9\-_]){re.escape(mm)}([^A-Z0-9\-_]|$)", sec_comb)
+                        or (base_pre and re.search(rf"(^|[^A-Z0-9\-_]){re.escape(base_pre)}([^A-Z0-9\-_]|$)", sec_title))
+                    )
+                    if not has_name_match:
+                        continue
+
                     matches.append({
                         "memberMark": item.get("memberMark"),
                         "sectionTitle": sec.get("title") or "Cross-Section Detail",
@@ -579,14 +597,23 @@ def infer_longitudinal_section_ai(
     window_texts: List[str],
     candidate_beams: Optional[List[str]] = None,
     scale_to_m: float = 0.001,
+    spatial_tokens: Optional[List[Dict[str, Any]]] = None,
+    measured_spans: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
-    Infers continuous beam Longitudinal Section (L-Section) details from windowed drawing texts.
+    Infers continuous beam Longitudinal Section (L-Section) details from windowed drawing texts and CAD geometry.
     Detects continuous spans, support column widths, continuous top/bottom bars,
     support top extra bars, and stirrups.
     Uses DeepInfra JSON LLM when available; falls back to deterministic regex parser.
     """
     clean_texts = [re.sub(r"\s+", " ", str(t or "")).strip() for t in window_texts if str(t or "").strip()]
+    if spatial_tokens:
+        sorted_tokens = sorted(
+            spatial_tokens,
+            key=lambda t: (float(t.get("x") or 0.0), float(t.get("y") or 0.0))
+        )
+        clean_texts = [re.sub(r"\s+", " ", str(t.get("text") or "")).strip() for t in sorted_tokens if str(t.get("text") or "").strip()]
+
     joined_text = " ".join(clean_texts)
 
     # 1. Deterministic Baseline Extraction
@@ -608,8 +635,8 @@ def infer_longitudinal_section_ai(
                     detected_marks.append(km)
 
     if not detected_marks:
-        # Generic match for beam tokens: B1-1, B2-5, etc.
-        found = re.findall(r"\b([1-9]?[PFTBGRCS]?B-?\d{1,4}(?:-\d{1,4}|[A-Z])?)\b", joined_text, re.I)
+        # Generic match for beam tokens: B1-1, B2-5, NB01, PB1, etc.
+        found = re.findall(r"\b([1-9]?[NPFTBGRCSLWMDU]?B-?\d{1,4}(?:-\d{1,4}|[A-Z])?)\b", joined_text, re.I)
         seen = set()
         for f in found:
             fu = f.upper()
@@ -658,25 +685,25 @@ def infer_longitudinal_section_ai(
     # Rebar callouts
     # Bottom main
     btm_bars = {"count": 3, "diameter": 20}
-    m_btm = re.search(r"(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:btm|bottom|main)", joined_text, re.I)
+    m_btm = re.search(r"(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:[tTyY#]|dia|mm)?\s*(?:btm|bottom|main)", joined_text, re.I)
     if m_btm:
         btm_bars = {"count": int(m_btm.group(1)), "diameter": int(m_btm.group(2))}
 
     # Curtailed bottom
     curt_bars = {"count": 2, "diameter": 16, "curtailRatio": 0.15}
-    m_curt = re.search(r"(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:curtail|extra\s*btm)", joined_text, re.I)
+    m_curt = re.search(r"(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:[tTyY#]|dia|mm)?\s*(?:curtail|extra\s*btm)", joined_text, re.I)
     if m_curt:
         curt_bars = {"count": int(m_curt.group(1)), "diameter": int(m_curt.group(2)), "curtailRatio": 0.15}
 
     # Top continuous
     top_bars = {"count": 2, "diameter": 12}
-    m_top = re.search(r"(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:top|hanger|thru|through)", joined_text, re.I)
+    m_top = re.search(r"(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:[tTyY#]|dia|mm)?\s*(?:top|hanger|thru|through)", joined_text, re.I)
     if m_top:
         top_bars = {"count": int(m_top.group(1)), "diameter": int(m_top.group(2))}
 
     # Support top extra
     top_extra = {"count": 2, "diameter": 20, "extensionRatio": 0.33}
-    m_extra = re.search(r"(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:extra|support|hogging)", joined_text, re.I)
+    m_extra = re.search(r"(\d+)\s*[-xX/]?\s*(?:[tTyY#]|dia|mm)?\s*(\d{1,2})\s*(?:[tTyY#]|dia|mm)?\s*(?:extra|support|hogging)", joined_text, re.I)
     if m_extra:
         top_extra = {"count": int(m_extra.group(1)), "diameter": int(m_extra.group(2)), "extensionRatio": 0.33}
 
@@ -691,23 +718,39 @@ def infer_longitudinal_section_ai(
         stirrups["spacingEndMm"] = min(sp1, sp2)
         stirrups["spacingMidMm"] = max(sp1, sp2)
 
-    # Build spans list
-    span_count = max(len(detected_marks), len(spans_found), 2)
-    spans_list = []
-    for i in range(span_count):
-        mk = detected_marks[i] if i < len(detected_marks) else f"Span {i + 1}"
-        span_len = spans_found[i] if i < len(spans_found) else 3800
-        c_left = col_widths[i % len(col_widths)]
-        c_right = col_widths[(i + 1) % len(col_widths)]
-        spans_list.append({
-            "id": f"span_{i + 1}",
-            "beamMark": mk,
-            "clearSpanMm": span_len,
-            "widthMm": w_mm,
-            "depthMm": d_mm,
-            "supportColLeftMm": c_left,
-            "supportColRightMm": c_right,
-        })
+    # Build spans list (using CAD physical column center-to-center measurements when provided)
+    if measured_spans and len(measured_spans) > 0:
+        spans_list = []
+        for idx, ms in enumerate(measured_spans):
+            spans_list.append({
+                "id": str(ms.get("id") or f"span_{idx + 1}"),
+                "beamMark": str(ms.get("beamMark") or f"B1-{idx + 1}"),
+                "centerToCenterSpanMm": int(ms.get("centerToCenterSpanMm") or ms.get("clearSpanMm") or 4000),
+                "clearSpanMm": int(ms.get("clearSpanMm") or 3650),
+                "widthMm": int(ms.get("widthMm") or w_mm),
+                "depthMm": int(ms.get("depthMm") or d_mm),
+                "supportColLeftMm": int(ms.get("supportColLeftMm") or 300),
+                "supportColRightMm": int(ms.get("supportColRightMm") or 350),
+            })
+        if not detected_marks:
+            detected_marks = [s["beamMark"] for s in spans_list]
+    else:
+        span_count = max(len(detected_marks), len(spans_found), 2)
+        spans_list = []
+        for i in range(span_count):
+            mk = detected_marks[i] if i < len(detected_marks) else f"Span {i + 1}"
+            span_len = spans_found[i] if i < len(spans_found) else 3800
+            c_left = col_widths[i % len(col_widths)]
+            c_right = col_widths[(i + 1) % len(col_widths)]
+            spans_list.append({
+                "id": f"span_{i + 1}",
+                "beamMark": mk,
+                "clearSpanMm": span_len,
+                "widthMm": w_mm,
+                "depthMm": d_mm,
+                "supportColLeftMm": c_left,
+                "supportColRightMm": c_right,
+            })
 
     fallback_result = {
         "name": section_name,
@@ -723,15 +766,37 @@ def infer_longitudinal_section_ai(
         "notes": f"Inferred from CAD Longitudinal Section ({len(spans_list)} continuous spans)",
     }
 
-    # 2. AI Enhancement
+    # 2. AI Enhancement with Real CAD Elevation Geometry & 70B Reasoning Model
+    top_zone_texts: List[str] = []
+    mid_zone_texts: List[str] = []
+    btm_zone_texts: List[str] = []
+
+    if spatial_tokens and len(spatial_tokens) >= 2:
+        y_vals = [float(t.get("y") or 0.0) for t in spatial_tokens]
+        min_y, max_y = min(y_vals), max(y_vals)
+        span_y = max(1e-4, max_y - min_y)
+        mid_y = (min_y + max_y) / 2.0
+
+        for t in spatial_tokens:
+            txt = str(t.get("text") or "").strip()
+            if not txt:
+                continue
+            ty = float(t.get("y") or 0.0)
+            if ty > mid_y + 0.15 * span_y:
+                top_zone_texts.append(txt)
+            elif ty < mid_y - 0.15 * span_y:
+                btm_zone_texts.append(txt)
+            else:
+                mid_zone_texts.append(txt)
+
     system_prompt = (
-        "You are an AEC structural CAD detailing expert. Given CAD drawing text and dimension callouts "
-        "extracted from a windowed continuous beam Longitudinal Section (L-Section / elevation), "
-        "parse the continuous spans and reinforcement detailing into JSON: "
+        "You are a senior AEC structural engineer and CAD detailing expert. Given CAD drawing geometry, "
+        "measured physical spans, and elevation text callouts partitioned into Top, Web/Stirrup, and Bottom zones "
+        "from a continuous beam Longitudinal Section (L-Section / elevation), parse the detailing per IS 13920 / IS 456 rules into JSON: "
         "{"
         "\"name\": string, "
         "\"beamMarks\": [string], "
-        "\"spans\": [{\"beamMark\": string, \"clearSpanMm\": int, \"widthMm\": int, \"depthMm\": int, \"supportColLeftMm\": int, \"supportColRightMm\": int}], "
+        "\"spans\": [{\"id\": string, \"beamMark\": string, \"clearSpanMm\": int, \"widthMm\": int, \"depthMm\": int, \"supportColLeftMm\": int, \"supportColRightMm\": int}], "
         "\"reinforcement\": {"
         "  \"bottomContinuousBars\": {\"count\": int, \"diameter\": int}, "
         "  \"bottomCurtailedBars\": {\"count\": int, \"diameter\": int, \"curtailRatio\": float}, "
@@ -741,10 +806,21 @@ def infer_longitudinal_section_ai(
         "}, "
         "\"notes\": string"
         "}"
+        "\nRules:"
+        "1. Strictly respect the provided measured_spans and support bearing widths ws."
+        "2. Top rebar zone contains continuous through bars and support top extra bars (hogging negative moment, extending L/3 into adjacent spans)."
+        "3. Bottom rebar zone contains bottom main tension bars and curtailed extra bars (typically extending between 0.15L and 0.85L)."
+        "4. Web/stirrup zone contains shear links with closely spaced confinement stirrups (spacingEndMm) within 2d of supports and standard spacing (spacingMidMm) at mid-span."
     )
 
     user_payload = {
-        "extracted_texts": clean_texts[:60],
+        "measured_spans": spans_list,
+        "elevation_spatial_zones": {
+            "top_rebar_zone": top_zone_texts[:30] if top_zone_texts else clean_texts[:20],
+            "web_stirrup_zone": mid_zone_texts[:25] if mid_zone_texts else [],
+            "bottom_rebar_zone": btm_zone_texts[:30] if btm_zone_texts else clean_texts[20:45],
+        },
+        "all_extracted_texts": clean_texts[:60],
         "candidate_beams": candidate_beams or [],
         "scale_to_m": scale_to_m,
     }
@@ -752,10 +828,10 @@ def infer_longitudinal_section_ai(
     ai_result = _call_deepinfra_json(
         session=session,
         task_name="infer_longitudinal_section_v1",
-        model=MODEL_TIER1_FAST,
+        model=MODEL_TIER2_REASON,
         system_prompt=system_prompt,
         user_payload=user_payload,
-        max_tokens=900,
+        max_tokens=1200,
     )
 
     if ai_result and isinstance(ai_result, dict) and ai_result.get("spans"):
@@ -772,7 +848,8 @@ def infer_longitudinal_section_ai(
                         "supportColLeftMm": int(s.get("supportColLeftMm") or 300),
                         "supportColRightMm": int(s.get("supportColRightMm") or 400),
                     })
-            if parsed_spans:
+            final_spans = spans_list if (measured_spans and len(measured_spans) > 0) else parsed_spans
+            if final_spans:
                 ai_reinf = ai_result.get("reinforcement") or {}
                 merged_reinf = dict(fallback_result["reinforcement"])
 
@@ -798,9 +875,9 @@ def infer_longitudinal_section_ai(
                         fb_sub = merged_reinf.get(key) or {}
                         try:
                             m_sub = dict(fb_sub)
-                            if ai_sub.get("count"):
+                            if ai_sub.get("count") and int(ai_sub["count"]) > 0:
                                 m_sub["count"] = int(ai_sub["count"])
-                            if ai_sub.get("diameter"):
+                            if ai_sub.get("diameter") and int(ai_sub["diameter"]) >= 6:
                                 m_sub["diameter"] = int(ai_sub["diameter"])
                             if "curtailRatio" in ai_sub and ai_sub["curtailRatio"] is not None:
                                 m_sub["curtailRatio"] = float(ai_sub["curtailRatio"])
@@ -812,8 +889,8 @@ def infer_longitudinal_section_ai(
 
                 return {
                     "name": str(ai_result.get("name") or section_name),
-                    "beamMarks": [s["beamMark"] for s in parsed_spans],
-                    "spans": parsed_spans,
+                    "beamMarks": [s["beamMark"] for s in final_spans],
+                    "spans": final_spans,
                     "reinforcement": merged_reinf,
                     "notes": str(ai_result.get("notes") or fallback_result["notes"]),
                 }

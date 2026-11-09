@@ -105,6 +105,8 @@ class MatchSectionsAuditRequest(BaseModel):
 
 class InferLongitudinalSectionRequest(BaseModel):
     window_texts: List[str] = []
+    spatial_tokens: Optional[List[Dict[str, Any]]] = None
+    measured_spans: Optional[List[Dict[str, Any]]] = None
     candidate_beams: List[str] = []
     scale_to_m: float = 0.001
 
@@ -1290,6 +1292,8 @@ def api_infer_longitudinal_section(
         window_texts=req.window_texts,
         candidate_beams=req.candidate_beams,
         scale_to_m=req.scale_to_m,
+        spatial_tokens=req.spatial_tokens,
+        measured_spans=req.measured_spans,
     )
 
 

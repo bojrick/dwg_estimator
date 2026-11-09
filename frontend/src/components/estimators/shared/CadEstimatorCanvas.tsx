@@ -58,6 +58,15 @@ function polygonAreaWorld(pts: [number, number][]): number {
   return Math.abs(sum) * 0.5;
 }
 
+function isExactCadMark(raw: string, targetUpper: string): boolean {
+  if (!raw || !targetUpper) return false;
+  const clean = raw.trim().toUpperCase();
+  if (clean === targetUpper) return true;
+  const escaped = targetUpper.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(^|[^A-Z0-9\\-_])(${escaped})([^A-Z0-9\\-_]|$)`);
+  return regex.test(clean);
+}
+
 export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
   rawData,
   sheets = [],
@@ -416,7 +425,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
         if (!isLayerVisible(t.layer)) continue;
         if (t.x < cullMinX || t.x > cullMaxX || t.y < cullMinY || t.y > cullMaxY) continue;
         const isMarkMatch =
-          markUpper && String(t.text || '').trim().toUpperCase().includes(markUpper);
+          markUpper && isExactCadMark(String(t.text || ''), markUpper);
         const pxHeight = (t.height || 0.2) * zoom;
         if (!isMarkMatch && pxHeight < 7.5) continue;
         const [sx, sy] = worldToScreen(t.x, t.y);

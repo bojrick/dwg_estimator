@@ -1,10 +1,12 @@
-import React from 'react';
-import { Download, Save, CheckCircle2, AlertTriangle, ArrowLeft } from 'lucide-react';
+import React, { useMemo } from 'react';
+import { Download, Save, CheckCircle2, AlertTriangle, ArrowLeft, Layers } from 'lucide-react';
 import {
   BbsBarItem,
   CivilAuditAnomaly,
   DiameterSummary,
+  LongitudinalSectionDefinition,
   StructuralEstimateState,
+  StructuralMemberDefinition,
 } from './types';
 
 interface TakeoffSummaryStepProps {
@@ -27,6 +29,8 @@ interface TakeoffSummaryStepProps {
   onSaveAll: () => void;
   isSaving: boolean;
   onBackToStep3: () => void;
+  longitudinalSections?: LongitudinalSectionDefinition[];
+  definedMembers?: StructuralMemberDefinition[];
 }
 
 export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
@@ -42,7 +46,30 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
   onSaveAll,
   isSaving,
   onBackToStep3,
+  longitudinalSections = [],
+  definedMembers = [],
 }) => {
+  const hasLs = longitudinalSections.length > 0;
+  const totalSpans = useMemo(
+    () => longitudinalSections.reduce((sum, ls) => sum + (ls.spans?.length || 0), 0),
+    [longitudinalSections]
+  );
+  const coveredBeamMarks = useMemo(() => {
+    const set = new Set<string>();
+    for (const ls of longitudinalSections) {
+      for (const s of ls.spans || []) {
+        if (s.beamMark) set.add(s.beamMark.trim().toUpperCase());
+      }
+    }
+    return set;
+  }, [longitudinalSections]);
+
+  const excludedBeamCount = useMemo(() => {
+    if (!hasLs) return 0;
+    return definedMembers.filter(
+      (m) => m.category === 'beam' && !coveredBeamMarks.has(m.mark.trim().toUpperCase())
+    ).length;
+  }, [hasLs, definedMembers, coveredBeamMarks]);
   return (
     <div className="h-full flex flex-col overflow-hidden bg-zinc-950">
       {/* Pinned Top Metrics Bar */}
@@ -95,6 +122,25 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Longitudinal Section Coverage Banner */}
+        {hasLs && (
+          <div className="p-2.5 rounded-lg bg-blue-950/30 border border-blue-800/40 flex items-start gap-2.5 text-xs">
+            <div className="p-1 rounded bg-blue-500/10 text-blue-400 shrink-0 mt-0.5">
+              <Layers className="w-3.5 h-3.5" />
+            </div>
+            <div className="min-w-0">
+              <span className="font-medium text-blue-200">
+                Beam BBS calculated strictly from {longitudinalSections.length} Longitudinal Section{longitudinalSections.length > 1 ? 's' : ''} ({totalSpans} continuous spans per IS 13920 detailing)
+              </span>
+              {excludedBeamCount > 0 && (
+                <p className="text-[11px] text-zinc-400 mt-0.5">
+                  {excludedBeamCount} plan beam mark{excludedBeamCount > 1 ? 's have' : ' has'} no L-Section and {excludedBeamCount > 1 ? 'are' : 'is'} excluded from takeoff.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Sub-View Tabs & CSV Export */}
         <div className="flex flex-wrap items-center justify-between gap-2">

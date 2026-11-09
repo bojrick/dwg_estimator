@@ -18,6 +18,7 @@ import {
   AttachedRebarCallout,
   ExtractedCadTable,
   BeamCrossSectionInspection,
+  LongitudinalSectionDefinition,
 } from './types';
 import { STANDARD_DIAMETERS } from './bbsMath';
 import { AiBadge } from '../ui/AiBadge';
@@ -43,6 +44,9 @@ interface ReinforcementLinkStepProps {
   onStartLongitudinalSectionWindow?: () => void;
   isLongitudinalSectionToolActive?: boolean;
   longitudinalSectionsCount?: number;
+  longitudinalSections?: LongitudinalSectionDefinition[];
+  onOpenLongitudinalSectionDrawer?: (ls: LongitudinalSectionDefinition) => void;
+  onDeleteLongitudinalSection?: (id: string) => void;
 }
 
 export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
@@ -66,6 +70,9 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
   onStartLongitudinalSectionWindow,
   isLongitudinalSectionToolActive,
   longitudinalSectionsCount = 0,
+  longitudinalSections = [],
+  onOpenLongitudinalSectionDrawer,
+  onDeleteLongitudinalSection,
 }) => {
   const [activeMemberId, setActiveMemberId] = useState<string>(members[0]?.id || '');
   const [filterMode, setFilterMode] = useState<'all' | 'pending' | 'warnings'>('all');
@@ -339,6 +346,54 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
           </div>
         </div>
 
+        {/* Defined Longitudinal Sections Manager Card */}
+        {scope === 'beam' && longitudinalSections.length > 0 && (
+          <div className="p-2.5 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-zinc-200 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-blue-400" />
+                <span>Defined Longitudinal Sections ({longitudinalSections.length})</span>
+              </span>
+              <span className="text-[10px] text-zinc-500 font-mono">
+                BBS takeoff strictly calculates beams from these sections
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {longitudinalSections.map((ls) => (
+                <div
+                  key={ls.id}
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 hover:border-blue-500/80 text-xs text-zinc-200 transition cursor-pointer"
+                  onClick={() => onOpenLongitudinalSectionDrawer?.(ls)}
+                  title="Click to view & edit continuous spans in L-Section drawer"
+                >
+                  <div className="min-w-0">
+                    <span className="font-medium text-zinc-100 block truncate max-w-[200px]">
+                      {ls.name}
+                    </span>
+                    <div className="text-[10px] text-zinc-400 font-mono mt-0.5">
+                      {ls.spans.length} spans ·{' '}
+                      {(ls.spans.reduce((s, sp) => s + sp.clearSpanMm, 0) / 1000).toFixed(2)}m
+                    </div>
+                  </div>
+                  {onDeleteLongitudinalSection && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteLongitudinalSection(ls.id);
+                      }}
+                      className="p-1 text-zinc-500 hover:text-rose-400 transition"
+                      title="Delete L-Section"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Inline Banner if CAD Cross-Section Marquee or Callout was just clicked */}
         {inspectedCrossSection && (
           <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-700 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -431,6 +486,14 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
               const isSelected = activeMember?.id === m.id;
               const isPending = m.pendingSectionMatch?.status === 'pending';
               const diaWarn = hasDiaWarning(m);
+              const coveredLs =
+                scope === 'beam'
+                  ? longitudinalSections.find((ls) =>
+                      (ls.spans || []).some(
+                        (sp) => sp.beamMark?.trim().toUpperCase() === m.mark.trim().toUpperCase()
+                      )
+                    )
+                  : null;
 
               return (
                 <tr
@@ -449,9 +512,22 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
                       <span className="text-[10px] text-zinc-500">
                         {m.widthMm}×{m.depthMm}
                       </span>
+                      {coveredLs && (
+                        <span className="px-1.5 py-0.2 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-sans text-[10px]">
+                          In L-Sec
+                        </span>
+                      )}
                     </div>
                     <div className="text-[10px] text-zinc-500 font-sans truncate">
-                      {m.countOnLayout} × {(m.spanMm / 1000).toFixed(2)}m
+                      {scope === 'beam' ? (
+                        coveredLs ? (
+                          <span className="text-emerald-400/80">{coveredLs.name}</span>
+                        ) : (
+                          <span className="text-zinc-500">No L-Section (takeoff excluded)</span>
+                        )
+                      ) : (
+                        `${m.countOnLayout} × ${(m.spanMm / 1000).toFixed(2)}m`
+                      )}
                     </div>
                   </td>
 

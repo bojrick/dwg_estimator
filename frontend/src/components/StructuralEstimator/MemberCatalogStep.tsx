@@ -520,7 +520,11 @@ export const MemberCatalogStep: React.FC<MemberCatalogStepProps> = ({
               </th>
               <th className="py-2 px-2 text-left font-medium w-[24%]">Member mark</th>
               <th className="py-2 px-2 text-left font-medium w-[28%]">
-                {scope === 'column' ? 'Qty & height (mm)' : 'Qty & clear span (mm)'}
+                {scope === 'column'
+                  ? 'Qty & height (mm)'
+                  : scope === 'beam'
+                  ? 'Qty on layout'
+                  : 'Qty & clear span (mm)'}
               </th>
               <th className="py-2 px-2 text-left font-medium w-[28%]">Section (b × D mm)</th>
               <th className="py-2 pl-2 pr-3 text-right font-medium w-[20%]">Source</th>
@@ -586,9 +590,9 @@ export const MemberCatalogStep: React.FC<MemberCatalogStepProps> = ({
                       </div>
                     </td>
 
-                    {/* Column 2: Qty & Clear Span */}
+                    {/* Column 2: Qty (and Span for non-beams) */}
                     <td className="py-2 px-2" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1 font-mono tabular-nums">
+                      <div className="flex items-center gap-1.5 font-mono tabular-nums">
                         <input
                           type="number"
                           min="1"
@@ -599,29 +603,37 @@ export const MemberCatalogStep: React.FC<MemberCatalogStepProps> = ({
                           className="w-10 bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-center text-zinc-200 text-[11px]"
                           title="Count on layout"
                         />
-                        <span className="text-zinc-600">×</span>
-                        <input
-                          type="number"
-                          step="50"
-                          value={m.spanMm}
-                          onChange={(e) =>
-                            handleUpdateMember(m.id, { spanMm: Math.max(200, Number(e.target.value)) })
-                          }
-                          className="w-16 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-right text-zinc-100 text-[11px]"
-                          title="Span or height in mm"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => onPickSpanOnDrawing(m.id)}
-                          className={`p-1 rounded border transition ${
-                            isPickingThis
-                              ? 'bg-amber-500 text-zinc-950 border-amber-400'
-                              : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                          }`}
-                          title="Pick 2 points on drawing to measure clear span"
-                        >
-                          <Ruler className="w-3 h-3" />
-                        </button>
+                        {scope === 'beam' ? (
+                          <span className="text-[10px] text-zinc-500 font-sans">
+                            on plan
+                          </span>
+                        ) : (
+                          <>
+                            <span className="text-zinc-600">×</span>
+                            <input
+                              type="number"
+                              step="50"
+                              value={m.spanMm}
+                              onChange={(e) =>
+                                handleUpdateMember(m.id, { spanMm: Math.max(200, Number(e.target.value)) })
+                              }
+                              className="w-16 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-right text-zinc-100 text-[11px]"
+                              title="Span or height in mm"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => onPickSpanOnDrawing(m.id)}
+                              className={`p-1 rounded border transition ${
+                                isPickingThis
+                                  ? 'bg-amber-500 text-zinc-950 border-amber-400'
+                                  : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200'
+                              }`}
+                              title="Pick 2 points on drawing to measure"
+                            >
+                              <Ruler className="w-3 h-3" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
 
@@ -758,17 +770,19 @@ export const MemberCatalogStep: React.FC<MemberCatalogStepProps> = ({
               className="w-14 bg-zinc-950 border border-zinc-800 rounded-lg px-1.5 py-1 text-center text-zinc-100 text-[11px]"
             />
           </div>
-          <div className="flex items-center gap-1">
-            <span className="text-[11px] text-zinc-500 font-sans">
-              {scope === 'column' ? 'Ht:' : 'Span:'}
-            </span>
-            <input
-              type="number"
-              value={newSpan}
-              onChange={(e) => setNewSpan(Number(e.target.value))}
-              className="w-16 bg-zinc-950 border border-zinc-800 rounded-lg px-1.5 py-1 text-center text-zinc-100 text-[11px]"
-            />
-          </div>
+          {scope !== 'beam' && (
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-zinc-500 font-sans">
+                {scope === 'column' ? 'Ht:' : 'Span:'}
+              </span>
+              <input
+                type="number"
+                value={newSpan}
+                onChange={(e) => setNewSpan(Number(e.target.value))}
+                className="w-16 bg-zinc-950 border border-zinc-800 rounded-lg px-1.5 py-1 text-center text-zinc-100 text-[11px]"
+              />
+            </div>
+          )}
         </div>
 
         <button
