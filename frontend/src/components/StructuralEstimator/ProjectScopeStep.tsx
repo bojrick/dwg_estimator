@@ -54,10 +54,10 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
 }) => {
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      {/* Top Bar: Element Scope + AI Auto-Fill */}
-      <div className="p-3 bg-zinc-950 border-b border-zinc-800/80 flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-xs font-medium text-zinc-300 mr-1">Element:</span>
+      {/* Top Bar: Element Scope + Auto-Fill */}
+      <div className="p-2.5 sm:p-3 bg-zinc-950 border-b border-zinc-800/80 flex flex-col sm:flex-row sm:flex-wrap sm:items-center sm:justify-between gap-2 shrink-0">
+        <div className="grid grid-cols-4 gap-1 w-full sm:w-auto sm:flex sm:flex-wrap sm:items-center sm:gap-1.5">
+          <span className="hidden sm:inline text-xs font-medium text-zinc-300 mr-1">Element:</span>
           {[
             { id: 'beam', label: 'Beams' },
             { id: 'column', label: 'Columns' },
@@ -68,9 +68,9 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
               key={item.id}
               type="button"
               onClick={() => onSelectScope(item.id as StructuralMemberType)}
-              className={`min-h-[38px] sm:min-h-0 px-3 py-1 rounded-lg text-xs font-medium transition ${selectedScope === item.id
-                  ? 'bg-zinc-100 text-zinc-950 font-medium'
-                  : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-zinc-200'
+              className={`min-h-[36px] sm:min-h-0 px-1.5 sm:px-3 py-1 rounded-lg text-[11px] sm:text-xs font-medium text-center transition ${selectedScope === item.id
+                ? 'bg-zinc-100 text-zinc-950 font-medium'
+                : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-zinc-200'
                 }`}
             >
               {item.label}
@@ -82,18 +82,21 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
           type="button"
           onClick={onAnalyzeSheetsAndSpecsAi}
           disabled={isAiAnalyzing}
-          className="min-h-[38px] sm:min-h-0 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-700 hover:border-zinc-600 text-zinc-200 text-[11px] font-medium flex items-center gap-1.5 transition disabled:opacity-50"
+          className="w-full sm:w-auto justify-center min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-700 hover:border-zinc-600 text-zinc-200 text-[11px] font-medium flex items-center gap-1.5 transition disabled:opacity-50"
           title="Read General Notes and title blocks to auto-fill grades, covers, and sheet names"
         >
-          <AiBadge label="AI" />
-          <span>
-            {isAiAnalyzing ? 'Reading notes with AI...' : 'Auto-fill from drawing notes'}
+          <AiBadge label="AUTO" />
+          <span className="sm:hidden">
+            {isAiAnalyzing ? 'Reading notes...' : 'Auto-fill from drawing notes'}
+          </span>
+          <span className="hidden sm:inline">
+            {isAiAnalyzing ? 'Reading notes...' : 'Auto-fill from drawing notes'}
           </span>
         </button>
       </div>
 
       {/* Fitted Middle Content: 2-Column Project & IS Code Setup + Schedule Tables */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-3 text-xs">
+      <div className="flex-1 min-h-0 overflow-y-auto p-2.5 sm:p-3 space-y-3 text-xs">
         {/* 2-Column Grid: Commercial Constraints vs IS 456 / 2502 / 13920 Assumptions */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
           {/* Card 1: Steel Pricing, Max Stock Length & Diameter Constraints */}
@@ -116,7 +119,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                   <select
                     value={params.currency}
                     onChange={(e) => updateParameters({ currency: e.target.value })}
-                    className="bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-200 text-xs"
+                    className="min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-200 text-xs"
                   >
                     <option value="₹">₹</option>
                     <option value="$">$</option>
@@ -129,7 +132,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                     onChange={(e) =>
                       updateParameters({ steelRatePerKg: Math.max(0, Number(e.target.value)) })
                     }
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-100 text-xs"
+                    className="w-full min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-100 text-xs"
                   />
                 </div>
               </div>
@@ -149,7 +152,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                       maxStockLengthM: Math.max(3, Number(e.target.value)),
                     })
                   }
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-100 text-xs"
+                  className="w-full min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-100 text-xs"
                   title="Bars longer than this automatically include a lap splice"
                 />
               </div>
@@ -165,7 +168,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                   onChange={(e) =>
                     updateParameters({ wastagePct: Math.max(0, Number(e.target.value)) })
                   }
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-100 text-xs"
+                  className="w-full min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-100 text-xs"
                 />
               </div>
 
@@ -182,7 +185,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                       bindingWirePct: Math.max(0, Number(e.target.value)),
                     })
                   }
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-100 text-xs"
+                  className="w-full min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-100 text-xs"
                 />
               </div>
             </div>
@@ -225,9 +228,9 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                       key={d}
                       type="button"
                       onClick={() => toggleAllowedDiameter(d)}
-                      className={`px-2 py-0.5 rounded border text-[11px] transition ${isAllowed
-                          ? 'bg-zinc-800 border-zinc-600 text-zinc-100 font-medium'
-                          : 'bg-zinc-950 border-zinc-900 text-zinc-600 line-through'
+                      className={`min-h-[32px] sm:min-h-0 px-2 py-0.5 rounded border text-[11px] transition ${isAllowed
+                        ? 'bg-zinc-800 border-zinc-600 text-zinc-100 font-medium'
+                        : 'bg-zinc-950 border-zinc-900 text-zinc-600 line-through'
                         }`}
                     >
                       Φ{d}
@@ -266,7 +269,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                   <select
                     value={params.concreteGrade || 'M25'}
                     onChange={(e) => updateParameters({ concreteGrade: e.target.value })}
-                    className="w-1/2 bg-zinc-900 border border-zinc-800 rounded-lg px-1.5 py-1 text-zinc-100 text-xs"
+                    className="w-1/2 min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded-lg px-1.5 py-1 text-zinc-100 text-xs"
                   >
                     {['M20', 'M25', 'M30', 'M35', 'M40'].map((g) => (
                       <option key={g} value={g}>
@@ -277,7 +280,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                   <select
                     value={params.steelGrade || 'Fe500D'}
                     onChange={(e) => updateParameters({ steelGrade: e.target.value })}
-                    className="w-1/2 bg-zinc-900 border border-zinc-800 rounded-lg px-1.5 py-1 text-zinc-100 text-xs"
+                    className="w-1/2 min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded-lg px-1.5 py-1 text-zinc-100 text-xs"
                   >
                     {['Fe415', 'Fe500', 'Fe500D', 'Fe550D'].map((g) => (
                       <option key={g} value={g}>
@@ -298,7 +301,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                     onChange={(e) =>
                       updateParameters({ lapLengthMultiplier: Number(e.target.value) })
                     }
-                    className="w-1/2 bg-zinc-900 border border-zinc-800 rounded-lg px-1.5 py-1 text-zinc-100 text-xs"
+                    className="w-1/2 min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded-lg px-1.5 py-1 text-zinc-100 text-xs"
                     title="Development & lap length multiplier (e.g. 50d)"
                   >
                     {[40, 45, 48, 50, 55, 60].map((m) => (
@@ -312,7 +315,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                     onChange={(e) =>
                       updateParameters({ hookAllowanceMultiplier: Number(e.target.value) })
                     }
-                    className="w-1/2 bg-zinc-900 border border-zinc-800 rounded-lg px-1.5 py-1 text-zinc-100 text-xs"
+                    className="w-1/2 min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded-lg px-1.5 py-1 text-zinc-100 text-xs"
                     title="Stirrup hook allowance (24d for 135° seismic, 18d for 90°)"
                   >
                     <option value={24}>24d (135°)</option>
@@ -345,7 +348,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                           },
                         })
                       }
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-center text-zinc-100"
+                      className="w-full min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-center text-zinc-100"
                     />
                   </div>
                 ))}
@@ -362,7 +365,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                         defaultFloorHeightMm: Math.max(1500, Number(e.target.value)),
                       })
                     }
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-center text-zinc-100"
+                    className="w-full min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded px-1 py-0.5 text-center text-zinc-100"
                   />
                 </div>
               </div>
@@ -384,7 +387,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
               <button
                 type="button"
                 onClick={onAutoDetectAllTables}
-                className="min-h-[38px] sm:min-h-0 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-200 text-[11px] font-medium transition"
+                className="min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-200 text-[11px] font-medium transition"
               >
                 Scan all sheets for tables
               </button>
@@ -393,9 +396,9 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                 onClick={() =>
                   setToolMode(toolMode === 'select_table' ? 'pan' : 'select_table')
                 }
-                className={`min-h-[38px] sm:min-h-0 px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${toolMode === 'select_table'
-                    ? 'bg-amber-400 text-zinc-950'
-                    : 'bg-zinc-100 hover:bg-white text-zinc-950'
+                className={`min-h-[36px] sm:min-h-0 px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${toolMode === 'select_table'
+                  ? 'bg-amber-400 text-zinc-950'
+                  : 'bg-zinc-100 hover:bg-white text-zinc-950'
                   }`}
               >
                 {toolMode === 'select_table' ? 'Cancel box' : 'Pick table on drawing'}
@@ -412,7 +415,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                 <select
                   value={activeSheetId}
                   onChange={(e) => setActiveSheetId(e.target.value)}
-                  className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-200 text-[11px]"
+                  className="flex-1 min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-200 text-[11px]"
                 >
                   {sheets.map((s) => (
                     <option key={s.id} value={s.id}>
@@ -428,7 +431,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                 <select
                   value={scheduleSheetId || activeSheetId}
                   onChange={(e) => onSelectScheduleSheetId(e.target.value)}
-                  className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-200 text-[11px]"
+                  className="flex-1 min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-200 text-[11px]"
                 >
                   {sheets.map((s) => (
                     <option key={s.id} value={s.id}>

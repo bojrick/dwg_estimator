@@ -78,8 +78,8 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
       case 'straight':
         return (
           <svg className="w-full h-32" viewBox="0 0 200 80">
-            <line x1="20" y1="40" x2="180" y2="40" stroke="#3b82f6" strokeWidth="4" strokeLinecap="round" />
-            <text x="100" y="30" fill="#93c5fd" fontSize="12" textAnchor="middle" fontFamily="monospace">
+            <line x1="20" y1="40" x2="180" y2="40" stroke="#e4e4e7" strokeWidth="4" strokeLinecap="round" />
+            <text x="100" y="30" fill="#fbbf24" fontSize="12" textAnchor="middle" fontFamily="monospace">
               A = {dimA}mm
             </text>
           </svg>
@@ -91,15 +91,15 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
             <polyline
               points="30,20 30,55 170,55"
               fill="none"
-              stroke="#3b82f6"
+              stroke="#e4e4e7"
               strokeWidth="4"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <text x="18" y="38" fill="#93c5fd" fontSize="11" textAnchor="end" fontFamily="monospace">
+            <text x="18" y="38" fill="#fbbf24" fontSize="11" textAnchor="end" fontFamily="monospace">
               B={dimB}
             </text>
-            <text x="100" y="70" fill="#93c5fd" fontSize="11" textAnchor="middle" fontFamily="monospace">
+            <text x="100" y="70" fill="#fbbf24" fontSize="11" textAnchor="middle" fontFamily="monospace">
               A={dimA}
             </text>
           </svg>
@@ -111,18 +111,18 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
             <polyline
               points="30,25 30,55 170,55 170,25"
               fill="none"
-              stroke="#3b82f6"
+              stroke="#e4e4e7"
               strokeWidth="4"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <text x="20" y="42" fill="#93c5fd" fontSize="10" textAnchor="end" fontFamily="monospace">
+            <text x="20" y="42" fill="#fbbf24" fontSize="10" textAnchor="end" fontFamily="monospace">
               B={dimB}
             </text>
-            <text x="100" y="70" fill="#93c5fd" fontSize="11" textAnchor="middle" fontFamily="monospace">
+            <text x="100" y="70" fill="#fbbf24" fontSize="11" textAnchor="middle" fontFamily="monospace">
               A={dimA}
             </text>
-            <text x="180" y="42" fill="#93c5fd" fontSize="10" textAnchor="start" fontFamily="monospace">
+            <text x="180" y="42" fill="#fbbf24" fontSize="10" textAnchor="start" fontFamily="monospace">
               C={dimC}
             </text>
           </svg>
@@ -134,21 +134,21 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
             <polyline
               points="20,55 60,55 95,25 140,25 175,55"
               fill="none"
-              stroke="#3b82f6"
+              stroke="#e4e4e7"
               strokeWidth="4"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <text x="40" y="70" fill="#93c5fd" fontSize="10" textAnchor="middle" fontFamily="monospace">
+            <text x="40" y="70" fill="#d4d4d8" fontSize="10" textAnchor="middle" fontFamily="monospace">
               A={dimA}
             </text>
-            <text x="117" y="18" fill="#93c5fd" fontSize="10" textAnchor="middle" fontFamily="monospace">
+            <text x="117" y="18" fill="#d4d4d8" fontSize="10" textAnchor="middle" fontFamily="monospace">
               B={dimB}
             </text>
-            <text x="157" y="70" fill="#93c5fd" fontSize="10" textAnchor="middle" fontFamily="monospace">
+            <text x="157" y="70" fill="#d4d4d8" fontSize="10" textAnchor="middle" fontFamily="monospace">
               C={dimC}
             </text>
-            <text x="98" y="45" fill="#f59e0b" fontSize="10" textAnchor="start" fontFamily="monospace">
+            <text x="98" y="45" fill="#fbbf24" fontSize="10" textAnchor="start" fontFamily="monospace">
               D={dimD}
             </text>
           </svg>
@@ -164,18 +164,18 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
               height="44"
               rx="6"
               fill="none"
-              stroke="#3b82f6"
+              stroke="#e4e4e7"
               strokeWidth="4"
             />
-            <line x1="140" y1="18" x2="160" y2="30" stroke="#f59e0b" strokeWidth="3" strokeLinecap="round" />
-            <line x1="145" y1="22" x2="160" y2="10" stroke="#f59e0b" strokeWidth="3" strokeLinecap="round" />
-            <text x="100" y="14" fill="#93c5fd" fontSize="11" textAnchor="middle" fontFamily="monospace">
+            <line x1="140" y1="18" x2="160" y2="30" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" />
+            <line x1="145" y1="22" x2="160" y2="10" stroke="#fbbf24" strokeWidth="3" strokeLinecap="round" />
+            <text x="100" y="14" fill="#d4d4d8" fontSize="11" textAnchor="middle" fontFamily="monospace">
               A={dimA}
             </text>
-            <text x="40" y="44" fill="#93c5fd" fontSize="11" textAnchor="end" fontFamily="monospace">
+            <text x="40" y="44" fill="#d4d4d8" fontSize="11" textAnchor="end" fontFamily="monospace">
               B={dimB}
             </text>
-            <text x="165" y="24" fill="#f59e0b" fontSize="9" fontFamily="monospace">
+            <text x="165" y="24" fill="#fbbf24" fontSize="9" fontFamily="monospace">
               135° hook
             </text>
           </svg>
@@ -187,38 +187,40 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
             <polyline
               points="30,65 50,65 50,25 150,25 150,65 170,65"
               fill="none"
-              stroke="#3b82f6"
+              stroke="#e4e4e7"
               strokeWidth="4"
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <text x="35" y="60" fill="#93c5fd" fontSize="9" fontFamily="monospace">A</text>
-            <text x="40" y="48" fill="#93c5fd" fontSize="9" fontFamily="monospace">B={dimB}</text>
-            <text x="100" y="20" fill="#93c5fd" fontSize="10" textAnchor="middle" fontFamily="monospace">C={dimC}</text>
+            <text x="35" y="60" fill="#fbbf24" fontSize="9" fontFamily="monospace">A</text>
+            <text x="40" y="48" fill="#fbbf24" fontSize="9" fontFamily="monospace">B={dimB}</text>
+            <text x="100" y="20" fill="#fbbf24" fontSize="10" textAnchor="middle" fontFamily="monospace">C={dimC}</text>
           </svg>
         );
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
-      <div className="w-full max-w-2xl bg-zinc-900 border border-zinc-700 rounded-2xl flex flex-col shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-950">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80">
+      <div className="w-full max-w-2xl max-h-[92dvh] bg-zinc-900 border-t sm:border border-zinc-800 rounded-t-2xl sm:rounded-xl flex flex-col overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-b border-zinc-800 bg-zinc-950 shrink-0">
           <div>
-            <h3 className="text-sm font-semibold text-white">
+            <h3 className="text-sm font-medium text-zinc-100">
               {initialItem?.id ? 'Edit Rebar Item' : 'Add Rebar Item to BBS'}
             </h3>
             <p className="text-xs text-zinc-400">Configure bar shape, legs, and cutting length</p>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
+            aria-label="Close"
+            className="min-h-[34px] min-w-[34px] sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto max-h-[80vh]">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 pb-[max(16px,env(safe-area-inset-bottom))] sm:pb-6 space-y-4 overflow-y-auto flex-1 min-h-0">
           {/* Member & Mark */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
@@ -229,7 +231,7 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
                 value={memberId}
                 onChange={(e) => setMemberId(e.target.value)}
                 placeholder="e.g. C1, B-101, F1"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                className="w-full min-h-[36px] sm:min-h-0 bg-zinc-950 border border-zinc-800 focus:border-amber-400 outline-none rounded-lg px-3 py-1.5 text-xs text-white"
               />
             </div>
             <div>
@@ -237,7 +239,7 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
               <select
                 value={memberType}
                 onChange={(e) => setMemberType(e.target.value as StructuralMemberType)}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                className="w-full min-h-[36px] sm:min-h-0 bg-zinc-950 border border-zinc-800 focus:border-amber-400 outline-none rounded-lg px-3 py-1.5 text-xs text-white"
               >
                 <option value="column">Column</option>
                 <option value="beam">Beam</option>
@@ -256,7 +258,7 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
                 value={mark}
                 onChange={(e) => setMark(e.target.value)}
                 placeholder="e.g. Main bottom, Ties"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                className="w-full min-h-[36px] sm:min-h-0 bg-zinc-950 border border-zinc-800 focus:border-amber-400 outline-none rounded-lg px-3 py-1.5 text-xs text-white"
               />
             </div>
           </div>
@@ -270,13 +272,12 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
                   type="button"
                   key={s.code}
                   onClick={() => setShape(s.code)}
-                  className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                    shape === s.code
-                      ? 'border-blue-500 bg-blue-500/10 text-white'
+                  className={`p-2.5 rounded-xl border text-left transition flex flex-col justify-between ${shape === s.code
+                      ? 'border-amber-400 bg-amber-400/10 text-zinc-100'
                       : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:border-zinc-700'
-                  }`}
+                    }`}
                 >
-                  <div className="text-xs font-semibold">{s.label}</div>
+                  <div className="text-xs font-medium">{s.label}</div>
                   <div className="text-[10px] text-zinc-500 mt-1">{s.desc}</div>
                 </button>
               ))}
@@ -288,7 +289,7 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
             {renderShapeSvg()}
             <div className="w-full mt-2 pt-2 border-t border-zinc-800/80 flex items-center justify-between text-xs px-2">
               <span className="text-zinc-400">Calculated Cutting Length:</span>
-              <span className="text-emerald-400 font-mono font-bold text-sm">
+              <span className="text-emerald-400 font-mono font-semibold text-sm tabular-nums">
                 {cuttingLengthM.toFixed(3)} m
               </span>
             </div>
@@ -303,7 +304,7 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
               <select
                 value={diameter}
                 onChange={(e) => setDiameter(Number(e.target.value))}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono"
+                className="w-full min-h-[36px] sm:min-h-0 bg-zinc-950 border border-zinc-800 focus:border-amber-400 outline-none rounded-lg px-3 py-1.5 text-xs text-white font-mono"
               >
                 {STANDARD_DIAMETERS.map((d) => (
                   <option key={d} value={d}>
@@ -320,7 +321,7 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
                 type="number"
                 value={dimA}
                 onChange={(e) => setDimA(Number(e.target.value))}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono"
+                className="w-full min-h-[36px] sm:min-h-0 bg-zinc-950 border border-zinc-800 focus:border-amber-400 outline-none rounded-lg px-3 py-1.5 text-xs text-white font-mono"
               />
             </div>
             <div>
@@ -331,7 +332,7 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
                 type="number"
                 value={dimB}
                 onChange={(e) => setDimB(Number(e.target.value))}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono"
+                className="w-full min-h-[36px] sm:min-h-0 bg-zinc-950 border border-zinc-800 focus:border-amber-400 outline-none rounded-lg px-3 py-1.5 text-xs text-white font-mono"
               />
             </div>
             {(shape === 'u_hook' || shape === 'crank' || shape === 'chair') && (
@@ -343,7 +344,7 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
                   type="number"
                   value={dimC}
                   onChange={(e) => setDimC(Number(e.target.value))}
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono"
+                  className="w-full min-h-[36px] sm:min-h-0 bg-zinc-950 border border-zinc-800 focus:border-amber-400 outline-none rounded-lg px-3 py-1.5 text-xs text-white font-mono"
                 />
               </div>
             )}
@@ -356,7 +357,7 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
                   type="number"
                   value={dimD}
                   onChange={(e) => setDimD(Number(e.target.value))}
-                  className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono"
+                  className="w-full min-h-[36px] sm:min-h-0 bg-zinc-950 border border-zinc-800 focus:border-amber-400 outline-none rounded-lg px-3 py-1.5 text-xs text-white font-mono"
                 />
               </div>
             )}
@@ -373,7 +374,7 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
                 min="1"
                 value={numMembers}
                 onChange={(e) => setNumMembers(Math.max(1, Number(e.target.value)))}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono"
+                className="w-full min-h-[36px] sm:min-h-0 bg-zinc-950 border border-zinc-800 focus:border-amber-400 outline-none rounded-lg px-3 py-1.5 text-xs text-white font-mono"
               />
             </div>
             <div>
@@ -385,7 +386,7 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
                 min="1"
                 value={barsPerMember}
                 onChange={(e) => setBarsPerMember(Math.max(1, Number(e.target.value)))}
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono"
+                className="w-full min-h-[36px] sm:min-h-0 bg-zinc-950 border border-zinc-800 focus:border-amber-400 outline-none rounded-lg px-3 py-1.5 text-xs text-white font-mono"
               />
             </div>
           </div>
@@ -397,7 +398,7 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="e.g. Lap at mid-height, 135 deg seismic hooks"
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white"
+              className="w-full min-h-[36px] sm:min-h-0 bg-zinc-950 border border-zinc-800 focus:border-amber-400 outline-none rounded-lg px-3 py-1.5 text-xs text-white"
             />
           </div>
 
@@ -405,13 +406,13 @@ export const BarShapeEditorModal: React.FC<BarShapeEditorModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium"
+              className="min-h-[38px] sm:min-h-0 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg"
+              className="min-h-[38px] sm:min-h-0 px-4 py-2 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium flex items-center gap-1.5 transition"
             >
               <Check className="w-4 h-4" />
               <span>Save Bar Item</span>

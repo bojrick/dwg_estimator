@@ -3,7 +3,6 @@ import {
   X,
   Table as TableIcon,
   Download,
-  Sparkles,
   Check,
   ArrowRight,
   Tag,
@@ -132,10 +131,10 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
     return dt === 'column'
       ? 40
       : dt === 'beam'
-      ? 25
-      : dt === 'footing'
-      ? 50
-      : 20;
+        ? 25
+        : dt === 'footing'
+          ? 50
+          : 20;
   });
   const [floorHeightM, setFloorHeightM] = useState<number>(3.0);
   const [beamSpanM, setBeamSpanM] = useState<number>(4.0);
@@ -256,60 +255,65 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
   const availableRoles = CATEGORY_ROLE_OPTIONS[memberType] || CATEGORY_ROLE_OPTIONS.other;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
-      <div className="w-full max-w-6xl max-h-[94vh] bg-zinc-900 border border-zinc-700 rounded-2xl flex flex-col shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/80">
+      <div className="w-full h-full sm:h-auto max-w-6xl sm:max-h-[94vh] bg-zinc-900 border-0 sm:border border-zinc-800 rounded-none sm:rounded-xl flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-800 bg-zinc-950">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
-              <TableIcon className="w-5 h-5" />
+        <div className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 pt-[max(10px,env(safe-area-inset-top))] sm:pt-4 sm:px-6 sm:py-4 border-b border-zinc-800 bg-zinc-950 shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="p-2 sm:p-2.5 rounded-xl bg-amber-400/10 text-amber-400 border border-amber-400/25 shrink-0">
+              <TableIcon className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
                 <input
                   type="text"
                   value={table.title}
                   onChange={(e) => setTable((prev) => ({ ...prev, title: e.target.value }))}
-                  className="text-sm font-semibold text-white bg-transparent border-b border-dashed border-zinc-700 hover:border-blue-400 focus:border-blue-400 outline-none px-1"
+                  className="min-w-0 max-w-full text-sm font-medium text-zinc-100 bg-transparent border-b border-dashed border-zinc-700 hover:border-amber-400 focus:border-amber-400 outline-none px-1"
                   title="Click to rename schedule table title"
                 />
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono">
+                <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono shrink-0">
                   Exact Vector Table
                 </span>
               </div>
-              <p className="text-xs text-zinc-400 mt-0.5">
+              <p className="text-xs text-zinc-400 mt-0.5 truncate">
                 {table.rows.length} rows · {table.headers.length} columns · Editable Civil Engineering Schedule
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 shrink-0">
             <button
+              type="button"
               onClick={handleAddRow}
-              className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-750 text-zinc-200 text-xs font-medium flex items-center gap-1 transition"
+              className="min-h-[34px] sm:min-h-0 px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium flex items-center gap-1 transition"
               title="Add a new row to schedule"
             >
-              <Plus className="w-3.5 h-3.5 text-blue-400" />
+              <Plus className="w-3.5 h-3.5 text-amber-400" />
               <span>Row</span>
             </button>
             <button
+              type="button"
               onClick={handleAddColumn}
-              className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-750 text-zinc-200 text-xs font-medium flex items-center gap-1 transition"
+              className="min-h-[34px] sm:min-h-0 px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium flex items-center gap-1 transition"
               title="Add a new column to schedule"
             >
-              <Plus className="w-3.5 h-3.5 text-blue-400" />
+              <Plus className="w-3.5 h-3.5 text-amber-400" />
               <span>Column</span>
             </button>
             <button
+              type="button"
               onClick={handleExportCsv}
-              className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-750 text-zinc-200 text-xs font-medium flex items-center gap-1 transition"
+              className="min-h-[34px] sm:min-h-0 px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium flex items-center gap-1 transition"
               title="Download raw table CSV"
             >
               <Download className="w-3.5 h-3.5 text-zinc-400" />
               <span>CSV</span>
             </button>
             <button
+              type="button"
               onClick={onClose}
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition ml-2"
+              aria-label="Close"
+              className="min-h-[34px] min-w-[34px] sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition sm:ml-1"
             >
               <X className="w-4 h-4" />
             </button>
@@ -317,8 +321,8 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
         </div>
 
         {/* Conversion & Structural Parameter Controls */}
-        <div className="bg-zinc-900/90 px-6 py-3 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex flex-wrap items-center gap-3">
+        <div className="bg-zinc-900/90 px-3.5 py-2.5 sm:px-6 sm:py-3 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 text-xs shrink-0">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
             <div className="flex items-center gap-1.5">
               <span className="text-zinc-400 font-medium">Table Role:</span>
               <select
@@ -330,7 +334,7 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
                     nextType === 'column' ? 40 : nextType === 'beam' ? 25 : nextType === 'footing' ? 50 : 20
                   );
                 }}
-                className="bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1 text-zinc-200 font-medium"
+                className="min-h-[34px] sm:min-h-0 bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1 text-zinc-200 font-medium"
               >
                 <optgroup label="Structural Schedules">
                   <option value="column">Column Schedule</option>
@@ -356,7 +360,7 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
                 type="number"
                 value={clearCoverMm}
                 onChange={(e) => setClearCoverMm(Number(e.target.value))}
-                className="w-16 bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1 text-zinc-200 font-mono text-center"
+                className="w-16 min-h-[34px] sm:min-h-0 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-200 font-mono text-center"
               />
               <span className="text-zinc-500">mm</span>
             </div>
@@ -369,7 +373,7 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
                   step="0.1"
                   value={floorHeightM}
                   onChange={(e) => setFloorHeightM(Number(e.target.value))}
-                  className="w-16 bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1 text-zinc-200 font-mono text-center"
+                  className="w-16 min-h-[34px] sm:min-h-0 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-200 font-mono text-center"
                 />
                 <span className="text-zinc-500">m</span>
               </div>
@@ -383,7 +387,7 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
                   step="0.1"
                   value={beamSpanM}
                   onChange={(e) => setBeamSpanM(Number(e.target.value))}
-                  className="w-16 bg-zinc-950 border border-zinc-700 rounded-lg px-2 py-1 text-zinc-200 font-mono text-center"
+                  className="w-16 min-h-[34px] sm:min-h-0 bg-zinc-950 border border-zinc-800 rounded-lg px-2 py-1 text-zinc-200 font-mono text-center"
                 />
                 <span className="text-zinc-500">m</span>
               </div>
@@ -392,33 +396,34 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
             <button
               type="button"
               onClick={() => setIsParamsOpen(!isParamsOpen)}
-              className={`px-2.5 py-1 rounded-lg border text-xs font-medium flex items-center gap-1 transition ${
-                isParamsOpen
-                  ? 'bg-zinc-800 text-white border-zinc-600'
+              className={`min-h-[34px] sm:min-h-0 px-2.5 py-1 rounded-lg border text-xs font-medium flex items-center gap-1 transition ${isParamsOpen
+                  ? 'bg-zinc-800 text-zinc-100 border-zinc-700'
                   : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
-              }`}
+                }`}
             >
-              <Settings2 className="w-3.5 h-3.5 text-blue-400" />
+              <Settings2 className="w-3.5 h-3.5 text-amber-400" />
               <span>BBS Detail Specs</span>
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             {onShareToProject && (
               <button
+                type="button"
                 onClick={() => onShareToProject({ ...table, detectedType: memberType as any })}
-                className="px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-750 text-blue-300 text-xs font-semibold flex items-center gap-1 transition"
+                className="min-h-[36px] sm:min-h-0 px-2.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-amber-300 text-xs font-medium flex items-center gap-1 transition"
                 title="Share this schedule table with all plans in the project"
               >
-                <Share2 className="w-3.5 h-3.5 text-blue-400" />
+                <Share2 className="w-3.5 h-3.5 text-amber-400" />
                 <span>Share with Project</span>
               </button>
             )}
 
             {onSaveTable && (
               <button
+                type="button"
                 onClick={handleSaveOnly}
-                className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-semibold flex items-center gap-1 transition"
+                className="min-h-[36px] sm:min-h-0 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 text-xs font-medium flex items-center gap-1 transition"
                 title="Save table edits without generating BBS"
               >
                 <Save className="w-3.5 h-3.5 text-zinc-400" />
@@ -427,19 +432,19 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
             )}
 
             <button
+              type="button"
               onClick={handleConvert}
-              className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-lg transition"
+              className="min-h-[36px] sm:min-h-0 px-3.5 sm:px-4 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium flex items-center gap-1.5 transition"
             >
-              <Sparkles className="w-3.5 h-3.5" />
               <span>Generate BBS Line Items</span>
-              <ArrowRight className="w-3.5 h-3.5 ml-0.5" />
+              <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
 
         {/* Civil BBS Parameters Drawer */}
         {isParamsOpen && (
-          <div className="bg-zinc-950 px-6 py-3 border-b border-zinc-800 grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs animate-in fade-in">
+          <div className="bg-zinc-950 px-3.5 sm:px-6 py-3 border-b border-zinc-800 grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 text-xs shrink-0">
             <div>
               <span className="text-zinc-400 block mb-1">Development Length (Ld):</span>
               <div className="flex items-center gap-1">
@@ -447,7 +452,7 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
                   type="number"
                   value={devLengthMultiplier}
                   onChange={(e) => setDevLengthMultiplier(Number(e.target.value))}
-                  className="w-16 bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 text-white font-mono text-center"
+                  className="w-16 min-h-[34px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded px-2 py-0.5 text-white font-mono text-center"
                 />
                 <span className="text-zinc-500">× dia (50d)</span>
               </div>
@@ -458,7 +463,7 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
               <select
                 value={topCurtailmentFraction}
                 onChange={(e) => setTopCurtailmentFraction(Number(e.target.value))}
-                className="w-full bg-zinc-900 border border-zinc-700 rounded px-2 py-0.5 text-white font-mono"
+                className="w-full min-h-[34px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded px-2 py-0.5 text-white font-mono"
               >
                 <option value={0.25}>L / 4 (0.25L)</option>
                 <option value={0.333}>L / 3 (0.33L)</option>
@@ -483,8 +488,8 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
         )}
 
         {/* Table View / Editor */}
-        <div className="flex-1 overflow-auto p-4">
-          <div className="border border-zinc-800 rounded-xl overflow-x-auto bg-zinc-950 shadow-sm max-w-full">
+        <div className="flex-1 min-h-0 overflow-auto p-2.5 sm:p-4">
+          <div className="border border-zinc-800 rounded-xl overflow-x-auto bg-zinc-950 max-w-full">
             <table className="w-full min-w-max border-collapse text-xs">
               <thead>
                 <tr className="bg-zinc-900 border-b border-zinc-800 text-zinc-400">
@@ -500,7 +505,7 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
                                 handleHeaderChange(colIdx, e.target.value);
                               }
                             }}
-                            className="bg-zinc-950 border border-zinc-800 rounded px-1.5 py-0.5 text-[10px] text-blue-400 font-mono outline-none flex-1 truncate"
+                            className="bg-zinc-950 border border-zinc-800 rounded px-1.5 py-0.5 text-[10px] text-amber-400 font-mono outline-none flex-1 truncate"
                           >
                             {availableRoles.map((opt) => (
                               <option key={opt} value={opt}>
@@ -521,7 +526,7 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
                           type="text"
                           value={h}
                           onChange={(e) => handleHeaderChange(colIdx, e.target.value)}
-                          className="w-full bg-transparent border-b border-dashed border-zinc-700 focus:border-blue-400 outline-none text-zinc-100 font-semibold px-1 py-0.5"
+                          className="w-full bg-transparent border-b border-dashed border-zinc-700 focus:border-amber-400 outline-none text-zinc-100 font-medium px-1 py-0.5"
                           placeholder="Header Name"
                         />
                       </div>
@@ -530,7 +535,7 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
                   <th className="p-2 text-center w-20 text-zinc-500">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-850">
+              <tbody className="divide-y divide-zinc-800/80">
                 {table.rows.map((row, rowIdx) => (
                   <tr key={rowIdx} className="hover:bg-zinc-900/60 transition group">
                     <td className="p-2 text-center font-mono text-zinc-500 select-none">
@@ -542,12 +547,12 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
                           type="text"
                           value={cell || ''}
                           onChange={(e) => handleCellChange(rowIdx, colIdx, e.target.value)}
-                          className="w-full bg-transparent rounded px-2 py-1 text-zinc-100 hover:bg-zinc-900 focus:bg-zinc-800 focus:ring-1 focus:ring-blue-500 outline-none font-mono text-xs"
+                          className="w-full min-h-[32px] sm:min-h-0 bg-transparent rounded px-2 py-1 text-zinc-100 hover:bg-zinc-900 focus:bg-zinc-800 focus:ring-1 focus:ring-amber-400 outline-none font-mono text-xs"
                         />
                       </td>
                     ))}
                     <td className="p-1.5 text-center whitespace-nowrap">
-                      <div className="flex items-center justify-center gap-1 opacity-60 group-hover:opacity-100 transition">
+                      <div className="flex items-center justify-center gap-1 opacity-75 sm:opacity-60 group-hover:opacity-100 transition">
                         <button
                           type="button"
                           onClick={() => handleMoveRow(rowIdx, 'up')}
@@ -569,7 +574,7 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
                         <button
                           type="button"
                           onClick={() => handleDuplicateRow(rowIdx)}
-                          className="p-1 rounded text-zinc-400 hover:text-blue-400"
+                          className="p-1 rounded text-zinc-400 hover:text-amber-400"
                           title="Duplicate row"
                         >
                           <Copy className="w-3 h-3" />
@@ -592,14 +597,15 @@ export const ScheduleTableModal: React.FC<ScheduleTableModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-zinc-800 bg-zinc-950 flex items-center justify-between text-xs text-zinc-400">
-          <div className="flex items-center gap-2">
-            <Tag className="w-3.5 h-3.5 text-zinc-500" />
-            <span>Click any cell to edit. Rebar callouts (e.g. 3-T16, 8@150) are parsed automatically.</span>
+        <div className="px-3.5 py-2.5 pb-[max(10px,env(safe-area-inset-bottom))] sm:px-6 sm:py-3 border-t border-zinc-800 bg-zinc-950 flex flex-wrap items-center justify-between gap-2 text-xs text-zinc-400 shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <Tag className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+            <span className="truncate">Click any cell to edit. Rebar callouts (e.g. 3-T16, 8@150) are parsed automatically.</span>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium"
+            className="min-h-[36px] sm:min-h-0 px-4 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-medium shrink-0"
           >
             Close
           </button>

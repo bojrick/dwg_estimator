@@ -993,12 +993,12 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
   return (
     <div className="h-[100dvh] flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden font-sans pb-[env(safe-area-inset-bottom)] lg:pb-0">
       {/* Top Bar */}
-      <header className="pt-[max(8px,env(safe-area-inset-top))] pb-2 lg:pt-[env(safe-area-inset-top)] lg:pb-0 lg:h-12 border-b border-zinc-800/80 bg-zinc-950 px-2.5 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 shrink-0 z-20">
+      <header className="pt-[max(6px,env(safe-area-inset-top))] pb-1.5 lg:pt-[env(safe-area-inset-top)] lg:pb-0 lg:h-12 border-b border-zinc-800/80 bg-zinc-950 px-2.5 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 shrink-0 z-20">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             type="button"
             onClick={onBack}
-            className="inline-flex items-center justify-center min-w-[38px] min-h-[40px] lg:min-w-0 lg:min-h-0 p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0"
+            className="inline-flex items-center justify-center w-9 h-9 lg:w-auto lg:h-auto p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0"
             title="Back to viewer"
           >
             <ArrowLeft className="w-4 h-4" />
@@ -1027,29 +1027,31 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
             </div>
           )}
 
-          <VersionHistoryControl
-            versions={versions}
-            currency={params.currency}
-            onRestoreVersion={(v) => {
-              if (!v?.snapshot) return;
-              if (v.snapshot.activeSheetId) setActiveSheetId(v.snapshot.activeSheetId);
-              if (v.snapshot.definedMembers) setDefinedMembers(v.snapshot.definedMembers);
-              setEstimateState((prev) => ({
-                ...prev,
-                parameters: v.snapshot.parameters ? { ...prev.parameters, ...v.snapshot.parameters } : prev.parameters,
-                longitudinalSections: v.snapshot.longitudinalSections || prev.longitudinalSections || [],
-                notes: v.snapshot.notes || prev.notes,
-              }));
-              showToast(`Restored Structural BBS v${v.versionNumber} (${v.sheetName})`);
-            }}
-          />
+          <div className="[&>div>button]:h-9 lg:[&>div>button]:h-auto">
+            <VersionHistoryControl
+              versions={versions}
+              currency={params.currency}
+              onRestoreVersion={(v) => {
+                if (!v?.snapshot) return;
+                if (v.snapshot.activeSheetId) setActiveSheetId(v.snapshot.activeSheetId);
+                if (v.snapshot.definedMembers) setDefinedMembers(v.snapshot.definedMembers);
+                setEstimateState((prev) => ({
+                  ...prev,
+                  parameters: v.snapshot.parameters ? { ...prev.parameters, ...v.snapshot.parameters } : prev.parameters,
+                  longitudinalSections: v.snapshot.longitudinalSections || prev.longitudinalSections || [],
+                  notes: v.snapshot.notes || prev.notes,
+                }));
+                showToast(`Restored Structural BBS v${v.versionNumber} (${v.sheetName})`);
+              }}
+            />
+          </div>
 
           <button
             type="button"
             onClick={handleExportBbsCsv}
             disabled={bbsItems.length === 0}
             title="Export BBS CSV"
-            className="inline-flex items-center justify-center gap-1.5 min-w-[36px] min-h-[40px] lg:min-w-0 lg:min-h-0 px-2 sm:px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-40 text-zinc-200 text-xs font-medium transition"
+            className="inline-flex items-center justify-center gap-1.5 h-9 min-w-[36px] lg:h-auto lg:min-w-0 px-2 sm:px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-40 text-zinc-200 text-xs font-medium transition"
           >
             <Download className="w-3.5 h-3.5 text-zinc-400" />
             <span className="hidden sm:inline">CSV</span>
@@ -1060,7 +1062,7 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
             onClick={() => window.print()}
             disabled={bbsItems.length === 0}
             title="Print BBS"
-            className="inline-flex items-center justify-center gap-1.5 min-w-[36px] min-h-[40px] lg:min-w-0 lg:min-h-0 px-2 sm:px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-40 text-zinc-200 text-xs font-medium transition"
+            className="inline-flex items-center justify-center gap-1.5 h-9 min-w-[36px] lg:h-auto lg:min-w-0 px-2 sm:px-2.5 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-40 text-zinc-200 text-xs font-medium transition"
           >
             <Printer className="w-3.5 h-3.5 text-zinc-400" />
             <span className="hidden sm:inline">Print</span>
@@ -1070,7 +1072,7 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
             type="button"
             onClick={handleSaveAll}
             disabled={isSaving}
-            className="flex items-center gap-1.5 min-h-[40px] lg:min-h-0 px-2.5 sm:px-3 py-1 rounded-lg bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 text-xs font-medium transition"
+            className="inline-flex items-center justify-center gap-1.5 h-9 lg:h-auto px-2.5 sm:px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 text-xs font-medium transition"
           >
             <Save className="w-3.5 h-3.5" />
             <span>{isSaving ? 'Saving...' : 'Save'}</span>

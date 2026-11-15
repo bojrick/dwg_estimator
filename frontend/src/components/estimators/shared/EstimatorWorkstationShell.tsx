@@ -62,7 +62,7 @@ const VIEW_MODES: { id: MobileWorkstationView; label: string }[] = [
 ];
 
 export const MobileViewModeBar: React.FC<MobileViewModeBarProps> = ({ view, onChange }) => (
-  <div className="lg:hidden shrink-0 border-b border-white/[0.08] bg-zinc-950 px-2.5 py-1.5">
+  <div className="lg:hidden shrink-0 border-b border-white/[0.08] bg-zinc-950 px-2.5 py-1">
     <div className="grid grid-cols-3 gap-1 p-0.5 rounded-lg bg-zinc-900 border border-white/[0.08] max-w-md mx-auto">
       {VIEW_MODES.map((m) => {
         const active = view === m.id;
@@ -71,7 +71,7 @@ export const MobileViewModeBar: React.FC<MobileViewModeBarProps> = ({ view, onCh
             key={m.id}
             type="button"
             onClick={() => onChange(m.id)}
-            className={`min-h-[38px] px-2 rounded-md text-xs font-medium transition-colors ${
+            className={`min-h-[34px] px-2 rounded-md text-xs font-medium transition-colors ${
               active
                 ? 'bg-amber-400/15 text-amber-300 border border-amber-400/35'
                 : 'text-zinc-400 hover:text-zinc-200 border border-transparent'
@@ -144,7 +144,7 @@ export function EstimatorWorkstationShell<T extends string>({
             aria-label="Back"
             className="inline-flex items-center justify-center gap-1.5 min-w-[40px] min-h-[40px] lg:min-w-0 lg:min-h-0 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 hover:text-white hover:bg-zinc-900 border border-white/[0.08] transition-colors shrink-0"
           >
-            <ArrowLeft className="w-3.5 h-3.5" />
+            <ArrowLeft className="w-3.5 h-3.5" strokeWidth={1.75} />
             <span className="hidden sm:inline">Back</span>
           </button>
           <div className="h-4 w-px bg-white/[0.08] hidden sm:block shrink-0" />
@@ -179,7 +179,7 @@ export function EstimatorWorkstationShell<T extends string>({
             title="Export CSV"
             aria-label="Export CSV"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3.5 h-3.5" strokeWidth={1.75} />
             <span className="hidden sm:inline">CSV</span>
           </button>
           <button
@@ -188,7 +188,7 @@ export function EstimatorWorkstationShell<T extends string>({
             disabled={isSaving}
             className="inline-flex items-center justify-center gap-1.5 min-h-[40px] lg:min-h-0 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-100 hover:bg-white text-zinc-950 transition-colors disabled:opacity-50"
           >
-            <Save className="w-3.5 h-3.5" />
+            <Save className="w-3.5 h-3.5" strokeWidth={1.75} />
             <span className="hidden sm:inline">{isSaving ? 'Saving...' : 'Save estimate'}</span>
             <span className="sm:hidden">{isSaving ? '...' : 'Save'}</span>
           </button>
@@ -203,7 +203,7 @@ export function EstimatorWorkstationShell<T extends string>({
 
         <div className={panelClass}>
           {/* Responsive 4-Step Tab Bar */}
-          <div className="shrink-0 flex overflow-x-auto no-scrollbar sm:grid sm:grid-cols-4 border-b border-white/[0.08] bg-zinc-900/50">
+          <div className="shrink-0 flex overflow-x-auto no-scrollbar xl:grid xl:grid-cols-4 border-b border-white/[0.08] bg-zinc-900/50">
             {steps.map((s) => {
               const active = activeStep === s.id;
               return (
@@ -211,7 +211,7 @@ export function EstimatorWorkstationShell<T extends string>({
                   key={s.id}
                   type="button"
                   onClick={() => onStepChange(s.id)}
-                  className={`shrink-0 min-w-fit px-3 py-2.5 min-h-[42px] text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
+                  className={`flex-1 shrink-0 min-w-fit px-3 py-2 min-h-[40px] whitespace-nowrap text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
                     active
                       ? 'border-amber-400 text-zinc-100 bg-zinc-900'
                       : 'border-transparent text-zinc-400 hover:text-zinc-200'

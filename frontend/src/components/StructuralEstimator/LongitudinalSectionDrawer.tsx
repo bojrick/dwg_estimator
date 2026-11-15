@@ -2,12 +2,10 @@ import React, { useState, useEffect } from 'react';
 import {
   X,
   Layers,
-  Sparkles,
   Plus,
   Trash2,
   Check,
   AlertCircle,
-  HelpCircle,
 } from 'lucide-react';
 import { LongitudinalSectionDefinition, LsSpanDefinition } from './types';
 
@@ -137,18 +135,18 @@ const ElevationSvg: React.FC<{ draft: LongitudinalSectionDefinition }> = ({ draf
           </g>
         ))}
 
-        {/* Rebar lines: Continuous Top Hanger (Blue) */}
+        {/* Rebar lines: Continuous Top Hanger (Zinc) */}
         {draft.reinforcement.topContinuousBars && (
           <path
             d={`M ${padX + 4} ${beamTopY + 16} L ${padX + 4} ${beamTopY + 6} L ${curX - 4} ${beamTopY + 6} L ${curX - 4} ${beamTopY + 16}`}
             fill="none"
-            stroke="#38bdf8"
+            stroke="#e4e4e7"
             strokeWidth="2"
             strokeLinecap="round"
           />
         )}
 
-        {/* Top Extra Bars Over Supports (Cyan) */}
+        {/* Top Extra Bars Over Supports (Emerald) */}
         {columns.slice(1, -1).map((col, idx) => {
           const leftSpanW = spanBoxes[idx] ? spanBoxes[idx].x2 - spanBoxes[idx].x1 : 40;
           const rightSpanW = spanBoxes[idx + 1] ? spanBoxes[idx + 1].x2 - spanBoxes[idx + 1].x1 : 40;
@@ -161,7 +159,7 @@ const ElevationSvg: React.FC<{ draft: LongitudinalSectionDefinition }> = ({ draf
               y1={beamTopY + 12}
               x2={xEnd}
               y2={beamTopY + 12}
-              stroke="#06b6d4"
+              stroke="#34d399"
               strokeWidth="2"
               strokeLinecap="round"
             />
@@ -255,12 +253,12 @@ const ElevationSvg: React.FC<{ draft: LongitudinalSectionDefinition }> = ({ draf
       </svg>
 
       <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-1.5 border-t border-zinc-800/80 text-[10px]">
-        <div className="flex items-center gap-3">
-          <span className="flex items-center gap-1 text-sky-400">
-            <span className="w-2.5 h-0.5 bg-sky-400 rounded-full inline-block" /> Top cont
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="flex items-center gap-1 text-zinc-300">
+            <span className="w-2.5 h-0.5 bg-zinc-200 rounded-full inline-block" /> Top cont
           </span>
-          <span className="flex items-center gap-1 text-cyan-400">
-            <span className="w-2.5 h-0.5 bg-cyan-400 rounded-full inline-block" /> Extra L/3
+          <span className="flex items-center gap-1 text-emerald-400">
+            <span className="w-2.5 h-0.5 bg-emerald-400 rounded-full inline-block" /> Extra L/3
           </span>
           <span className="flex items-center gap-1 text-amber-400">
             <span className="w-2.5 h-0.5 bg-amber-400 rounded-full inline-block" /> Btm cont
@@ -368,24 +366,24 @@ export const LongitudinalSectionDrawer: React.FC<LongitudinalSectionDrawerProps>
   };
 
   return (
-    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg bg-zinc-950 border-l border-zinc-800 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
+    <div className="fixed inset-y-0 right-0 z-50 w-full max-w-lg bg-zinc-950 border-l border-zinc-800 flex flex-col overflow-hidden">
       {/* Top Header */}
-      <div className="p-4 border-b border-zinc-800/80 bg-zinc-900/60 flex items-center justify-between gap-3 shrink-0">
+      <div className="pt-[max(14px,env(safe-area-inset-top))] sm:pt-4 px-3.5 pb-3 sm:p-4 border-b border-zinc-800/80 bg-zinc-900/60 flex items-center justify-between gap-3 shrink-0">
         <div className="min-w-0 flex items-center gap-2">
-          <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 shrink-0">
+          <div className="p-2 rounded-xl bg-amber-400/10 border border-amber-400/25 text-amber-400 shrink-0">
             <Layers className="w-4 h-4" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-xs font-semibold text-zinc-100 truncate">
                 Longitudinal Section (L-Section)
               </h3>
               {isInferring ? (
-                <span className="px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-300 text-[10px] animate-pulse">
+                <span className="px-2 py-0.5 rounded bg-amber-400/10 border border-amber-400/25 text-amber-300 text-[10px] font-mono">
                   Analyzing CAD window...
                 </span>
               ) : (
-                <span className="px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[10px] font-mono">
+                <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-[10px] font-mono">
                   {draft.spans.length} Continuous Spans
                 </span>
               )}
@@ -399,14 +397,15 @@ export const LongitudinalSectionDrawer: React.FC<LongitudinalSectionDrawerProps>
         <button
           type="button"
           onClick={onClose}
-          className="p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition shrink-0"
+          aria-label="Close"
+          className="min-h-[34px] min-w-[34px] sm:min-h-0 sm:min-w-0 inline-flex items-center justify-center p-1 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition shrink-0"
         >
           <X className="w-4 h-4" />
         </button>
       </div>
 
       {/* Main Scrollable Body */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 text-xs font-sans">
+      <div className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-4 space-y-4 text-xs font-sans">
         {/* Name input */}
         <div className="space-y-1">
           <label className="text-[11px] font-medium text-zinc-300">Section Title / Beam Series</label>
@@ -414,7 +413,7 @@ export const LongitudinalSectionDrawer: React.FC<LongitudinalSectionDrawerProps>
             type="text"
             value={draft.name}
             onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-zinc-100 focus:outline-none focus:border-blue-500 text-xs font-mono font-medium"
+            className="w-full min-h-[36px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded-lg px-2.5 py-1.5 text-zinc-100 focus:outline-none focus:border-amber-400 text-xs font-mono font-medium"
             placeholder="e.g. BEAM B1 (GRID 1): B1-1 TO B1-3"
           />
         </div>
@@ -423,7 +422,7 @@ export const LongitudinalSectionDrawer: React.FC<LongitudinalSectionDrawerProps>
         <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800/80 space-y-2">
           <div className="flex items-center justify-between text-[11px]">
             <span className="text-zinc-400">Total Continuous Length:</span>
-            <span className="font-mono font-medium text-zinc-100">
+            <span className="font-mono font-medium text-zinc-100 tabular-nums">
               {totalContLengthM.toFixed(2)} m ({draft.spans.length} spans)
             </span>
           </div>
@@ -454,7 +453,7 @@ export const LongitudinalSectionDrawer: React.FC<LongitudinalSectionDrawerProps>
             <button
               type="button"
               onClick={addSpan}
-              className="inline-flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 font-medium"
+              className="inline-flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 font-medium"
             >
               <Plus className="w-3 h-3" />
               <span>Add Span</span>
@@ -469,14 +468,14 @@ export const LongitudinalSectionDrawer: React.FC<LongitudinalSectionDrawerProps>
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5">
-                    <span className="w-4 h-4 rounded-full bg-zinc-800 text-[10px] text-zinc-400 flex items-center justify-center font-mono">
+                    <span className="w-4 h-4 rounded bg-zinc-800 text-[10px] text-zinc-400 flex items-center justify-center font-mono">
                       {idx + 1}
                     </span>
                     <input
                       type="text"
                       value={span.beamMark}
                       onChange={(e) => updateSpan(idx, { beamMark: e.target.value })}
-                      className="w-24 bg-zinc-950 border border-zinc-700 rounded px-1.5 py-0.5 text-xs font-mono font-medium text-zinc-100"
+                      className="w-24 min-h-[34px] sm:min-h-0 bg-zinc-950 border border-zinc-800 focus:border-amber-400 outline-none rounded px-1.5 py-0.5 text-xs font-mono font-medium text-zinc-100"
                       placeholder="e.g. B1-1"
                     />
                   </div>
@@ -493,8 +492,8 @@ export const LongitudinalSectionDrawer: React.FC<LongitudinalSectionDrawerProps>
                 </div>
 
                 {idx === 0 && (
-                  <div className="p-2 bg-zinc-950/60 rounded border border-zinc-800/80 flex items-center justify-between text-[11px] mb-2">
-                    <div className="flex items-center gap-1.5">
+                  <div className="p-2 bg-zinc-950/60 rounded border border-zinc-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px] mb-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-zinc-400 font-sans">Left End Support Bearing (w<sub>s</sub>):</span>
                       <span className="font-mono text-zinc-300 font-medium">{span.colLeftLabel || 'Start Support (C1)'}</span>
                     </div>
@@ -503,7 +502,7 @@ export const LongitudinalSectionDrawer: React.FC<LongitudinalSectionDrawerProps>
                         type="number"
                         value={span.supportColLeftMm || 300}
                         onChange={(e) => updateSpan(0, { supportColLeftMm: Number(e.target.value) })}
-                        className="w-20 bg-zinc-900 border border-zinc-700 rounded px-1.5 py-0.5 text-zinc-200 font-mono text-center"
+                        className="w-20 min-h-[34px] sm:min-h-0 bg-zinc-900 border border-zinc-800 rounded px-1.5 py-0.5 text-zinc-200 font-mono text-center"
                         title="Bearing width of left end support"
                       />
                       <span className="text-zinc-500 text-[10px]">mm</span>
@@ -879,7 +878,7 @@ export const LongitudinalSectionDrawer: React.FC<LongitudinalSectionDrawerProps>
       </div>
 
       {/* Footer Actions */}
-      <div className="p-4 border-t border-zinc-800 bg-zinc-900/60 flex items-center justify-between gap-2 shrink-0">
+      <div className="p-3.5 sm:p-4 pb-[max(14px,env(safe-area-inset-bottom))] sm:pb-4 border-t border-zinc-800 bg-zinc-900/60 flex items-center justify-between gap-2 shrink-0">
         {onDelete && (
           <button
             type="button"
@@ -887,7 +886,7 @@ export const LongitudinalSectionDrawer: React.FC<LongitudinalSectionDrawerProps>
               onDelete(draft.id);
               onClose();
             }}
-            className="px-3 py-1.5 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 text-xs font-medium transition"
+            className="min-h-[38px] sm:min-h-0 px-3 py-1.5 rounded-lg text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 text-xs font-medium transition"
           >
             Delete
           </button>
@@ -896,14 +895,14 @@ export const LongitudinalSectionDrawer: React.FC<LongitudinalSectionDrawerProps>
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition"
+            className="min-h-[38px] sm:min-h-0 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition"
           >
             Cancel
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition flex items-center gap-1.5 shadow-lg shadow-blue-500/20"
+            className="min-h-[38px] sm:min-h-0 px-4 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium transition flex items-center gap-1.5"
           >
             <Check className="w-3.5 h-3.5" />
             <span>Apply to BBS</span>

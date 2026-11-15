@@ -20,14 +20,14 @@ export const VersionHistoryControl: React.FC<VersionHistoryControlProps> = ({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border transition-colors tabular-nums ${
+        className={`inline-flex items-center gap-1.5 min-h-[36px] lg:min-h-0 px-2.5 py-1.5 rounded-lg text-xs border transition-colors tabular-nums ${
           open
             ? 'bg-amber-400/15 text-amber-300 border-amber-400/40'
             : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border-white/[0.08]'
         }`}
         title="View & restore saved estimate versions"
       >
-        <History className="w-3.5 h-3.5" />
+        <History className="w-3.5 h-3.5" strokeWidth={1.75} />
         <span className="hidden sm:inline">Versions</span>
         <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-zinc-950 text-zinc-300">
           v{versions.length || 1}
@@ -35,17 +35,18 @@ export const VersionHistoryControl: React.FC<VersionHistoryControlProps> = ({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-10 z-50 w-80 max-h-96 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl flex flex-col overflow-hidden">
-          <div className="px-3.5 py-2.5 border-b border-zinc-800 flex items-center justify-between">
+        <div className="fixed inset-x-3 top-14 sm:absolute sm:inset-x-auto sm:right-0 sm:top-10 z-50 w-auto sm:w-80 max-h-[75dvh] sm:max-h-96 bg-zinc-900 border border-zinc-700/90 rounded-xl flex flex-col overflow-hidden">
+          <div className="px-3.5 py-2 border-b border-zinc-800 flex items-center justify-between">
             <span className="text-xs font-medium text-zinc-100">
               Estimate version history ({versions.length})
             </span>
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="p-0.5 text-zinc-400 hover:text-white"
+              aria-label="Close version history"
+              className="min-h-[34px] min-w-[34px] inline-flex items-center justify-center rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-3.5 h-3.5" strokeWidth={1.75} />
             </button>
           </div>
 
@@ -93,15 +94,15 @@ export const VersionHistoryControl: React.FC<VersionHistoryControlProps> = ({
                           onRestoreVersion(ver);
                           setOpen(false);
                         }}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white text-[11px]"
+                        className="inline-flex items-center gap-1.5 min-h-[34px] px-2.5 py-1.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white text-[11px] font-medium transition-colors"
                       >
-                        <RotateCcw className="w-3 h-3" />
+                        <RotateCcw className="w-3.5 h-3.5" strokeWidth={1.75} />
                         <span>Restore</span>
                       </button>
                     </div>
 
                     {ver.notes && (
-                      <p className="text-[11px] text-zinc-400 line-clamp-2 italic">
+                      <p className="text-[11px] text-zinc-400 line-clamp-2">
                         &ldquo;{ver.notes}&rdquo;
                       </p>
                     )}

@@ -1,8 +1,12 @@
 @import "tailwindcss";
 
 * {
-  scrollbar-width: thin;
-  scrollbar-color: #3f3f46 #18181b;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
 }
 
 canvas {

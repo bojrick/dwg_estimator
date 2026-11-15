@@ -17,7 +17,7 @@ import {
   X,
   CheckCircle2,
   RefreshCw,
-  Edit2,
+  Pencil,
   Check,
   FileSpreadsheet,
   ChevronDown,
@@ -271,6 +271,15 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
     [storageKey, onUpdateMetadata]
   );
 
+  // Metadata editing state
+  const [editingPlanTitle, setEditingPlanTitle] = useState(false);
+  const [tempPlanTitle, setTempPlanTitle] = useState(plan.name || '');
+  const [savingPlanTitle, setSavingPlanTitle] = useState(false);
+  const [editingSheetMeta, setEditingSheetMeta] = useState(false);
+  const [tempSheetName, setTempSheetName] = useState('');
+  const [tempSheetDesc, setTempSheetDesc] = useState('');
+  const [sheetPreviewUrl, setSheetPreviewUrl] = useState<string | null>(null);
+
   // Global key bindings: Shift for temp Ortho, F8 for Ortho lock, F11 for O-TRACK, Esc to exit focus / cancel
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -288,7 +297,14 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
         });
       }
       if (e.key === 'Escape') {
-        if (acquiredTrackPoints.length > 0) {
+        if (editingPlanTitle) {
+          setEditingPlanTitle(false);
+        } else if (editingSheetMeta) {
+          setEditingSheetMeta(false);
+        } else if (showEstimatorMenu || showDownloadMenu) {
+          setShowEstimatorMenu(false);
+          setShowDownloadMenu(false);
+        } else if (acquiredTrackPoints.length > 0) {
           setAcquiredTrackPoints([]);
           setOrthoGuideRay(null);
           showToast('Cleared tracking points');
@@ -313,15 +329,18 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [focusedMeasurementId, namingModal, measurePts.length, selectedAreaShape, acquiredTrackPoints.length, showToast]);
-
-  // Metadata editing state
-  const [editingPlanTitle, setEditingPlanTitle] = useState(false);
-  const [tempPlanTitle, setTempPlanTitle] = useState(plan.name || '');
-  const [editingSheetMeta, setEditingSheetMeta] = useState(false);
-  const [tempSheetName, setTempSheetName] = useState('');
-  const [tempSheetDesc, setTempSheetDesc] = useState('');
-  const [sheetPreviewUrl, setSheetPreviewUrl] = useState<string | null>(null);
+  }, [
+    editingPlanTitle,
+    editingSheetMeta,
+    showEstimatorMenu,
+    showDownloadMenu,
+    focusedMeasurementId,
+    namingModal,
+    measurePts.length,
+    selectedAreaShape,
+    acquiredTrackPoints.length,
+    showToast,
+  ]);
 
   // Pointer & touch gesture tracking
   const dragRef = useRef<{
@@ -1793,6 +1812,15 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
     setTempMeasureName('');
   };
 
+  const canRenamePlan = Boolean(onUpdateMetadata && !isGuest);
+  const openRenamePlanModal = () => {
+    if (!canRenamePlan) return;
+    setTempPlanTitle(plan.name || '');
+    setEditingPlanTitle(true);
+  };
+  const hasGuestSaveCta = Boolean(isGuest && onSavePlan);
+  const estimatorIsPrimary = !hasGuestSaveCta && Boolean(onOpenEstimator || onOpenStructuralEstimator);
+
   return (
     <div className="flex-1 flex flex-col bg-zinc-950 overflow-hidden relative">
       {toastMsg && (
@@ -1820,72 +1848,39 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
         }}
       />
 
-      {/* Header: row 1 = back, title, actions; row 2 = view switcher, sheet selector */}
-      <div className="bg-zinc-900 border-b border-zinc-800 px-2.5 sm:px-3 pb-2 pt-[max(8px,env(safe-area-inset-top))] shrink-0 space-y-2">
-        <div className="flex items-center justify-between gap-1.5 sm:gap-2 min-w-0">
+      {/* Header: row 1 = back, title, actions; row 2 = compact sheet selector strip */}
+      <header className="bg-[#111315] border-b border-zinc-800 pt-[env(safe-area-inset-top)] shrink-0">
+        <div className="px-2.5 sm:px-3.5 py-1.5 flex items-center justify-between gap-2 min-w-0">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <button
+              type="button"
               onClick={onBack}
-              className="p-2 min-w-[40px] min-h-[40px] sm:min-w-0 sm:min-h-0 flex items-center justify-center rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/60 text-zinc-200 transition shrink-0"
+              className="w-9 h-9 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-zinc-100 flex items-center justify-center shrink-0 transition"
               title="Back to Plan Vault"
             >
               <ArrowLeft className="w-4 h-4" />
             </button>
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5 min-w-0">
-                {editingPlanTitle ? (
-                  <div className="flex items-center gap-1 min-w-0 flex-1">
-                    <input
-                      type="text"
-                      value={tempPlanTitle}
-                      onChange={(e) => setTempPlanTitle(e.target.value)}
-                      className="bg-zinc-950 border border-amber-400/70 rounded px-2 py-1 text-base sm:text-xs text-white focus:outline-none min-w-0 flex-1"
-                      autoFocus
-                    />
-                    <button
-                      onClick={async () => {
-                        if (onUpdateMetadata && tempPlanTitle.trim() && tempPlanTitle !== plan.name) {
-                          await onUpdateMetadata({ name: tempPlanTitle.trim() });
-                        }
-                        setEditingPlanTitle(false);
-                      }}
-                      className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center rounded bg-zinc-100 hover:bg-white text-zinc-950 shrink-0"
-                      title="Save title"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setTempPlanTitle(plan.name || '');
-                        setEditingPlanTitle(false);
-                      }}
-                      className="p-1.5 min-w-[32px] min-h-[32px] flex items-center justify-center rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 shrink-0"
-                      title="Cancel"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1 group min-w-0">
-                    <h2 className="text-xs sm:text-sm font-medium text-zinc-100 truncate min-w-0">
-                      {plan.name}
-                    </h2>
-                    {onUpdateMetadata && !isGuest && (
-                      <button
-                        onClick={() => {
-                          setTempPlanTitle(plan.name || '');
-                          setEditingPlanTitle(true);
-                        }}
-                        className="p-1.5 sm:p-0.5 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition shrink-0"
-                        title="Edit plan name"
-                      >
-                        <Edit2 className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
+              <div className="flex items-center gap-1 min-w-0">
+                <h2
+                  onClick={canRenamePlan ? openRenamePlanModal : undefined}
+                  className={`text-xs sm:text-sm font-medium text-zinc-100 truncate ${canRenamePlan ? 'cursor-pointer hover:text-white transition' : ''}`}
+                  title={plan.name}
+                >
+                  {plan.name}
+                </h2>
+                {canRenamePlan && (
+                  <button
+                    type="button"
+                    onClick={openRenamePlanModal}
+                    className="p-1.5 rounded-md text-zinc-400 hover:text-amber-400 hover:bg-zinc-800 shrink-0 transition"
+                    title="Rename plan"
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
                 )}
               </div>
-              <div className="text-[11px] text-zinc-400 truncate mt-0.5">
+              <div className="text-[10px] sm:text-[11px] font-mono text-zinc-400 truncate">
                 {[isGuest ? 'Guest preview' : null, plan.project_name, plan.discipline].filter(Boolean).join(' · ')}
               </div>
             </div>
@@ -1895,25 +1890,32 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
             {onOpenAuth && (
               <>
                 <button
+                  type="button"
                   onClick={() => onOpenAuth('signin')}
-                  className="hidden sm:inline-flex px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 transition whitespace-nowrap"
+                  className="hidden sm:inline-flex items-center h-9 px-2.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800 transition whitespace-nowrap"
                 >
                   Sign In
                 </button>
                 {!isGuest && (
                   <button
+                    type="button"
                     onClick={() => onOpenAuth('signup')}
-                    className="px-2.5 sm:px-3 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium transition whitespace-nowrap"
+                    className={`h-9 px-2.5 sm:px-3 rounded-lg text-xs font-medium transition whitespace-nowrap ${!hasGuestSaveCta && !estimatorIsPrimary
+                        ? 'bg-zinc-100 hover:bg-white text-zinc-950'
+                        : 'bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-200 hover:text-zinc-100'
+                      }`}
                   >
                     Sign Up
                   </button>
                 )}
               </>
             )}
-            {isGuest && onSavePlan && (
+
+            {hasGuestSaveCta && onSavePlan && (
               <button
+                type="button"
                 onClick={onSavePlan}
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium transition whitespace-nowrap"
+                className="h-9 flex items-center gap-1.5 px-2.5 sm:px-3 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium transition whitespace-nowrap shrink-0"
               >
                 <Upload className="w-3.5 h-3.5 shrink-0" />
                 <span className="sm:hidden">Save</span>
@@ -1924,29 +1926,47 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
             {/* Multi-discipline Estimator Launcher */}
             {(onOpenEstimator || onOpenStructuralEstimator) && (
               <div className="relative">
-                <div className="flex items-center rounded-lg bg-zinc-800 hover:bg-zinc-700/80 border border-zinc-700/80 overflow-hidden">
+                <div
+                  className={`flex items-center h-9 rounded-lg overflow-hidden ${estimatorIsPrimary
+                      ? 'bg-zinc-100 text-zinc-950'
+                      : 'bg-zinc-900 border border-zinc-700 text-zinc-200'
+                    }`}
+                >
                   <button
+                    type="button"
                     onClick={() => {
+                      setShowEstimatorMenu(false);
+                      setShowDownloadMenu(false);
                       if (onOpenEstimator) {
                         onOpenEstimator(currentDiscipline);
                       } else if (onOpenStructuralEstimator) {
                         onOpenStructuralEstimator();
                       }
                     }}
-                    className="flex items-center gap-1.5 px-2.5 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 text-zinc-100 hover:text-white text-xs font-medium transition whitespace-nowrap"
+                    className={`h-full flex items-center gap-1.5 px-2 sm:px-3 text-xs font-medium transition whitespace-nowrap ${estimatorIsPrimary
+                        ? 'text-zinc-950 hover:bg-white'
+                        : 'text-zinc-100 hover:bg-zinc-800'
+                      }`}
                     title={`Open ${currentDisciplineInfo.estimatorLabel}`}
                   >
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                    <span className="hidden sm:inline font-mono text-[11px] text-zinc-400 capitalize mr-0.5">
-                      {currentDiscipline}
-                    </span>
+                    <FileSpreadsheet
+                      className={`w-3.5 h-3.5 shrink-0 ${estimatorIsPrimary ? 'text-zinc-800' : 'text-amber-400'
+                        }`}
+                    />
                     <span className="hidden sm:inline">{currentDisciplineInfo.estimatorLabel}</span>
                     <span className="sm:hidden">Estimator</span>
                   </button>
                   {onOpenEstimator && (
                     <button
-                      onClick={() => setShowEstimatorMenu((v) => !v)}
-                      className="px-2 py-2 sm:p-1.5 min-h-[40px] sm:min-h-0 flex items-center justify-center border-l border-zinc-700/80 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 transition"
+                      type="button"
+                      onClick={() => {
+                        setShowDownloadMenu(false);
+                        setShowEstimatorMenu((v) => !v);
+                      }}
+                      className={`h-full px-1.5 sm:px-2 flex items-center justify-center border-l transition ${estimatorIsPrimary
+                          ? 'border-zinc-300 text-zinc-700 hover:bg-white hover:text-zinc-950'
+                          : 'border-zinc-700/80 text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800'
+                        }`}
                       title="Switch discipline estimator"
                     >
                       <ChevronDown className="w-3.5 h-3.5" />
@@ -1955,87 +1975,111 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                 </div>
 
                 {showEstimatorMenu && onOpenEstimator && (
-                  <div className="absolute right-0 mt-1.5 w-64 max-w-[calc(100vw-16px)] bg-zinc-900 border border-zinc-700/80 rounded-xl p-1.5 z-40 text-xs space-y-1">
-                    <div className="px-2.5 py-1 text-[11px] font-mono text-zinc-400">
-                      Select estimator
-                    </div>
-                    {DISCIPLINES.map((d) => (
-                      <button
-                        key={d.id}
-                        onClick={() => {
-                          setShowEstimatorMenu(false);
-                          onOpenEstimator(d.id);
-                        }}
-                        className={`w-full flex items-start gap-2.5 px-2.5 py-2 min-h-[40px] sm:min-h-0 rounded-lg text-left transition ${d.id === currentDiscipline
-                          ? 'bg-amber-400/15 border border-amber-400/30 text-amber-200'
-                          : 'hover:bg-zinc-800 border border-transparent text-zinc-300'
-                          }`}
-                      >
-                        <FileSpreadsheet
-                          className={`w-4 h-4 mt-0.5 shrink-0 ${d.id === currentDiscipline ? 'text-amber-400' : 'text-zinc-400'
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setShowEstimatorMenu(false)}
+                    />
+                    <div className="fixed inset-x-3 top-[calc(56px+env(safe-area-inset-top))] sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-64 z-50 bg-zinc-900 border border-zinc-700/90 rounded-xl p-1.5 text-xs space-y-1">
+                      <div className="px-2.5 py-1 text-[11px] font-mono text-zinc-400">
+                        Select estimator
+                      </div>
+                      {DISCIPLINES.map((d) => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => {
+                            setShowEstimatorMenu(false);
+                            onOpenEstimator(d.id);
+                          }}
+                          className={`w-full flex items-start gap-2.5 px-2.5 py-2 min-h-[40px] sm:min-h-0 rounded-lg text-left transition ${d.id === currentDiscipline
+                              ? 'bg-amber-400/15 border border-amber-400/30 text-amber-200'
+                              : 'hover:bg-zinc-800 border border-transparent text-zinc-300'
                             }`}
-                        />
-                        <div>
-                          <div className="font-medium text-zinc-200">{d.estimatorLabel}</div>
-                          <div className="text-[11px] text-zinc-400 leading-tight">{d.estimatorDesc}</div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
+                        >
+                          <FileSpreadsheet
+                            className={`w-4 h-4 mt-0.5 shrink-0 ${d.id === currentDiscipline ? 'text-amber-400' : 'text-zinc-400'
+                              }`}
+                          />
+                          <div>
+                            <div className="font-medium text-zinc-200">{d.estimatorLabel}</div>
+                            <div className="text-[11px] text-zinc-400 leading-tight">{d.estimatorDesc}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </>
                 )}
               </div>
             )}
 
             <button
+              type="button"
               onClick={() => onShare(plan)}
-              className="flex items-center justify-center gap-1.5 px-2.5 py-2 sm:py-1.5 min-w-[40px] min-h-[40px] sm:min-w-0 sm:min-h-0 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium transition shrink-0"
+              className="w-9 h-9 md:w-auto md:px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-zinc-100 text-xs font-medium flex items-center justify-center gap-1.5 transition shrink-0"
               title="Share plan"
             >
               <Share2 className="w-3.5 h-3.5 shrink-0" />
-              <span className="hidden sm:inline">Share</span>
+              <span className="hidden md:inline">Share</span>
             </button>
 
             <div className="relative">
               <button
-                onClick={() => setShowDownloadMenu((v) => !v)}
-                className="p-2 min-w-[40px] min-h-[40px] sm:min-w-0 sm:min-h-0 flex items-center justify-center rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/60 text-zinc-200 transition"
+                type="button"
+                onClick={() => {
+                  setShowEstimatorMenu(false);
+                  setShowDownloadMenu((v) => !v);
+                }}
+                className="w-9 h-9 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-zinc-100 flex items-center justify-center transition shrink-0"
                 title="Download or Update Plan Files"
               >
                 <Download className="w-4 h-4" />
               </button>
               {showDownloadMenu && (
-                <div className="absolute right-0 mt-1.5 w-52 max-w-[calc(100vw-16px)] bg-zinc-900 border border-zinc-700/80 rounded-xl p-1.5 z-40 text-xs space-y-1">
-                  {plan.has_dwg && (
-                    <>
-                      <a
-                        href={apiUrl(`/api/plans/${plan.id}/file/dxf?share=${encodeURIComponent(plan.share_token || '')}`)}
-                        download
-                        className="flex items-center gap-2 px-3 py-2 min-h-[40px] sm:min-h-0 rounded-lg hover:bg-zinc-800 text-zinc-200"
-                      >
-                        <Download className="w-3.5 h-3.5 text-zinc-300 shrink-0" />
-                        Download Cleaned .DXF
-                      </a>
-                      <a
-                        href={apiUrl(`/api/plans/${plan.id}/file/dwg?share=${encodeURIComponent(plan.share_token || '')}`)}
-                        download
-                        className="flex items-center gap-2 px-3 py-2 min-h-[40px] sm:min-h-0 rounded-lg hover:bg-zinc-800 text-zinc-200"
-                      >
-                        <Download className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                        Download Original .DWG
-                      </a>
-                    </>
-                  )}
-                </div>
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setShowDownloadMenu(false)}
+                  />
+                  <div className="fixed inset-x-3 top-[calc(56px+env(safe-area-inset-top))] sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-52 z-50 bg-zinc-900 border border-zinc-700/90 rounded-xl p-1.5 text-xs space-y-1">
+                    {plan.has_dwg ? (
+                      <>
+                        <a
+                          href={apiUrl(`/api/plans/${plan.id}/file/dxf?share=${encodeURIComponent(plan.share_token || '')}`)}
+                          download
+                          onClick={() => setShowDownloadMenu(false)}
+                          className="flex items-center gap-2 px-3 py-2 min-h-[40px] sm:min-h-0 rounded-lg hover:bg-zinc-800 text-zinc-200"
+                        >
+                          <Download className="w-3.5 h-3.5 text-zinc-300 shrink-0" />
+                          Download Cleaned .DXF
+                        </a>
+                        <a
+                          href={apiUrl(`/api/plans/${plan.id}/file/dwg?share=${encodeURIComponent(plan.share_token || '')}`)}
+                          download
+                          onClick={() => setShowDownloadMenu(false)}
+                          className="flex items-center gap-2 px-3 py-2 min-h-[40px] sm:min-h-0 rounded-lg hover:bg-zinc-800 text-zinc-200"
+                        >
+                          <Download className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          Download Original .DWG
+                        </a>
+                      </>
+                    ) : (
+                      <div className="px-3 py-2 text-zinc-400">No CAD file attached</div>
+                    )}
+                  </div>
+                </>
               )}
             </div>
           </div>
         </div>
-        <div className="flex items-center gap-2 min-w-0">
-          {sheets.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+
+        {sheets.length > 0 && (
+          <div className="px-2.5 sm:px-3.5 py-1 bg-zinc-950 border-t border-zinc-800/80 flex items-center justify-between gap-2 min-w-0">
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <Layers className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               {sheets.length === 1 ? (
                 <span
-                  className="bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-2 sm:py-1.5 text-xs sm:text-[11px] font-medium text-zinc-200 flex-1 min-w-0 sm:flex-none sm:max-w-[240px] truncate"
+                  className="h-8 flex items-center text-xs text-zinc-200 truncate"
                   title={sheets[0].name}
                 >
                   {sheets[0].name}
@@ -2052,7 +2096,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                       setBusyAction(null);
                     }
                   }}
-                  className="bg-zinc-950 border border-zinc-700/80 rounded-lg px-2.5 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 text-xs sm:text-[11px] font-medium text-zinc-200 flex-1 min-w-0 sm:flex-none sm:max-w-[260px] truncate focus:outline-none focus:border-amber-400"
+                  className="h-8 text-xs bg-zinc-900 border border-zinc-800 rounded-md px-2 text-zinc-200 flex-1 min-w-0 sm:flex-none sm:max-w-[280px] truncate focus:outline-none focus:border-amber-400"
                   title="Switch isolated view"
                 >
                   <option value="all">All {sheets.length} Selected Views (Merged)</option>
@@ -2063,33 +2107,34 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                   ))}
                 </select>
               )}
-
-              {onUpdateMetadata && !isGuest && plan.active_sheet_id && plan.active_sheet_id !== 'all' && (
-                <button
-                  onClick={() => {
-                    const cur = sheets.find((s: any) => s.id === plan.active_sheet_id);
-                    if (cur) {
-                      setTempSheetName(cur.name || '');
-                      setTempSheetDesc(cur.description || '');
-                      try {
-                        setSheetPreviewUrl(canvasRef.current ? canvasRef.current.toDataURL('image/png') : null);
-                      } catch {
-                        setSheetPreviewUrl(null);
-                      }
-                      setEditingSheetMeta(true);
-                    }
-                  }}
-                  className="p-2 sm:p-1.5 min-w-[40px] min-h-[40px] sm:min-w-0 sm:min-h-0 flex items-center justify-center rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/60 text-zinc-300 hover:text-white transition shrink-0"
-                  title="Edit current sheet name and description"
-                >
-                  <Edit2 className="w-3.5 h-3.5" />
-                </button>
-              )}
             </div>
-          )}
 
-        </div>
-      </div>
+            {onUpdateMetadata && !isGuest && plan.active_sheet_id && plan.active_sheet_id !== 'all' && (
+              <button
+                type="button"
+                onClick={() => {
+                  const cur = sheets.find((s: any) => s.id === plan.active_sheet_id);
+                  if (cur) {
+                    setTempSheetName(cur.name || '');
+                    setTempSheetDesc(cur.description || '');
+                    try {
+                      setSheetPreviewUrl(canvasRef.current ? canvasRef.current.toDataURL('image/png') : null);
+                    } catch {
+                      setSheetPreviewUrl(null);
+                    }
+                    setEditingSheetMeta(true);
+                  }
+                }}
+                className="h-8 px-2.5 rounded-md bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-[11px] text-zinc-300 hover:text-zinc-100 flex items-center gap-1.5 shrink-0 transition"
+                title="Edit current sheet name and description"
+              >
+                <Pencil className="w-3 h-3" />
+                <span>Edit sheet</span>
+              </button>
+            )}
+          </div>
+        )}
+      </header>
 
       {busyAction && (
         <div className="bg-zinc-900 border-b border-amber-400/25 px-4 py-1.5 text-xs text-amber-200 flex items-center justify-center gap-2">
@@ -2677,7 +2722,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                                         className="p-1 text-zinc-500 hover:text-zinc-300 transition shrink-0"
                                         title="Rename measurement"
                                       >
-                                        <Edit2 className="w-2.5 h-2.5" />
+                                        <Pencil className="w-3 h-3" />
                                       </button>
                                     </div>
                                   )}
@@ -2731,15 +2776,99 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
         </div>
       </div>
 
+      {/* Rename Plan Modal (matching home page RenamePlanModal) */}
+      {editingPlanTitle && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setEditingPlanTitle(false)}
+        >
+          <div
+            className="w-full sm:max-w-sm bg-zinc-900 border-t sm:border border-zinc-800 rounded-t-2xl sm:rounded-xl p-5 pb-[max(20px,env(safe-area-inset-bottom))] sm:pb-5 space-y-4 max-h-[90dvh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-medium text-zinc-100 flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-amber-400" />
+                Rename plan
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingPlanTitle(false)}
+                className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition shrink-0"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const trimmed = tempPlanTitle.trim();
+                if (!trimmed || savingPlanTitle) return;
+                if (onUpdateMetadata && trimmed !== plan.name) {
+                  setSavingPlanTitle(true);
+                  try {
+                    await onUpdateMetadata({ name: trimmed });
+                  } finally {
+                    setSavingPlanTitle(false);
+                  }
+                }
+                setEditingPlanTitle(false);
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="block text-xs font-medium text-zinc-300 mb-1.5">
+                  Plan display name
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={tempPlanTitle}
+                  onChange={(e) => setTempPlanTitle(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-700/80 rounded-lg px-3 py-2 min-h-[42px] text-base sm:text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingPlanTitle(false)}
+                  className="px-4 min-h-[42px] rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!tempPlanTitle.trim() || savingPlanTitle}
+                  className="px-4 min-h-[42px] rounded-lg bg-zinc-100 hover:bg-white disabled:opacity-50 text-xs font-medium text-zinc-950 transition"
+                >
+                  Save
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Sheet Metadata Edit Modal */}
       {editingSheetMeta && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-zinc-900 border-t sm:border border-zinc-800 rounded-t-2xl sm:rounded-xl max-w-md w-full p-5 pb-[max(20px,env(safe-area-inset-bottom))] sm:pb-5 space-y-4 max-h-[90dvh] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-medium text-white">Edit sheet name & description</h3>
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setEditingSheetMeta(false)}
+        >
+          <div
+            className="bg-zinc-900 border-t sm:border border-zinc-800 rounded-t-2xl sm:rounded-xl max-w-md w-full p-5 pb-[max(20px,env(safe-area-inset-bottom))] sm:pb-5 space-y-4 max-h-[90dvh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-medium text-zinc-100 flex items-center gap-2">
+                <Pencil className="w-4 h-4 text-amber-400" />
+                Edit sheet name & description
+              </h3>
               <button
+                type="button"
                 onClick={() => setEditingSheetMeta(false)}
-                className="p-1.5 min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 flex items-center justify-center rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100 transition shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2750,7 +2879,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                 type="text"
                 value={tempSheetName}
                 onChange={(e) => setTempSheetName(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-700/80 rounded-lg px-3 py-2 text-base sm:text-xs text-white focus:outline-none focus:border-amber-400"
+                className="w-full bg-zinc-950 border border-zinc-700/80 rounded-lg px-3 py-2 min-h-[42px] text-base sm:text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
                 placeholder="e.g. Ground Floor Plan"
               />
               {sheetPreviewUrl && (
@@ -2774,7 +2903,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                 rows={3}
                 value={tempSheetDesc}
                 onChange={(e) => setTempSheetDesc(e.target.value)}
-                className="w-full bg-zinc-950 border border-zinc-700/80 rounded-lg p-2.5 text-base sm:text-xs text-white focus:outline-none focus:border-amber-400 resize-none"
+                className="w-full bg-zinc-950 border border-zinc-700/80 rounded-lg p-2.5 text-base sm:text-xs text-zinc-100 focus:outline-none focus:border-amber-400 resize-none"
                 placeholder="e.g., Working plan showing room boundaries and external columns..."
               />
             </div>
@@ -2782,7 +2911,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
               <button
                 type="button"
                 onClick={() => setEditingSheetMeta(false)}
-                className="px-3.5 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-zinc-800 text-xs font-medium text-zinc-300 hover:bg-zinc-700"
+                className="px-4 min-h-[42px] rounded-lg bg-zinc-800 text-xs font-medium text-zinc-200 hover:bg-zinc-700 transition"
               >
                 Cancel
               </button>
@@ -2799,7 +2928,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                   }
                   setEditingSheetMeta(false);
                 }}
-                className="px-4 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-zinc-100 hover:bg-white text-xs font-medium text-zinc-950 transition"
+                className="px-4 min-h-[42px] rounded-lg bg-zinc-100 hover:bg-white text-xs font-medium text-zinc-950 transition"
               >
                 Save Changes
               </button>
@@ -2810,16 +2939,23 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
 
       {/* Naming / Save Measurement Modal */}
       {namingModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-          <div className="bg-zinc-900 border-t sm:border border-zinc-800 rounded-t-2xl sm:rounded-xl max-w-sm w-full p-5 pb-[max(20px,env(safe-area-inset-bottom))] sm:pb-5 space-y-3.5 max-h-[90dvh] overflow-y-auto">
-            <div className="flex items-center justify-between">
+        <div
+          className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4"
+          onClick={() => setNamingModal(null)}
+        >
+          <div
+            className="bg-zinc-900 border-t sm:border border-zinc-800 rounded-t-2xl sm:rounded-xl max-w-sm w-full p-5 pb-[max(20px,env(safe-area-inset-bottom))] sm:pb-5 space-y-3.5 max-h-[90dvh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Bookmark className="w-4 h-4 text-amber-400" />
-                <h3 className="text-sm font-medium text-white">Save measurement</h3>
+                <h3 className="text-sm font-medium text-zinc-100">Save measurement</h3>
               </div>
               <button
+                type="button"
                 onClick={() => setNamingModal(null)}
-                className="p-1.5 min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 flex items-center justify-center rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-100 transition shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -2847,7 +2983,7 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                     handleCommitSave();
                   }
                 }}
-                className="w-full bg-zinc-950 border border-zinc-700/80 rounded-lg px-3 py-2 text-base sm:text-xs text-white focus:outline-none focus:border-amber-400"
+                className="w-full bg-zinc-950 border border-zinc-700/80 rounded-lg px-3 py-2 min-h-[42px] text-base sm:text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
                 placeholder={namingModal.defaultName}
                 autoFocus
               />
@@ -2857,14 +2993,14 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
               <button
                 type="button"
                 onClick={() => setNamingModal(null)}
-                className="px-3.5 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-zinc-800 text-xs font-medium text-zinc-300 hover:bg-zinc-700"
+                className="px-4 min-h-[42px] rounded-lg bg-zinc-800 text-xs font-medium text-zinc-200 hover:bg-zinc-700 transition"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleCommitSave}
-                className="px-4 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-zinc-100 hover:bg-white text-xs font-medium text-zinc-950 transition"
+                className="px-4 min-h-[42px] rounded-lg bg-zinc-100 hover:bg-white text-xs font-medium text-zinc-950 transition"
               >
                 Save Measurement
               </button>

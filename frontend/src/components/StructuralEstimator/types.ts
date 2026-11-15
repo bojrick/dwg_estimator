@@ -195,6 +195,8 @@ export interface LsSpanDefinition {
   depthMm: number; // e.g. 450
   supportColLeftMm?: number; // e.g. 300
   supportColRightMm?: number; // e.g. 400
+  colLeftLabel?: string;
+  colRightLabel?: string;
   bottomCurtailedOverride?: { count: number; diameter: number; curtailRatio?: number };
   topExtraLeftOverride?: { count: number; diameter: number; extensionRatio?: number };
   topExtraRightOverride?: { count: number; diameter: number; extensionRatio?: number };

@@ -73,11 +73,11 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
   return (
     <div className="h-full flex flex-col overflow-hidden bg-zinc-950">
       {/* Pinned Top Metrics Bar */}
-      <div className="p-3 bg-zinc-950 border-b border-zinc-800/80 space-y-2.5 shrink-0">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono tabular-nums">
+      <div className="p-2.5 sm:p-3 bg-zinc-950 border-b border-zinc-800/80 space-y-2 sm:space-y-2.5 shrink-0">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2 text-xs font-mono tabular-nums">
           <div className="bg-zinc-900 border border-zinc-800/80 rounded-lg p-2">
             <div className="text-[10px] font-sans text-zinc-400">Net rebar weight</div>
-            <div className="text-sm font-medium text-zinc-100 mt-0.5">
+            <div className="text-xs sm:text-sm font-medium text-zinc-100 mt-0.5 truncate">
               {takeoffTotals.netWeightKg.toLocaleString('en-IN')} kg
             </div>
             <div className="text-[10px] text-zinc-500">
@@ -86,10 +86,10 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
           </div>
 
           <div className="bg-zinc-900 border border-zinc-800/80 rounded-lg p-2">
-            <div className="text-[10px] font-sans text-zinc-400">
+            <div className="text-[10px] font-sans text-zinc-400 truncate">
               Gross (+{params.wastagePct}% waste)
             </div>
-            <div className="text-sm font-medium text-amber-300 mt-0.5">
+            <div className="text-xs sm:text-sm font-medium text-amber-300 mt-0.5 truncate">
               {takeoffTotals.totalWeightWithWastageKg.toLocaleString('en-IN')} kg
             </div>
             <div className="text-[10px] text-zinc-500">
@@ -98,10 +98,10 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
           </div>
 
           <div className="bg-zinc-900 border border-zinc-800/80 rounded-lg p-2">
-            <div className="text-[10px] font-sans text-zinc-400">
+            <div className="text-[10px] font-sans text-zinc-400 truncate">
               Binding wire ({params.bindingWirePct}%)
             </div>
-            <div className="text-sm font-medium text-zinc-200 mt-0.5">
+            <div className="text-xs sm:text-sm font-medium text-zinc-200 mt-0.5 truncate">
               {takeoffTotals.bindingWireKg} kg
             </div>
             <div className="text-[10px] font-sans text-zinc-500">
@@ -113,7 +113,7 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
             <div className="text-[10px] font-sans text-zinc-400">
               Total steel budget
             </div>
-            <div className="text-sm font-medium text-emerald-400 mt-0.5">
+            <div className="text-xs sm:text-sm font-medium text-emerald-400 mt-0.5 truncate">
               {params.currency} {takeoffTotals.totalCost.toLocaleString('en-IN')}
             </div>
             <div className="text-[10px] text-zinc-500">
@@ -149,8 +149,8 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
               type="button"
               onClick={() => setTakeoffTab('bbs')}
               className={`shrink-0 px-3 py-1 rounded-md font-medium tabular-nums transition ${takeoffTab === 'bbs'
-                  ? 'bg-zinc-800 text-zinc-100'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-zinc-800 text-zinc-100'
+                : 'text-zinc-400 hover:text-zinc-200'
                 }`}
             >
               Bar bending schedule ({bbsItems.length})
@@ -159,8 +159,8 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
               type="button"
               onClick={() => setTakeoffTab('diameter')}
               className={`shrink-0 px-3 py-1 rounded-md font-medium tabular-nums transition ${takeoffTab === 'diameter'
-                  ? 'bg-zinc-800 text-zinc-100'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-zinc-800 text-zinc-100'
+                : 'text-zinc-400 hover:text-zinc-200'
                 }`}
             >
               By diameter ({diameterSummary.length})
@@ -169,8 +169,8 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
               type="button"
               onClick={() => setTakeoffTab('audit')}
               className={`shrink-0 px-3 py-1 rounded-md font-medium tabular-nums transition flex items-center gap-1 ${takeoffTab === 'audit'
-                  ? 'bg-zinc-800 text-zinc-100'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                ? 'bg-zinc-800 text-zinc-100'
+                : 'text-zinc-400 hover:text-zinc-200'
                 }`}
             >
               <span>IS 456 check</span>
@@ -199,54 +199,100 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
       {/* Contained Tab Body (Zero Outer Page Scroll) */}
       <div className="flex-1 min-h-0 overflow-y-auto bg-zinc-950">
         {takeoffTab === 'bbs' && (
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-xs min-w-[650px]">
-              <thead className="sticky top-0 z-10 bg-zinc-900 border-b border-zinc-800 text-[11px] text-zinc-400">
-                <tr>
-                  <th className="py-2 pl-3 pr-2 text-left font-medium w-[18%]">Member</th>
-                  <th className="py-2 px-2 text-left font-medium w-[28%]">Bar role & shape</th>
-                  <th className="py-2 px-2 text-center font-medium w-[12%]">Dia</th>
-                  <th className="py-2 px-2 text-right font-medium w-[14%]">Cut L (m)</th>
-                  <th className="py-2 px-2 text-center font-medium w-[14%]">Bars</th>
-                  <th className="py-2 pl-2 pr-3 text-right font-medium w-[14%]">Weight (kg)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-900 font-mono tabular-nums">
-                {bbsItems.map((item) => (
-                  <tr
-                    key={item.id}
-                    onClick={() => onHighlightMember(item.memberId)}
-                    className="hover:bg-zinc-900/50 cursor-pointer transition"
-                  >
-                    <td className="py-2 pl-3 pr-2 font-medium text-zinc-100 truncate">
-                      {item.memberId}
-                    </td>
-                    <td className="py-2 px-2 font-sans text-zinc-300 truncate">
-                      <span className="font-medium text-zinc-200">{item.mark}</span>
-                      <span className="block text-[10px] text-zinc-400 font-mono truncate" title={item.notes || ''}>
-                        {item.shape.replace('_', ' ')}{item.notes ? ` · ${item.notes}` : ''}
+          <>
+            {/* Mobile BBS Card View */}
+            <div className="sm:hidden divide-y divide-zinc-900 font-mono tabular-nums">
+              {bbsItems.map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => onHighlightMember(item.memberId)}
+                  className="p-3 hover:bg-zinc-900/50 cursor-pointer transition space-y-1"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0 flex items-center gap-1.5">
+                      <span className="font-medium text-zinc-100 text-xs shrink-0">
+                        {item.memberId}
                       </span>
-                    </td>
-                    <td className="py-2 px-2 text-center text-zinc-200">Φ{item.diameter}</td>
-                    <td className="py-2 px-2 text-right text-zinc-200">
-                      {item.cuttingLengthM.toFixed(2)}
-                    </td>
-                    <td className="py-2 px-2 text-center text-zinc-200">{item.totalBars}</td>
-                    <td className="py-2 pl-2 pr-3 text-right font-medium text-zinc-100">
-                      {item.totalWeightKg.toFixed(1)}
-                    </td>
-                  </tr>
-                ))}
-                {bbsItems.length === 0 && (
+                      <span className="text-[11px] font-sans text-zinc-300 truncate">
+                        {item.mark}
+                      </span>
+                    </div>
+                    <span className="text-xs font-medium text-zinc-100 shrink-0">
+                      {item.totalWeightKg.toFixed(1)} kg
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-[11px] text-zinc-400">
+                    <span className="truncate">
+                      {item.shape.replace('_', ' ')} · Φ{item.diameter}
+                    </span>
+                    <span className="shrink-0 text-zinc-300">
+                      {item.cuttingLengthM.toFixed(2)}m × {item.totalBars} bars
+                    </span>
+                  </div>
+                  {item.notes && (
+                    <div className="text-[10px] font-sans text-zinc-500 truncate">
+                      {item.notes}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {bbsItems.length === 0 && (
+                <div className="py-12 px-4 text-center text-zinc-500 font-sans text-xs">
+                  No structural bars generated. Check Step 2 (members) and Step 3 (reinforcement).
+                </div>
+              )}
+            </div>
+
+            {/* Desktop BBS Table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full border-collapse text-xs min-w-[650px]">
+                <thead className="sticky top-0 z-10 bg-zinc-900 border-b border-zinc-800 text-[11px] text-zinc-400">
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-zinc-500 font-sans">
-                      No structural bars generated. Check Step 2 (members) and Step 3 (reinforcement).
-                    </td>
+                    <th className="py-2 pl-3 pr-2 text-left font-medium w-[18%]">Member</th>
+                    <th className="py-2 px-2 text-left font-medium w-[28%]">Bar role & shape</th>
+                    <th className="py-2 px-2 text-center font-medium w-[12%]">Dia</th>
+                    <th className="py-2 px-2 text-right font-medium w-[14%]">Cut L (m)</th>
+                    <th className="py-2 px-2 text-center font-medium w-[14%]">Bars</th>
+                    <th className="py-2 pl-2 pr-3 text-right font-medium w-[14%]">Weight (kg)</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-zinc-900 font-mono tabular-nums">
+                  {bbsItems.map((item) => (
+                    <tr
+                      key={item.id}
+                      onClick={() => onHighlightMember(item.memberId)}
+                      className="hover:bg-zinc-900/50 cursor-pointer transition"
+                    >
+                      <td className="py-2 pl-3 pr-2 font-medium text-zinc-100 truncate">
+                        {item.memberId}
+                      </td>
+                      <td className="py-2 px-2 font-sans text-zinc-300 truncate">
+                        <span className="font-medium text-zinc-200">{item.mark}</span>
+                        <span className="block text-[10px] text-zinc-400 font-mono truncate" title={item.notes || ''}>
+                          {item.shape.replace('_', ' ')}{item.notes ? ` · ${item.notes}` : ''}
+                        </span>
+                      </td>
+                      <td className="py-2 px-2 text-center text-zinc-200">Φ{item.diameter}</td>
+                      <td className="py-2 px-2 text-right text-zinc-200">
+                        {item.cuttingLengthM.toFixed(2)}
+                      </td>
+                      <td className="py-2 px-2 text-center text-zinc-200">{item.totalBars}</td>
+                      <td className="py-2 pl-2 pr-3 text-right font-medium text-zinc-100">
+                        {item.totalWeightKg.toFixed(1)}
+                      </td>
+                    </tr>
+                  ))}
+                  {bbsItems.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-zinc-500 font-sans">
+                        No structural bars generated. Check Step 2 (members) and Step 3 (reinforcement).
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
         {takeoffTab === 'diameter' && (
@@ -303,8 +349,8 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
                   <div
                     key={idx}
                     className={`p-2.5 rounded-xl border flex items-start gap-2 text-xs ${anom.severity === 'error'
-                        ? 'bg-rose-950/25 border-rose-500/30 text-rose-200'
-                        : 'bg-amber-950/25 border-amber-500/30 text-amber-200'
+                      ? 'bg-rose-950/25 border-rose-500/30 text-rose-200'
+                      : 'bg-amber-950/25 border-amber-500/30 text-amber-200'
                       }`}
                   >
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
