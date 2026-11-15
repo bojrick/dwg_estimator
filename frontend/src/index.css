@@ -5,8 +5,8 @@
   scrollbar-color: #3f3f46 #18181b;
 }
 
-html, body {
-  touch-action: pan-x pan-y;
+canvas {
+  touch-action: none;
 }
 
 body {
@@ -15,6 +15,15 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid #60a5fa;
+  outline: 2px solid #fbbf24;
   outline-offset: 2px;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }

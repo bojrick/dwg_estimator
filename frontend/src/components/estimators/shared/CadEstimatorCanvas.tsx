@@ -899,15 +899,15 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
   return (
     <div className="w-full h-full flex flex-col relative bg-zinc-950 select-none">
       {/* Top Toolbar: Sheet Dropdown + Measure + Layers + Zoom */}
-      <div className="h-9 px-2.5 bg-zinc-950 border-b border-zinc-800/80 flex items-center justify-between gap-2 text-xs shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="min-h-[42px] sm:h-9 px-2 py-1 bg-zinc-950 border-b border-zinc-800/80 flex items-center justify-between gap-1.5 text-xs shrink-0">
+        <div className="flex items-center gap-1.5 min-w-0 flex-1">
           {sheets.length > 0 ? (
             <>
               <span className="text-[11px] text-zinc-400 shrink-0 hidden sm:inline">Sheet:</span>
               <select
                 value={activeSheetId}
                 onChange={(e) => onSelectSheetId(e.target.value)}
-                className="bg-zinc-900 hover:bg-zinc-800/90 text-zinc-100 text-[11px] font-medium rounded-lg px-2.5 py-1 border border-zinc-700/80 focus:outline-none focus:border-amber-400 max-w-[210px] sm:max-w-[320px] truncate transition-colors"
+                className="bg-zinc-900 hover:bg-zinc-800/90 text-zinc-100 text-[11px] font-medium rounded-lg px-2 py-1.5 sm:py-1 min-h-[34px] sm:min-h-0 border border-zinc-700/80 focus:outline-none focus:border-amber-400 w-full min-w-0 max-w-[220px] sm:max-w-[320px] truncate transition-colors"
                 title="Select drawing sheet for takeoff scope"
               >
                 {sheets.map((s: any, idx: number) => (
@@ -919,7 +919,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
               </select>
             </>
           ) : (
-            <span className="text-zinc-400 text-[11px] px-1">Full Drawing Modelspace</span>
+            <span className="text-zinc-400 text-[11px] px-1 truncate">Full Drawing Modelspace</span>
           )}
         </div>
 
@@ -936,11 +936,10 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
                 setMeasurePts([]);
               }
             }}
-            className={`px-2 py-1 rounded flex items-center gap-1 text-[11px] font-medium transition ${
-              measureMode !== 'off'
-                ? 'bg-emerald-600 text-white'
+            className={`min-h-[34px] min-w-[34px] sm:min-h-0 sm:min-w-0 px-2 py-1.5 sm:py-1 rounded-lg flex items-center justify-center gap-1 text-[11px] font-medium transition ${measureMode !== 'off'
+                ? 'bg-amber-400 text-zinc-950'
                 : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
-            }`}
+              }`}
             title="Measure distance & area on CAD drawing (OSNAP)"
           >
             <Ruler className="w-3.5 h-3.5" />
@@ -950,11 +949,10 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
           <button
             type="button"
             onClick={() => setShowLayerPanel((v) => !v)}
-            className={`px-2 py-1 rounded flex items-center gap-1 text-[11px] font-medium transition ${
-              showLayerPanel || hiddenLayers.size > 0
-                ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
-                : 'text-zinc-300 hover:bg-zinc-800 hover:text-white'
-            }`}
+            className={`min-h-[34px] min-w-[34px] sm:min-h-0 sm:min-w-0 px-2 py-1.5 sm:py-1 rounded-lg flex items-center justify-center gap-1 text-[11px] font-medium transition border ${showLayerPanel || hiddenLayers.size > 0
+                ? 'bg-amber-400/15 text-amber-300 border-amber-400/30'
+                : 'border-transparent text-zinc-300 hover:bg-zinc-800 hover:text-white'
+              }`}
             title="Inspect & filter CAD layers"
           >
             <Layers className="w-3.5 h-3.5" />
@@ -964,7 +962,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
           <button
             type="button"
             onClick={() => setZoom((z) => Math.min(10000, z * 1.25))}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"
+            className="min-h-[34px] min-w-[34px] sm:min-h-0 sm:min-w-0 px-2 py-1.5 sm:p-1 rounded-lg flex items-center justify-center hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
             title="Zoom in"
           >
             <ZoomIn className="w-3.5 h-3.5" />
@@ -972,7 +970,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
           <button
             type="button"
             onClick={() => setZoom((z) => Math.max(1e-5, z * 0.8))}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"
+            className="min-h-[34px] min-w-[34px] sm:min-h-0 sm:min-w-0 px-2 py-1.5 sm:p-1 rounded-lg flex items-center justify-center hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
             title="Zoom out"
           >
             <ZoomOut className="w-3.5 h-3.5" />
@@ -980,7 +978,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
           <button
             type="button"
             onClick={fitToView}
-            className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"
+            className="min-h-[34px] min-w-[34px] sm:min-h-0 sm:min-w-0 px-2 py-1.5 sm:p-1 rounded-lg flex items-center justify-center hover:bg-zinc-800 text-zinc-400 hover:text-white transition"
             title="Fit drawing"
           >
             <Maximize2 className="w-3.5 h-3.5" />
@@ -995,7 +993,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
 
         {/* Built-in Measure HUD */}
         {measureMode !== 'off' && (
-          <div className="absolute top-2.5 inset-x-2.5 z-20 bg-zinc-900/95 border border-zinc-700/80 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 shadow-xl text-xs">
+          <div className="absolute top-2.5 inset-x-2.5 z-20 bg-zinc-900/95 border border-zinc-700/80 rounded-xl px-2.5 sm:px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded-lg border border-zinc-800">
               <button
                 type="button"
@@ -1003,9 +1001,8 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
                   setMeasureMode('distance');
                   setMeasurePts([]);
                 }}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
-                  measureMode === 'distance' ? 'bg-emerald-600 text-white' : 'text-zinc-400 hover:text-white'
-                }`}
+                className={`px-2.5 py-1.5 sm:py-1 min-h-[32px] sm:min-h-0 rounded-md text-[11px] font-medium transition ${measureMode === 'distance' ? 'bg-amber-400 text-zinc-950' : 'text-zinc-400 hover:text-white'
+                  }`}
               >
                 Distance
               </button>
@@ -1015,19 +1012,18 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
                   setMeasureMode('area');
                   setMeasurePts([]);
                 }}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition ${
-                  measureMode === 'area' ? 'bg-emerald-600 text-white' : 'text-zinc-400 hover:text-white'
-                }`}
+                className={`px-2.5 py-1.5 sm:py-1 min-h-[32px] sm:min-h-0 rounded-md text-[11px] font-medium transition ${measureMode === 'area' ? 'bg-amber-400 text-zinc-950' : 'text-zinc-400 hover:text-white'
+                  }`}
               >
                 Polygon Area
               </button>
             </div>
 
-            <div className="font-mono text-[11px] text-emerald-300">
+            <div className="font-mono text-[11px] text-amber-300 tabular-nums">
               {measureMode === 'distance' ? (
                 measuredDistM !== null ? (
                   <span>
-                    <strong>{measuredDistM.toFixed(3)} m</strong> · {(measuredDistM * 3.28084).toFixed(2)} ft · ΔX:{' '}
+                    <strong className="font-medium">{measuredDistM.toFixed(3)} m</strong> · {(measuredDistM * 3.28084).toFixed(2)} ft · ΔX:{' '}
                     {(Math.abs(measurePts[1][0] - measurePts[0][0]) * unitScaleToM).toFixed(2)}m ΔY:{' '}
                     {(Math.abs(measurePts[1][1] - measurePts[0][1]) * unitScaleToM).toFixed(2)}m
                   </span>
@@ -1038,7 +1034,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
                 )
               ) : measuredAreaM2 !== null ? (
                 <span>
-                  <strong>{measuredAreaM2.toFixed(2)} m²</strong> · {(measuredAreaM2 * 10.7639).toFixed(1)} sq.ft ({measurePts.length} pts)
+                  <strong className="font-medium">{measuredAreaM2.toFixed(2)} m²</strong> · {(measuredAreaM2 * 10.7639).toFixed(1)} sq.ft ({measurePts.length} pts)
                 </span>
               ) : (
                 <span className="text-zinc-300">Click 3+ corner points ({measurePts.length} pts)</span>
@@ -1050,7 +1046,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
                 <button
                   type="button"
                   onClick={() => setMeasurePts([])}
-                  className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-[11px] text-zinc-200"
+                  className="px-2.5 py-1.5 sm:px-2 sm:py-0.5 min-h-[32px] sm:min-h-0 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-[11px] text-zinc-200"
                 >
                   Clear
                 </button>
@@ -1061,7 +1057,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
                   setMeasureMode('off');
                   setMeasurePts([]);
                 }}
-                className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                className="p-1.5 sm:p-1 min-w-[32px] min-h-[32px] sm:min-w-0 sm:min-h-0 flex items-center justify-center rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -1071,8 +1067,8 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
 
         {/* External Box / 2-Point / Single-Point Tool Banner */}
         {(boxSelectLabel || twoPointPickLabel || singlePointPickLabel) && (
-          <div className="absolute top-2.5 left-2.5 z-20 px-3 py-1.5 rounded-lg bg-amber-400 text-zinc-950 text-[11px] font-medium flex items-center gap-2 shadow-lg">
-            <span>{boxSelectLabel || twoPointPickLabel || singlePointPickLabel}</span>
+          <div className="absolute top-2.5 left-2.5 z-20 px-3 py-1.5 rounded-lg bg-amber-400 text-zinc-950 text-[11px] font-medium flex items-center gap-2 border border-amber-300/40 max-w-[calc(100%-20px)]">
+            <span className="truncate">{boxSelectLabel || twoPointPickLabel || singlePointPickLabel}</span>
             {onCancelExternalTool && (
               <button
                 type="button"
@@ -1081,7 +1077,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
                   setMarquee(null);
                   onCancelExternalTool();
                 }}
-                className="underline text-[10px] font-semibold"
+                className="underline text-[10px] font-medium shrink-0"
               >
                 Cancel
               </button>
@@ -1091,14 +1087,14 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
 
         {/* Layer Visibility Popover */}
         {showLayerPanel && (
-          <div className="absolute top-2.5 right-2.5 z-30 w-64 max-h-[75%] bg-zinc-900/95 backdrop-blur-md border border-zinc-700 rounded-xl shadow-2xl flex flex-col overflow-hidden">
-            <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between">
-              <span className="text-xs font-medium text-white">CAD Layers ({layersList.length})</span>
-              <div className="flex items-center gap-1.5">
+          <div className="absolute top-2.5 right-2 z-30 w-64 max-w-[calc(100%-16px)] max-h-[65%] bg-zinc-900/95 backdrop-blur-md border border-zinc-700/80 rounded-xl flex flex-col overflow-hidden">
+            <div className="px-3 py-2 border-b border-zinc-800 flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-white truncate">CAD layers ({layersList.length})</span>
+              <div className="flex items-center gap-1.5 shrink-0">
                 <button
                   type="button"
                   onClick={() => setHiddenLayers(() => new Set())}
-                  className="text-[10px] text-blue-400 hover:text-blue-300"
+                  className="text-[11px] text-amber-400 hover:text-amber-300 font-medium px-1 py-0.5"
                 >
                   All On
                 </button>
@@ -1106,14 +1102,14 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
                 <button
                   type="button"
                   onClick={() => setHiddenLayers(() => new Set(layersList.map((l) => l.name)))}
-                  className="text-[10px] text-zinc-400 hover:text-zinc-200"
+                  className="text-[11px] text-zinc-400 hover:text-zinc-200 px-1 py-0.5"
                 >
                   All Off
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowLayerPanel(false)}
-                  className="p-0.5 text-zinc-400 hover:text-white ml-1"
+                  className="p-1.5 sm:p-0.5 min-w-[32px] min-h-[32px] sm:min-w-0 sm:min-h-0 flex items-center justify-center rounded text-zinc-400 hover:text-white ml-0.5"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -1125,7 +1121,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
                 value={layerFilter}
                 onChange={(e) => setLayerFilter(e.target.value)}
                 placeholder="Filter layers..."
-                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1 text-[11px] text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                className="w-full bg-zinc-950 border border-zinc-800 rounded-lg px-2.5 py-1.5 sm:py-1 text-base sm:text-[11px] text-white placeholder-zinc-500 focus:outline-none focus:border-amber-400"
               />
             </div>
             <div className="flex-1 overflow-y-auto divide-y divide-zinc-800/50">
@@ -1143,7 +1139,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
                         return next;
                       })
                     }
-                    className="w-full px-3 py-1.5 flex items-center justify-between gap-2 hover:bg-zinc-800/60 text-left text-[11px]"
+                    className="w-full px-3 py-2 sm:py-1.5 flex items-center justify-between gap-2 hover:bg-zinc-800/60 text-left text-xs sm:text-[11px]"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span
@@ -1155,7 +1151,7 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5 shrink-0">
-                      <span className="text-[10px] font-mono text-zinc-500">{lyr.entity_count}</span>
+                      <span className="text-[10px] font-mono text-zinc-500 tabular-nums">{lyr.entity_count}</span>
                       {visible ? (
                         <Eye className="w-3 h-3 text-zinc-400" />
                       ) : (
@@ -1178,9 +1174,8 @@ export const CadEstimatorCanvas: React.FC<CadEstimatorCanvasProps> = ({
           onTouchStart={handleTouchStart}
           onTouchMove={handleTouchMove}
           onTouchEnd={handleTouchEnd}
-          className={`w-full h-full block touch-none select-none ${
-            isCrosshair ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
-          }`}
+          className={`w-full h-full block touch-none select-none ${isCrosshair ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+            }`}
         />
       </div>
     </div>

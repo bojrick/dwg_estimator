@@ -1,14 +1,5 @@
 import React from 'react';
-import {
-  Compass,
-  Upload,
-  RefreshCw,
-  ArrowRight,
-  Ruler,
-  Layers,
-  FileSpreadsheet,
-  Zap,
-} from 'lucide-react';
+import { Compass, Upload, RefreshCw, ArrowRight } from 'lucide-react';
 
 interface GuestLandingViewProps {
   uploading: boolean;
@@ -16,100 +7,151 @@ interface GuestLandingViewProps {
   onOpenSignUp: () => void;
 }
 
+const SAMPLE_BOQ_ROWS = [
+  { item: 'Fe500 Rebar', spec: 'Structural · IS 456', qty: '14,820 kg', highlight: true },
+  { item: 'AAC Masonry', spec: 'Architectural · IS 2185', qty: '118.4 m³', highlight: false },
+  { item: 'Conduit & Wiring', spec: 'Electrical · IS 732', qty: '1,420 m', highlight: false },
+  { item: 'Hydrant Riser', spec: 'Fire · IS 3844', qty: '86.0 m', highlight: false },
+];
+
+const DISCIPLINE_CHECKS = [
+  { label: 'Structural BBS', active: true },
+  { label: 'Masonry & finishes', active: false },
+  { label: 'Electrical', active: false },
+  { label: 'Plumbing & fire', active: false },
+];
+
 export const GuestLandingView: React.FC<GuestLandingViewProps> = ({
   uploading,
   onSelectFiles,
   onOpenSignUp,
 }) => {
   return (
-    <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8 sm:py-12 flex flex-col justify-center space-y-8">
-      <div className="text-center space-y-3">
-        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold">
-          <Compass className="w-3.5 h-3.5" />
-          <span>FOSS CAD Takeoff & Multi-Discipline Estimator</span>
-        </div>
-        <h2 className="text-2xl sm:text-4xl font-semibold text-white tracking-tight">
-          Open, inspect, and extract quantities from CAD drawings in your browser
-        </h2>
-        <p className="text-sm sm:text-base text-zinc-400 max-w-xl mx-auto leading-relaxed">
-          Open DWG and DXF files on desktop or phone. Generate bar bending schedules, masonry block counts, plaster areas, and electrical conduit runs.
-        </p>
-      </div>
-
-      {/* Guest CAD Upload Card */}
-      <div className="max-w-lg w-full mx-auto bg-zinc-900 border border-zinc-800 rounded-2xl p-6 sm:p-8 space-y-6 shadow-2xl">
-        <div className="text-center space-y-1">
-          <h3 className="text-base font-medium text-white">Try the viewer & estimators</h3>
-          <p className="text-xs text-zinc-400">
-            Upload a DWG or DXF file to view and calculate quantities immediately as a guest.
-          </p>
-        </div>
-
-        <label className="flex flex-col items-center justify-center border-2 border-dashed border-zinc-700 hover:border-blue-500/50 rounded-2xl p-6 cursor-pointer bg-zinc-950/60 transition group">
-          <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 group-hover:scale-105 transition mb-3">
-            <Upload className="w-6 h-6" />
+    <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-10 flex items-center">
+      <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10 items-center">
+        {/* Left: Workstation Entry & Dropzone */}
+        <div className="lg:col-span-7 space-y-5 min-w-0">
+          <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-amber-400 text-[11px] font-mono max-w-full">
+            <Compass className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">DWG / DXF quantity takeoff · IS 456 &amp; IS 1200</span>
           </div>
-          <span className="text-sm font-medium text-white">Tap to choose DWG or DXF files</span>
-          <span className="text-xs text-zinc-400 mt-1">Free instant preview • Upload one or multiple drawings</span>
-          <input
-            type="file"
-            accept=".dwg,.dxf"
-            multiple
-            className="hidden"
-            disabled={uploading}
-            onChange={(e) => onSelectFiles(e.target.files)}
-          />
-        </label>
 
-        {uploading && (
-          <div className="flex items-center justify-center gap-2 text-xs font-medium text-blue-400 py-2">
-            <RefreshCw className="w-4 h-4 animate-spin" />
-            <span>Parsing and cleaning CAD entities...</span>
+          <div className="space-y-3">
+            <h2 className="text-2xl sm:text-4xl font-medium text-zinc-100 tracking-tight leading-[1.15]">
+              Inspect CAD sheets and extract site quantities in the browser
+            </h2>
+            <p className="text-sm sm:text-base text-zinc-400 max-w-xl leading-relaxed">
+              Open DWG and DXF drawings on desktop or phone to generate bar bending schedules, masonry counts, plaster areas, and MEP runs
+            </p>
           </div>
-        )}
 
-        <div className="border-t border-zinc-800 pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-          <span className="text-zinc-400 text-center sm:text-left">
-            Need to save plans, organize projects & sync?
-          </span>
-          <button
-            onClick={onOpenSignUp}
-            className="w-full sm:w-auto px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-medium flex items-center justify-center gap-1.5 transition"
-          >
-            <span>Create account</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
+          <label className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-dashed border-zinc-700 hover:border-amber-400/60 rounded-xl p-5 sm:p-6 cursor-pointer bg-zinc-900/70 transition group">
+            <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+              <div className="w-11 h-11 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-amber-400 shrink-0">
+                {uploading ? (
+                  <RefreshCw className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Upload className="w-5 h-5" />
+                )}
+              </div>
+              <div className="min-w-0 space-y-0.5">
+                <div className="text-sm font-medium text-zinc-100">
+                  {uploading ? 'Parsing CAD entities...' : 'Open DWG or DXF sheets'}
+                </div>
+                <div className="text-xs text-zinc-400">
+                  {uploading
+                    ? 'Extracting layers, blocks, and sheet frames'
+                    : 'Instant guest preview · Upload one or multiple drawings'}
+                </div>
+              </div>
+            </div>
+            <span className="inline-flex items-center justify-center min-h-[42px] px-4 rounded-lg bg-zinc-100 group-hover:bg-white text-zinc-950 text-xs font-medium shrink-0 transition">
+              Browse files
+            </span>
+            <input
+              type="file"
+              accept=".dwg,.dxf"
+              multiple
+              className="hidden"
+              disabled={uploading}
+              onChange={(e) => onSelectFiles(e.target.files)}
+            />
+          </label>
 
-      {/* Feature Highlights Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto pt-4">
-        <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-4 space-y-1.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
-            <FileSpreadsheet className="w-4 h-4" />
+          <div className="pt-4 border-t border-white/[0.08] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <span className="text-zinc-400">
+              Save plans, organize projects, and configure default measurement units
+            </span>
+            <button
+              type="button"
+              onClick={onOpenSignUp}
+              className="w-full sm:w-auto min-h-[42px] px-4 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700/80 text-zinc-100 font-medium flex items-center justify-center gap-1.5 shrink-0 transition"
+            >
+              <span>Create account</span>
+              <ArrowRight className="w-3.5 h-3.5 text-amber-400" />
+            </button>
           </div>
-          <h4 className="text-xs font-medium text-white">Structural BBS & IS 456</h4>
-          <p className="text-[11px] text-zinc-400 leading-relaxed">
-            Extract schedule tables, calculate rebar cutting lengths, unit weights, and check IS 456 compliance.
-          </p>
         </div>
-        <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-4 space-y-1.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
-            <Ruler className="w-4 h-4" />
+
+        {/* Right: Sheet Title Block & Sample BOQ Preview */}
+        <div className="lg:col-span-5 min-w-0">
+          <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl overflow-hidden">
+            {/* Sheet Title Block Header */}
+            <div className="px-4 py-3 bg-zinc-950/80 border-b border-zinc-800 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                <span className="text-xs font-mono text-zinc-200 truncate">
+                  SHT-02 · Framing &amp; Conduit · 1:100 · mm
+                </span>
+              </div>
+              <span className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-[10px] font-mono text-zinc-400 shrink-0">
+                Sample BOQ
+              </span>
+            </div>
+
+            {/* Tabular Takeoff Rows */}
+            <div className="divide-y divide-white/[0.06]">
+              {SAMPLE_BOQ_ROWS.map((row) => (
+                <div
+                  key={row.item}
+                  className="px-4 py-3 flex items-center justify-between gap-3"
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-medium text-zinc-100 truncate">
+                      {row.item}
+                    </div>
+                    <div className="text-[11px] font-mono text-zinc-500 truncate">
+                      {row.spec}
+                    </div>
+                  </div>
+                  <span
+                    className={`text-xs font-mono tabular-nums shrink-0 ${
+                      row.highlight ? 'text-amber-400 font-medium' : 'text-zinc-200'
+                    }`}
+                  >
+                    {row.qty}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Quiet Discipline Status Footer */}
+            <div className="px-4 py-3 bg-zinc-950/60 border-t border-zinc-800 flex flex-wrap items-center gap-x-4 gap-y-2">
+              {DISCIPLINE_CHECKS.map((d) => (
+                <span
+                  key={d.label}
+                  className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400"
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      d.active ? 'bg-amber-400' : 'bg-zinc-600'
+                    }`}
+                  />
+                  <span>{d.label}</span>
+                </span>
+              ))}
+            </div>
           </div>
-          <h4 className="text-xs font-medium text-white">Architectural Finishes & Masonry</h4>
-          <p className="text-[11px] text-zinc-400 leading-relaxed">
-            Calculate net wall volumes, AAC block counts, plastering areas, room flooring, and openings schedules.
-          </p>
-        </div>
-        <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-4 space-y-1.5">
-          <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400">
-            <Zap className="w-4 h-4" />
-          </div>
-          <h4 className="text-xs font-medium text-white">Electrical & Plumbing QTO</h4>
-          <p className="text-[11px] text-zinc-400 leading-relaxed">
-            Takeoff electrical points, conduit runs, wire lengths by gauge, sanitary fixtures, and IS 1172 tank sizing.
-          </p>
         </div>
       </div>
     </main>

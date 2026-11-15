@@ -469,7 +469,7 @@ export function App() {
         if (xhr.status >= 200 && xhr.status < 300) {
           setUploadProgress({
             pct: 100,
-            stage: 'Complete! Opening cleaned plan...',
+            stage: 'Complete. Opening cleaned plan...',
             elapsedSec: Math.round((Date.now() - startTime) / 1000),
             remainingSec: 0,
           });
@@ -757,7 +757,7 @@ export function App() {
       setGuestDwgFile(null);
       await fetchVaultPlans();
       setActivePlanPayload({ ...data, isGuest: false });
-      showToast('Plan saved permanently to your vault!');
+      showToast('Plan saved to vault');
     } catch (err: any) {
       showToast(err.message || 'Failed to save plan');
     } finally {
@@ -791,7 +791,7 @@ export function App() {
     }
     try {
       await navigator.clipboard.writeText(shareUrl);
-      showToast('Shareable plan link copied to clipboard!');
+      showToast('Share link copied to clipboard');
     } catch {
       window.prompt('Copy share link:', shareUrl);
     }
@@ -986,6 +986,13 @@ export function App() {
     );
   });
 
+  const toastNode = toastMsg ? (
+    <div className="fixed top-[max(12px,env(safe-area-inset-top))] left-1/2 -translate-x-1/2 z-50 max-w-[calc(100vw-24px)] bg-zinc-900 border border-zinc-700 text-zinc-100 text-xs font-medium px-3.5 py-2 rounded-lg flex items-center gap-2">
+      <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
+      <span className="truncate">{toastMsg}</span>
+    </div>
+  ) : null;
+
   // Render Discipline Estimators
   const estimatorDiscipline = activeEstimatorDiscipline || (isStructuralEstimatorOpen ? 'structural' : null);
 
@@ -1000,13 +1007,8 @@ export function App() {
     };
 
     return (
-      <div className="h-[100dvh] flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden">
-        {toastMsg && (
-          <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white text-xs font-medium px-4 py-2 rounded-full shadow-xl flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4" />
-            <span>{toastMsg}</span>
-          </div>
-        )}
+      <div className="h-[100dvh] flex flex-col bg-[#111315] text-zinc-100 overflow-hidden">
+        {toastNode}
 
         {estimatorDiscipline === 'structural' && (
           <StructuralEstimatorPage
@@ -1075,13 +1077,8 @@ export function App() {
   if (activePlanPayload) {
     const p = activePlanPayload.plan;
     return (
-      <div className="h-[100dvh] flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden">
-        {toastMsg && (
-          <div className="fixed top-3 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white text-xs font-medium px-4 py-2 rounded-full shadow-xl flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4" />
-            <span>{toastMsg}</span>
-          </div>
-        )}
+      <div className="h-[100dvh] flex flex-col bg-[#111315] text-zinc-100 overflow-hidden">
+        {toastNode}
         <UploadProgressOverlay progress={uploadProgress} />
         <ErrorBoundary
           fallbackTitle="Unable to Open CAD Viewer"
@@ -1217,7 +1214,7 @@ export function App() {
               try {
                 const data = await runUploadWithProgress(`/api/plans/${p.id}/dwg`, form, file);
                 setActivePlanPayload(data);
-                showToast('DWG uploaded & cleaned!');
+                showToast('DWG uploaded and cleaned');
               } finally {
                 setUploadProgress(null);
               }
@@ -1265,28 +1262,21 @@ export function App() {
   }
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-zinc-950 text-zinc-100 pb-20 sm:pb-8">
-      {toastMsg && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-blue-600 text-white text-xs font-medium px-4 py-2 rounded-full shadow-xl flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4" />
-          <span>{toastMsg}</span>
-        </div>
-      )}
+    <div className="min-h-[100dvh] flex flex-col bg-[#111315] text-zinc-100 pb-20 sm:pb-8 overflow-x-hidden">
+      {toastNode}
 
       {/* Mobile Floating Action Button */}
       {authSession && !loadingVault && (
-        <div className="sm:hidden fixed bottom-0 inset-x-0 z-30 bg-zinc-900/95 backdrop-blur-md border-t border-white/10 px-4 pt-3 pb-[max(12px,env(safe-area-inset-bottom))]">
-          <button
-            onClick={() => {
-              if (selectedProject !== 'ALL') setUploadProject(selectedProject);
-              setShowUploadModal(true);
-            }}
-            className="w-full h-11 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium flex items-center justify-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Upload plan
-          </button>
-        </div>
+        <button
+          onClick={() => {
+            if (selectedProject !== 'ALL') setUploadProject(selectedProject);
+            setShowUploadModal(true);
+          }}
+          className="sm:hidden fixed right-4 bottom-[max(16px,env(safe-area-inset-bottom))] z-30 min-h-[44px] px-4 rounded-xl bg-zinc-100 hover:bg-white text-zinc-950 border border-white/20 text-xs font-medium flex items-center gap-2 transition"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Upload plan</span>
+        </button>
       )}
 
       {/* Top App Header */}
@@ -1332,13 +1322,13 @@ export function App() {
         /* Authenticated Drafting Station Shell */
         <main className="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 py-3 sm:py-4 flex flex-col md:flex-row gap-3 sm:gap-5 items-start">
           {/* Mobile Horizontal Projects Bar */}
-          <div className="md:hidden w-full flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-3 px-3">
+          <div className="md:hidden w-full flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
             <button
               onClick={() => setSelectedProject('ALL')}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
+              className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
                 selectedProject === 'ALL'
-                  ? 'bg-zinc-100 text-zinc-950 border-white'
-                  : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                  ? 'bg-zinc-100 text-zinc-950 border-zinc-100'
+                  : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:text-white'
               }`}
             >
               <FolderKanban className="w-3 h-3 opacity-75 shrink-0" />
@@ -1352,10 +1342,10 @@ export function App() {
                 <button
                   key={proj}
                   onClick={() => setSelectedProject(proj)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
+                  className={`min-h-[38px] px-3 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1.5 ${
                     isSelected
-                      ? 'bg-zinc-100 text-zinc-950 border-white'
-                      : 'bg-zinc-900 text-zinc-400 border-zinc-800 hover:text-zinc-200'
+                      ? 'bg-zinc-100 text-zinc-950 border-zinc-100'
+                      : 'bg-zinc-900 text-zinc-300 border-zinc-800 hover:text-white'
                   }`}
                 >
                   <span className="truncate max-w-[130px]">{proj}</span>
@@ -1365,7 +1355,7 @@ export function App() {
             })}
             <button
               onClick={() => setCreateProjectModal({ name: '' })}
-              className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white shrink-0"
+              className="min-w-[38px] min-h-[38px] flex items-center justify-center rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-100 shrink-0 transition"
               title="Create new project"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -1384,20 +1374,20 @@ export function App() {
           {/* Right Main Content Pane */}
           <div className="flex-1 w-full space-y-3 sm:space-y-4 min-w-0">
             {/* Active Project Scope Header */}
-            <div className="bg-zinc-900/90 border border-zinc-800 rounded-xl px-3 py-2 sm:px-4 sm:py-3 flex items-center justify-between gap-2.5">
+            <div className="bg-zinc-900/90 border border-zinc-800 rounded-xl px-3 py-2.5 sm:px-4 sm:py-3 flex items-center justify-between gap-2.5">
               <div className="flex items-center gap-2 min-w-0">
-                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+                <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-amber-400 shrink-0">
                   <FolderKanban className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 </div>
                 <div className="flex items-center gap-2 min-w-0">
-                  <h2 className="text-sm sm:text-base font-semibold text-white truncate">
-                    {selectedProject === 'ALL' ? 'All Plans' : selectedProject}
+                  <h2 className="text-sm sm:text-base font-medium text-zinc-100 truncate">
+                    {selectedProject === 'ALL' ? 'All plans' : selectedProject}
                   </h2>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-mono tabular-nums bg-zinc-800 text-zinc-300 shrink-0">
+                  <span className="px-2 py-0.5 rounded-md text-[11px] font-mono tabular-nums bg-zinc-950 border border-zinc-800 text-zinc-400 shrink-0">
                     {projectScopedPlans.length} {projectScopedPlans.length === 1 ? 'plan' : 'plans'}
                   </span>
                   {selectedProject !== 'ALL' && (
-                    <div className="flex items-center gap-1.5 text-[11px] text-zinc-400 shrink-0 ml-1">
+                    <div className="flex items-center gap-1 text-[11px] text-zinc-400 shrink-0">
                       <button
                         onClick={() =>
                           setRenameProjectModal({
@@ -1405,10 +1395,10 @@ export function App() {
                             newName: selectedProject,
                           })
                         }
-                        className="p-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-blue-400 inline-flex items-center gap-1 transition"
+                        className="min-w-[36px] min-h-[36px] px-2 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-amber-400 inline-flex items-center justify-center gap-1 transition"
                         title="Rename project"
                       >
-                        <Pencil className="w-3 h-3" />
+                        <Pencil className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Rename</span>
                       </button>
                       <button
@@ -1418,10 +1408,10 @@ export function App() {
                           ).length;
                           setDeleteProjectModal({ name: selectedProject, count });
                         }}
-                        className="p-1 rounded-md hover:bg-zinc-800 text-zinc-400 hover:text-rose-400 inline-flex items-center gap-1 transition"
+                        className="min-w-[36px] min-h-[36px] px-2 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-rose-400 inline-flex items-center justify-center gap-1 transition"
                         title="Delete project"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className="w-3.5 h-3.5" />
                         <span className="hidden sm:inline">Delete</span>
                       </button>
                     </div>
@@ -1434,7 +1424,7 @@ export function App() {
                   if (selectedProject !== 'ALL') setUploadProject(selectedProject);
                   setShowUploadModal(true);
                 }}
-                className="hidden sm:inline-flex px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium items-center gap-1.5 shadow-sm transition shrink-0"
+                className="hidden sm:inline-flex px-3.5 min-h-[38px] rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium items-center gap-1.5 transition shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Upload plan</span>
@@ -1449,17 +1439,17 @@ export function App() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search plans..."
-                  className="w-full bg-zinc-900 border border-zinc-800 focus:border-blue-500 rounded-xl pl-10 pr-4 py-2 text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none"
+                  placeholder="Search plans"
+                  className="w-full min-h-[42px] bg-zinc-900 border border-zinc-800 focus:border-amber-400/70 rounded-xl pl-10 pr-4 py-2 text-base sm:text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none"
                 />
               </div>
 
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 -mx-3 px-3 sm:mx-0 sm:px-0">
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
                 <button
                   onClick={() => setSelectedDiscipline('ALL')}
-                  className={`px-3 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 ${
+                  className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 ${
                     selectedDiscipline === 'ALL'
-                      ? 'bg-zinc-200 text-zinc-950 border-white'
+                      ? 'bg-zinc-100 text-zinc-950 border-zinc-100'
                       : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:text-zinc-200'
                   }`}
                 >
@@ -1474,14 +1464,14 @@ export function App() {
                     <button
                       key={d.id}
                       onClick={() => setSelectedDiscipline(d.id)}
-                      className={`px-2.5 py-1.5 rounded-lg text-[11px] font-medium border transition shrink-0 flex items-center gap-1 ${
+                      className={`min-h-[36px] px-3 py-1.5 rounded-lg text-xs font-medium border transition shrink-0 flex items-center gap-1 ${
                         active
                           ? d.pillActiveClass
                           : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700'
                       }`}
                     >
                       <span>{d.label}</span>
-                      <span className="opacity-75 text-[10px] font-mono">({count})</span>
+                      <span className="opacity-75 text-[10px] font-mono tabular-nums">({count})</span>
                     </button>
                   );
                 })}
@@ -1491,40 +1481,40 @@ export function App() {
             {/* Loading or Plan Cards Grid */}
             {loadingVault || openingPlan ? (
               <div className="py-20 flex flex-col items-center justify-center gap-3 text-zinc-400">
-                <RefreshCw className="w-7 h-7 text-blue-400 animate-spin" />
-                <div className="text-sm font-semibold text-zinc-200">
-                  {openingPlan ? 'Opening Cleaned Plan View...' : 'Loading Cloud Plan Vault...'}
+                <RefreshCw className="w-6 h-6 text-amber-400 animate-spin" />
+                <div className="text-sm font-medium text-zinc-200">
+                  {openingPlan ? 'Opening cleaned plan view...' : 'Loading plan vault...'}
                 </div>
               </div>
             ) : filteredPlans.length === 0 ? (
-              <div className="bg-zinc-900/70 border border-zinc-800 rounded-2xl p-8 text-center space-y-4">
-                <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center mx-auto">
-                  {!authSession ? <Lock className="w-6 h-6 text-cyan-400" /> : <Plus className="w-6 h-6 text-cyan-400" />}
+              <div className="bg-zinc-900/70 border border-zinc-800 rounded-xl p-6 sm:p-8 text-center space-y-4">
+                <div className="w-12 h-12 rounded-xl bg-zinc-900 border border-zinc-800 text-amber-400 flex items-center justify-center mx-auto">
+                  {!authSession ? <Lock className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
                 </div>
                 <div className="space-y-1 max-w-md mx-auto">
-                  <h3 className="text-sm font-medium text-white">
+                  <h3 className="text-sm font-medium text-zinc-100">
                     {!authSession
-                      ? 'Sign In to Access Your Personal Plan Vault'
+                      ? 'Sign in to access your personal plan vault'
                       : plans.length === 0
-                      ? 'Your Cloud Plan Vault is Empty'
-                      : 'No Matching Plans Found'}
+                      ? 'Your plan vault is empty'
+                      : 'No matching plans found'}
                   </h3>
                   <p className="text-xs text-zinc-400">
                     {!authSession
                       ? 'Private drawings and projects are protected. Sign in to access your vault, or test with instant guest preview.'
                       : plans.length === 0
-                      ? 'Upload a DWG/DXF plan to view, isolate sheet views, and calculate discipline estimates.'
-                      : 'Try changing your search query or discipline filter.'}
+                      ? 'Upload a DWG or DXF plan to view, isolate sheet views, and calculate discipline estimates'
+                      : 'Try changing your search query or discipline filter'}
                   </p>
                 </div>
                 {!authSession ? (
-                  <div className="flex items-center justify-center gap-3">
+                  <div className="flex flex-wrap items-center justify-center gap-2.5">
                     <button
                       onClick={() => {
                         setAuthMode('signin');
                         setShowAuthModal(true);
                       }}
-                      className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium inline-flex items-center gap-2 shadow-lg"
+                      className="px-4 min-h-[42px] rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium inline-flex items-center gap-2 transition"
                     >
                       <LogIn className="w-4 h-4" />
                       Sign in / Register
@@ -1534,10 +1524,10 @@ export function App() {
                         if (selectedProject !== 'ALL') setUploadProject(selectedProject);
                         setShowUploadModal(true);
                       }}
-                      className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium inline-flex items-center gap-2 border border-zinc-700"
+                      className="px-4 min-h-[42px] rounded-lg bg-zinc-800 hover:bg-zinc-700/80 text-zinc-200 text-xs font-medium inline-flex items-center gap-2 border border-zinc-700 transition"
                     >
                       <Plus className="w-4 h-4" />
-                      Instant Guest Preview
+                      Instant guest preview
                     </button>
                   </div>
                 ) : (
@@ -1546,7 +1536,7 @@ export function App() {
                       if (selectedProject !== 'ALL') setUploadProject(selectedProject);
                       setShowUploadModal(true);
                     }}
-                    className="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-medium inline-flex items-center gap-2 shadow-lg"
+                    className="px-4 min-h-[42px] rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium inline-flex items-center gap-2 transition"
                   >
                     <Plus className="w-4 h-4" />
                     Upload plan

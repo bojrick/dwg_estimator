@@ -6,7 +6,6 @@ import {
   Printer,
   Trash2,
   Table as TableIcon,
-  Sparkles,
   CheckCircle2,
   ArrowRight,
   AlertTriangle,
@@ -60,6 +59,11 @@ import {
 import { authFetch } from '../../auth';
 import { CadEstimatorCanvas, WorldBBox } from '../estimators/shared/CadEstimatorCanvas';
 import { VersionHistoryControl } from '../estimators/shared/VersionHistoryControl';
+import {
+  useMobileWorkstationView,
+  MobileViewModeBar,
+  getWorkstationPaneClasses,
+} from '../estimators/shared/EstimatorWorkstationShell';
 
 interface StructuralEstimatorPageProps {
   plan: any;
@@ -220,6 +224,8 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
   const [toolMode, setToolMode] = useState<
     'pan' | 'select_table' | 'pick_span' | 'select_layout' | 'select_cross_section' | 'select_longitudinal_section'
   >('pan');
+  const [mobileView, setMobileView] = useMobileWorkstationView(toolMode !== 'pan');
+  const { canvasClass, panelClass } = getWorkstationPaneClasses(mobileView, 'lg:w-1/2', 'lg:w-1/2');
   const [activeLongitudinalSection, setActiveLongitudinalSection] =
     useState<LongitudinalSectionDefinition | null>(null);
   const [isInferringLs, setIsInferringLs] = useState(false);
@@ -341,7 +347,7 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
 
     const defaultCover =
       estimateState.parameters.defaultCoverMm[
-        selectedScope as keyof typeof estimateState.parameters.defaultCoverMm
+      selectedScope as keyof typeof estimateState.parameters.defaultCoverMm
       ] || (selectedScope === 'column' ? 40 : selectedScope === 'beam' ? 25 : 20);
     const fallbackSpan =
       selectedScope === 'column' ? estimateState.parameters.defaultFloorHeightMm || 3000 : 4000;
@@ -353,8 +359,8 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
     const tablesForScope = activeLegend
       ? [activeLegend]
       : estimateState.scheduleTables.filter(
-          (t) => !t.detectedType || t.detectedType === selectedScope
-        );
+        (t) => !t.detectedType || t.detectedType === selectedScope
+      );
 
     for (const tbl of tablesForScope) {
       let markCol = 0;
@@ -683,27 +689,27 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
           spans:
             measured.spans.length > 0
               ? measured.spans.map((ms) => ({
-                  id: ms.id,
-                  beamMark: ms.beamMark,
-                  centerToCenterSpanMm: ms.centerToCenterSpanMm,
-                  clearSpanMm: ms.clearSpanMm,
-                  widthMm: ms.widthMm,
-                  depthMm: ms.depthMm,
-                  supportColLeftMm: ms.supportColLeftMm,
-                  supportColRightMm: ms.supportColRightMm,
-                }))
+                id: ms.id,
+                beamMark: ms.beamMark,
+                centerToCenterSpanMm: ms.centerToCenterSpanMm,
+                clearSpanMm: ms.clearSpanMm,
+                widthMm: ms.widthMm,
+                depthMm: ms.depthMm,
+                supportColLeftMm: ms.supportColLeftMm,
+                supportColRightMm: ms.supportColRightMm,
+              }))
               : [
-                  {
-                    id: 'span_1',
-                    beamMark: 'B1-1',
-                    centerToCenterSpanMm: 4100,
-                    clearSpanMm: 3800,
-                    widthMm: 230,
-                    depthMm: 450,
-                    supportColLeftMm: 300,
-                    supportColRightMm: 400,
-                  },
-                ],
+                {
+                  id: 'span_1',
+                  beamMark: 'B1-1',
+                  centerToCenterSpanMm: 4100,
+                  clearSpanMm: 3800,
+                  widthMm: 230,
+                  depthMm: 450,
+                  supportColLeftMm: 300,
+                  supportColRightMm: 400,
+                },
+              ],
           reinforcement: {
             bottomContinuousBars: { count: 3, diameter: 20 },
             bottomCurtailedBars: { count: 2, diameter: 16, curtailRatio: 0.15 },
@@ -985,22 +991,22 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
   const params = estimateState.parameters;
 
   return (
-    <div className="h-[100dvh] flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden font-sans">
+    <div className="h-[100dvh] flex flex-col bg-zinc-950 text-zinc-100 overflow-hidden font-sans pb-[env(safe-area-inset-bottom)] lg:pb-0">
       {/* Top Bar */}
-      <header className="h-12 border-b border-zinc-800/80 bg-zinc-950 px-4 flex items-center justify-between gap-4 shrink-0 z-20">
-        <div className="flex items-center gap-3 min-w-0">
+      <header className="pt-[max(8px,env(safe-area-inset-top))] pb-2 lg:pt-[env(safe-area-inset-top)] lg:pb-0 lg:h-12 border-b border-zinc-800/80 bg-zinc-950 px-2.5 sm:px-4 flex items-center justify-between gap-2 sm:gap-4 shrink-0 z-20">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <button
             type="button"
             onClick={onBack}
-            className="p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 hover:text-white transition"
+            className="inline-flex items-center justify-center min-w-[38px] min-h-[40px] lg:min-w-0 lg:min-h-0 p-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 text-zinc-300 hover:text-white transition shrink-0"
             title="Back to viewer"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <h1 className="text-xs font-medium text-zinc-100 truncate">{plan?.name}</h1>
-              <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-300 text-[10px] font-mono">
+              <span className="hidden sm:inline-block shrink-0 px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-zinc-300 text-[10px] font-mono">
                 IS 456 · IS 2502
               </span>
             </div>
@@ -1008,7 +1014,7 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
         </div>
 
         {/* Live Summary & Global Actions */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
           {bbsItems.length > 0 && (
             <div className="hidden md:flex items-center gap-3 px-3 py-1 rounded-lg bg-zinc-900 border border-zinc-800 text-[11px] font-mono tabular-nums mr-1">
               <span className="text-zinc-400">
@@ -1042,33 +1048,37 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
             type="button"
             onClick={handleExportBbsCsv}
             disabled={bbsItems.length === 0}
-            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-40 text-zinc-200 text-xs font-medium transition"
+            title="Export BBS CSV"
+            className="inline-flex items-center justify-center gap-1.5 min-w-[36px] min-h-[40px] lg:min-w-0 lg:min-h-0 px-2 sm:px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-40 text-zinc-200 text-xs font-medium transition"
           >
             <Download className="w-3.5 h-3.5 text-zinc-400" />
-            <span>CSV</span>
+            <span className="hidden sm:inline">CSV</span>
           </button>
 
           <button
             type="button"
             onClick={() => window.print()}
             disabled={bbsItems.length === 0}
-            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-40 text-zinc-200 text-xs font-medium transition"
+            title="Print BBS"
+            className="inline-flex items-center justify-center gap-1.5 min-w-[36px] min-h-[40px] lg:min-w-0 lg:min-h-0 px-2 sm:px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 disabled:opacity-40 text-zinc-200 text-xs font-medium transition"
           >
             <Printer className="w-3.5 h-3.5 text-zinc-400" />
-            <span>Print</span>
+            <span className="hidden sm:inline">Print</span>
           </button>
 
           <button
             type="button"
             onClick={handleSaveAll}
             disabled={isSaving}
-            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 text-xs font-medium transition"
+            className="flex items-center gap-1.5 min-h-[40px] lg:min-h-0 px-2.5 sm:px-3 py-1 rounded-lg bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 text-xs font-medium transition"
           >
             <Save className="w-3.5 h-3.5" />
             <span>{isSaving ? 'Saving...' : 'Save'}</span>
           </button>
         </div>
       </header>
+
+      <MobileViewModeBar view={mobileView} onChange={setMobileView} />
 
       {/* Guided 4-Step Progress Bar */}
       <GuidedWorkflowBar
@@ -1083,7 +1093,7 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
       {/* Main Split Workstation (Locked 100dvh, Zero Outer Scroll) */}
       <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
         {/* Left Pane: Shared Interactive CAD Canvas (All Sheets, Measure, Clean LOD, Layers) */}
-        <div className="w-full lg:w-1/2 h-1/2 lg:h-full border-b lg:border-b-0 lg:border-r border-zinc-800/80 flex flex-col relative bg-zinc-950">
+        <div className={`${canvasClass} bg-zinc-950 min-w-0`}>
           <CadEstimatorCanvas
             rawData={activeRaw}
             sheets={sheets}
@@ -1095,12 +1105,12 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
               toolMode === 'select_table'
                 ? 'Drag box around schedule table'
                 : toolMode === 'select_layout'
-                ? 'Drag box around floor plan area'
-                : toolMode === 'select_cross_section'
-                ? 'Drag box around cross-section detail'
-                : toolMode === 'select_longitudinal_section'
-                ? 'Drag box around Longitudinal Section (multi-span beam)'
-                : null
+                  ? 'Drag box around floor plan area'
+                  : toolMode === 'select_cross_section'
+                    ? 'Drag box around cross-section detail'
+                    : toolMode === 'select_longitudinal_section'
+                      ? 'Drag box around Longitudinal Section (multi-span beam)'
+                      : null
             }
             onBoxSelected={handleCanvasBoxSelected}
             twoPointPickLabel={
@@ -1119,7 +1129,7 @@ export const StructuralEstimatorPage: React.FC<StructuralEstimatorPageProps> = (
         </div>
 
         {/* Right Pane: Zero-Scroll Workstation Container */}
-        <div className="w-full lg:w-1/2 h-1/2 lg:h-full flex flex-col bg-zinc-900 overflow-hidden">
+        <div className={`${panelClass} bg-zinc-900 min-w-0`}>
           {/* STEP 1: PROJECT SETUP, STEEL PRICING, STOCK CONSTRAINTS & IS CODE ASSUMPTIONS */}
           {currentStep === 'scope' && (
             <ProjectScopeStep

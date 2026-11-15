@@ -125,12 +125,12 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
 
         {/* Longitudinal Section Coverage Banner */}
         {hasLs && (
-          <div className="p-2.5 rounded-lg bg-blue-950/30 border border-blue-800/40 flex items-start gap-2.5 text-xs">
-            <div className="p-1 rounded bg-blue-500/10 text-blue-400 shrink-0 mt-0.5">
+          <div className="p-2.5 rounded-lg bg-zinc-900/80 border border-zinc-700/80 flex items-start gap-2.5 text-xs">
+            <div className="p-1 rounded bg-amber-400/10 text-amber-400 shrink-0 mt-0.5">
               <Layers className="w-3.5 h-3.5" />
             </div>
             <div className="min-w-0">
-              <span className="font-medium text-blue-200">
+              <span className="font-medium text-zinc-100">
                 Beam BBS calculated strictly from {longitudinalSections.length} Longitudinal Section{longitudinalSections.length > 1 ? 's' : ''} ({totalSpans} continuous spans per IS 13920 detailing)
               </span>
               {excludedBeamCount > 0 && (
@@ -144,37 +144,34 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
 
         {/* Sub-View Tabs & CSV Export */}
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1 bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[11px]">
+          <div className="flex items-center gap-1 bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[11px] overflow-x-auto no-scrollbar max-w-full">
             <button
               type="button"
               onClick={() => setTakeoffTab('bbs')}
-              className={`px-3 py-1 rounded-md font-medium tabular-nums transition ${
-                takeoffTab === 'bbs'
+              className={`shrink-0 px-3 py-1 rounded-md font-medium tabular-nums transition ${takeoffTab === 'bbs'
                   ? 'bg-zinc-800 text-zinc-100'
                   : 'text-zinc-400 hover:text-zinc-200'
-              }`}
+                }`}
             >
               Bar bending schedule ({bbsItems.length})
             </button>
             <button
               type="button"
               onClick={() => setTakeoffTab('diameter')}
-              className={`px-3 py-1 rounded-md font-medium tabular-nums transition ${
-                takeoffTab === 'diameter'
+              className={`shrink-0 px-3 py-1 rounded-md font-medium tabular-nums transition ${takeoffTab === 'diameter'
                   ? 'bg-zinc-800 text-zinc-100'
                   : 'text-zinc-400 hover:text-zinc-200'
-              }`}
+                }`}
             >
               By diameter ({diameterSummary.length})
             </button>
             <button
               type="button"
               onClick={() => setTakeoffTab('audit')}
-              className={`px-3 py-1 rounded-md font-medium tabular-nums transition flex items-center gap-1 ${
-                takeoffTab === 'audit'
+              className={`shrink-0 px-3 py-1 rounded-md font-medium tabular-nums transition flex items-center gap-1 ${takeoffTab === 'audit'
                   ? 'bg-zinc-800 text-zinc-100'
                   : 'text-zinc-400 hover:text-zinc-200'
-              }`}
+                }`}
             >
               <span>IS 456 check</span>
               {auditAnomalies.length > 0 ? (
@@ -253,8 +250,8 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
         )}
 
         {takeoffTab === 'diameter' && (
-          <div className="p-3 space-y-2">
-            <table className="w-full border-collapse text-xs">
+          <div className="p-3 space-y-2 overflow-x-auto">
+            <table className="w-full min-w-[460px] border-collapse text-xs">
               <thead className="bg-zinc-900 border-b border-zinc-800 text-[11px] text-zinc-400">
                 <tr>
                   <th className="py-2 pl-3 text-left font-medium">Diameter</th>
@@ -305,11 +302,10 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
                 {auditAnomalies.map((anom, idx) => (
                   <div
                     key={idx}
-                    className={`p-2.5 rounded-xl border flex items-start gap-2 text-xs ${
-                      anom.severity === 'error'
+                    className={`p-2.5 rounded-xl border flex items-start gap-2 text-xs ${anom.severity === 'error'
                         ? 'bg-rose-950/25 border-rose-500/30 text-rose-200'
                         : 'bg-amber-950/25 border-amber-500/30 text-amber-200'
-                    }`}
+                      }`}
                   >
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <div>
@@ -325,24 +321,26 @@ export const TakeoffSummaryStep: React.FC<TakeoffSummaryStepProps> = ({
       </div>
 
       {/* Pinned Bottom Actions */}
-      <div className="h-12 px-4 bg-zinc-950 border-t border-zinc-800 flex items-center justify-between gap-3 shrink-0">
+      <div className="min-h-12 py-2 sm:py-0 sm:h-12 px-3 sm:px-4 bg-zinc-950 border-t border-zinc-800 flex items-center justify-between gap-2 sm:gap-3 shrink-0">
         <button
           type="button"
           onClick={onBackToStep3}
-          className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 text-xs font-medium flex items-center gap-1.5 transition"
+          className="min-h-[40px] sm:min-h-0 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-300 text-xs font-medium flex items-center gap-1.5 transition shrink-0"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Back to reinforcement</span>
+          <span className="hidden sm:inline">Back to reinforcement</span>
+          <span className="sm:hidden">Reinforcement</span>
         </button>
 
         <button
           type="button"
           onClick={onSaveAll}
           disabled={isSaving}
-          className="px-5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow transition"
+          className="min-h-[40px] sm:min-h-0 px-3 sm:px-5 py-1.5 rounded-lg bg-zinc-100 hover:bg-white disabled:opacity-50 text-zinc-950 text-xs font-medium flex items-center gap-1.5 transition shrink-0"
         >
           <Save className="w-3.5 h-3.5" />
-          <span>{isSaving ? 'Saving estimate...' : 'Save structural estimate'}</span>
+          <span className="hidden sm:inline">{isSaving ? 'Saving estimate...' : 'Save structural estimate'}</span>
+          <span className="sm:hidden">{isSaving ? 'Saving...' : 'Save estimate'}</span>
         </button>
       </div>
     </div>

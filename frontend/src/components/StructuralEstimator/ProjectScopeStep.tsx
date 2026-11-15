@@ -1,5 +1,5 @@
 import React from 'react';
-import { Sparkles, ArrowRight, Table as TableIcon, Trash2 } from 'lucide-react';
+import { ArrowRight, Table as TableIcon, Trash2 } from 'lucide-react';
 import { AiBadge } from '../ui/AiBadge';
 import {
   StructuralMemberType,
@@ -56,7 +56,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
     <div className="h-full flex flex-col overflow-hidden">
       {/* Top Bar: Element Scope + AI Auto-Fill */}
       <div className="p-3 bg-zinc-950 border-b border-zinc-800/80 flex flex-wrap items-center justify-between gap-2 shrink-0">
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           <span className="text-xs font-medium text-zinc-300 mr-1">Element:</span>
           {[
             { id: 'beam', label: 'Beams' },
@@ -68,11 +68,10 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
               key={item.id}
               type="button"
               onClick={() => onSelectScope(item.id as StructuralMemberType)}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition ${
-                selectedScope === item.id
-                  ? 'bg-zinc-100 text-zinc-950 font-semibold'
+              className={`min-h-[38px] sm:min-h-0 px-3 py-1 rounded-lg text-xs font-medium transition ${selectedScope === item.id
+                  ? 'bg-zinc-100 text-zinc-950 font-medium'
                   : 'bg-zinc-900 text-zinc-400 border border-zinc-800 hover:text-zinc-200'
-              }`}
+                }`}
             >
               {item.label}
             </button>
@@ -83,7 +82,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
           type="button"
           onClick={onAnalyzeSheetsAndSpecsAi}
           disabled={isAiAnalyzing}
-          className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-700 hover:border-zinc-600 text-zinc-200 text-[11px] font-medium flex items-center gap-1.5 transition disabled:opacity-50"
+          className="min-h-[38px] sm:min-h-0 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-700 hover:border-zinc-600 text-zinc-200 text-[11px] font-medium flex items-center gap-1.5 transition disabled:opacity-50"
           title="Read General Notes and title blocks to auto-fill grades, covers, and sheet names"
         >
           <AiBadge label="AI" />
@@ -226,11 +225,10 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                       key={d}
                       type="button"
                       onClick={() => toggleAllowedDiameter(d)}
-                      className={`px-2 py-0.5 rounded border text-[11px] transition ${
-                        isAllowed
+                      className={`px-2 py-0.5 rounded border text-[11px] transition ${isAllowed
                           ? 'bg-zinc-800 border-zinc-600 text-zinc-100 font-medium'
                           : 'bg-zinc-950 border-zinc-900 text-zinc-600 line-through'
-                      }`}
+                        }`}
                     >
                       Φ{d}
                     </button>
@@ -330,7 +328,7 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
               <span className="text-[10px] text-zinc-400 block">
                 Clear cover (mm) & default floor height
               </span>
-              <div className="grid grid-cols-5 gap-1.5 font-mono tabular-nums text-[11px]">
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5 font-mono tabular-nums text-[11px]">
                 {(['footing', 'column', 'beam', 'slab'] as const).map((el) => (
                   <div key={el}>
                     <span className="text-[10px] font-sans text-zinc-500 capitalize block">
@@ -382,11 +380,11 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               <button
                 type="button"
                 onClick={onAutoDetectAllTables}
-                className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-200 text-[11px] font-medium transition"
+                className="min-h-[38px] sm:min-h-0 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-200 text-[11px] font-medium transition"
               >
                 Scan all sheets for tables
               </button>
@@ -395,11 +393,10 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
                 onClick={() =>
                   setToolMode(toolMode === 'select_table' ? 'pan' : 'select_table')
                 }
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${
-                  toolMode === 'select_table'
+                className={`min-h-[38px] sm:min-h-0 px-2.5 py-1 rounded-lg text-[11px] font-medium transition ${toolMode === 'select_table'
                     ? 'bg-amber-400 text-zinc-950'
                     : 'bg-zinc-100 hover:bg-white text-zinc-950'
-                }`}
+                  }`}
               >
                 {toolMode === 'select_table' ? 'Cancel box' : 'Pick table on drawing'}
               </button>
@@ -482,17 +479,18 @@ export const ProjectScopeStep: React.FC<ProjectScopeStepProps> = ({
       </div>
 
       {/* Pinned Bottom Footer (Zero Scroll needed to proceed) */}
-      <div className="h-12 px-4 bg-zinc-950 border-t border-zinc-800 flex items-center justify-between gap-3 shrink-0">
-        <div className="text-[11px] text-zinc-400 font-mono tabular-nums">
+      <div className="min-h-12 py-2 sm:py-0 sm:h-12 px-3 sm:px-4 bg-zinc-950 border-t border-zinc-800 flex items-center justify-between gap-2 sm:gap-3 shrink-0">
+        <div className="text-[11px] text-zinc-400 font-mono tabular-nums min-w-0 truncate">
           {params.concreteGrade} · {params.steelGrade} · Max bar {params.maxStockLengthM}m · Ld={params.lapLengthMultiplier}d
         </div>
 
         <button
           type="button"
           onClick={onContinue}
-          className="px-4 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium flex items-center gap-1.5 transition"
+          className="min-h-[40px] sm:min-h-0 px-3 sm:px-4 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium flex items-center gap-1.5 transition shrink-0"
         >
-          <span>Continue to members & sizes</span>
+          <span className="hidden sm:inline">Continue to members & sizes</span>
+          <span className="sm:hidden">Members & sizes</span>
           <ArrowRight className="w-3.5 h-3.5" />
         </button>
       </div>

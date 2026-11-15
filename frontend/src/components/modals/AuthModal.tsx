@@ -33,27 +33,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-5 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center shrink-0">
-              <Lock className="w-4 h-4 text-blue-400" />
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="w-full sm:max-w-sm bg-zinc-900 border-t sm:border border-zinc-800 rounded-t-2xl sm:rounded-xl p-5 pb-[max(20px,env(safe-area-inset-bottom))] sm:pb-5 space-y-5 max-h-[90dvh] overflow-y-auto">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center shrink-0">
+              <Lock className="w-4 h-4 text-amber-400" />
             </div>
-            <div>
-              <h3 className="text-sm font-semibold text-white">
-                {authMode === 'signin' ? 'Sign In to PlanVault' : 'Create account'}
+            <div className="min-w-0">
+              <h3 className="text-sm font-medium text-zinc-100 truncate">
+                {authMode === 'signin' ? 'Sign in to PlanVault' : 'Create account'}
               </h3>
-              <p className="text-[11px] text-zinc-400">
+              <p className="text-[11px] text-zinc-400 truncate">
                 {authMode === 'signin'
                   ? 'Access and sync your private vault'
-                  : 'Save DWG plans & customize your measurement units'}
+                  : 'Save DWG plans and customize measurement units'}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-zinc-400 hover:text-white"
+            className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -68,7 +68,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               value={authEmail}
               onChange={(e) => setAuthEmail(e.target.value)}
               placeholder="you@example.com"
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+              className="w-full min-h-[42px] bg-zinc-950 border border-zinc-700/90 rounded-lg px-3.5 py-2 text-base sm:text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-400"
             />
           </div>
 
@@ -81,18 +81,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               value={authPassword}
               onChange={(e) => setAuthPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+              className="w-full min-h-[42px] bg-zinc-950 border border-zinc-700/90 rounded-lg px-3.5 py-2 text-base sm:text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-400"
             />
           </div>
 
           {authError && (
-            <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-200">
+            <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-500/40 text-xs text-rose-200">
               {authError}
             </div>
           )}
 
           {authNotice && (
-            <div className="p-2.5 rounded-xl bg-zinc-900 border border-blue-500/40 text-xs text-blue-200">
+            <div className="p-2.5 rounded-lg bg-zinc-950 border border-amber-400/35 text-xs text-amber-200">
               {authNotice}
             </div>
           )}
@@ -100,21 +100,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <button
             type="submit"
             disabled={authBusy}
-            className="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-medium text-white shadow-lg transition"
+            className="w-full min-h-[44px] py-2.5 rounded-lg bg-zinc-100 hover:bg-white disabled:opacity-50 text-xs font-medium text-zinc-950 transition"
           >
             {authBusy
               ? 'Please wait...'
               : authMode === 'signin'
-              ? 'Sign In'
-              : 'Create Account & Save'}
+              ? 'Sign in'
+              : 'Create account & save'}
           </button>
         </form>
 
-        <div className="text-center pt-2 border-t border-zinc-800">
+        <div className="text-center pt-2 border-t border-white/[0.08]">
           <button
             type="button"
             onClick={() => setAuthMode(authMode === 'signin' ? 'signup' : 'signin')}
-            className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
+            className="min-h-[36px] px-2 text-xs text-amber-400 hover:text-amber-300 font-medium transition"
           >
             {authMode === 'signin'
               ? "Don't have an account? Sign up"

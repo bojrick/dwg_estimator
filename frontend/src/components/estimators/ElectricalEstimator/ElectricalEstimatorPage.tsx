@@ -1,8 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
-  ArrowLeft,
   Save,
-  Download,
   Plus,
   Trash2,
   Scan,
@@ -23,7 +21,7 @@ import { calculateElectricalTakeoff } from './electricalMath';
 import { cropRawDataToSheet } from '../../SheetSelectorModal';
 import { CadEstimatorCanvas, WorldBBox } from '../shared/CadEstimatorCanvas';
 import { analyzeCadLayers, inferElectricalFromCad } from '../shared/cadLayerInference';
-import { VersionHistoryControl } from '../shared/VersionHistoryControl';
+import { EstimatorWorkstationShell } from '../shared/EstimatorWorkstationShell';
 
 interface ElectricalEstimatorPageProps {
   plan: any;
@@ -365,28 +363,11 @@ export const ElectricalEstimatorPage: React.FC<ElectricalEstimatorPageProps> = (
   }, [points, summary]);
 
   return (
-    <div className="h-screen w-screen bg-zinc-950 text-zinc-100 flex flex-col overflow-hidden select-none">
-      {/* Header */}
-      <header className="h-12 shrink-0 border-b border-white/[0.08] bg-zinc-950 px-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={onBack}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 hover:text-white hover:bg-zinc-900 border border-white/[0.08] transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back</span>
-          </button>
-          <div className="h-4 w-px bg-white/[0.08]" />
-          <div className="flex items-center gap-2 min-w-0">
-            <h1 className="text-sm font-medium text-zinc-100 truncate">
-              {plan?.title || plan?.name || 'Electrical takeoff'}
-            </h1>
-            <span className="text-[11px] text-zinc-400 px-2 py-0.5 rounded bg-zinc-900 border border-white/[0.08]">
-              Electrical · IS 732
-            </span>
-          </div>
-        </div>
-
+    <EstimatorWorkstationShell
+      onBack={onBack}
+      title={plan?.title || plan?.name || 'Electrical takeoff'}
+      subtitle="Electrical · IS 732"
+      headerCenter={
         <div className="hidden xl:flex items-center gap-6 text-xs tabular-nums">
           <div>
             <span className="text-zinc-500 mr-1.5">Points</span>
@@ -410,443 +391,397 @@ export const ElectricalEstimatorPage: React.FC<ElectricalEstimatorPageProps> = (
             </span>
           </div>
         </div>
-
-        <div className="flex items-center gap-2">
-          <VersionHistoryControl
-            versions={versions}
-            currency={params.currency}
-            onRestoreVersion={handleRestoreVersion}
-          />
-          <button
-            onClick={handleExportCsv}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-white/[0.08]"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>CSV</span>
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-100 hover:bg-white text-zinc-950 disabled:opacity-50"
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>{isSaving ? 'Saving...' : 'Save estimate'}</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Split Workstation */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        <div className="lg:w-[56%] h-[46vh] lg:h-full border-b lg:border-b-0 lg:border-r border-white/[0.08] relative">
-          <CadEstimatorCanvas
-            rawData={activeRaw}
-            sheets={sheets}
-            activeSheetId={activeSheetId}
-            onSelectSheetId={handleSelectSheet}
-            highlightedLayers={highlightedLayers}
-            highlightedMark={highlightedMark}
-            layoutBox={scanBox}
-            boxSelectLabel={isSelectingBox ? 'Drag box around electrical layout to scope points' : null}
-            onBoxSelected={(bbox) => {
-              setScanBox(bbox);
-              setIsSelectingBox(false);
-              runCadInference(bbox, roleOverrides, false);
-            }}
-            twoPointPickLabel={
-              pickingAvgRun ? 'Click 2 points on CAD to measure typical conduit run between points' : null
-            }
-            onTwoPointPicked={(distM) => {
-              updateParam('averageRunBetweenPointsM', Math.round(distM * 100) / 100);
-              setPickingAvgRun(false);
-              showToast(`Set average point run to ${distM.toFixed(2)} m`);
-            }}
-            onCancelExternalTool={() => {
-              setIsSelectingBox(false);
-              setPickingAvgRun(false);
-            }}
-          />
-        </div>
-
-        <div className="lg:w-[44%] flex-1 flex flex-col bg-zinc-950 overflow-hidden">
-          <div className="shrink-0 grid grid-cols-4 border-b border-white/[0.08] bg-zinc-900/50">
-            {(
-              [
-                { id: 'scope', num: '1', label: 'Scope & layers' },
-                { id: 'points', num: '2', label: 'Point schedule' },
-                { id: 'specs', num: '3', label: 'Conduit & rates' },
-                { id: 'takeoff', num: '4', label: 'BOQ & audit' },
-              ] as { id: ElecStep; num: string; label: string }[]
-            ).map((s) => {
-              const active = step === s.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => setStep(s.id)}
-                  className={`py-2.5 px-2 text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
-                    active
-                      ? 'border-amber-400 text-zinc-100 bg-zinc-900'
-                      : 'border-transparent text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  <span
-                    className={`w-4 h-4 rounded text-[10px] inline-flex items-center justify-center tabular-nums ${
-                      active ? 'bg-amber-400 text-zinc-950 font-semibold' : 'bg-zinc-800 text-zinc-400'
-                    }`}
-                  >
-                    {s.num}
-                  </span>
-                  <span className="truncate">{s.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {step === 'scope' && (
-              <>
-                <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-white/[0.08] space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h2 className="text-xs font-medium text-zinc-100">Electrical layer & symbol detection</h2>
-                      <p className="text-[11px] text-zinc-400 mt-0.5">
-                        Counts fixture symbols, switchboard tags, and conduit polylines; falls back to room-by-room load inference on architectural plans
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        onClick={() => setIsSelectingBox((v) => !v)}
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border ${
-                          isSelectingBox
-                            ? 'bg-amber-400/15 text-amber-300 border-amber-400/40'
-                            : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-white/[0.08]'
-                        }`}
-                      >
-                        <Crop className="w-3.5 h-3.5" />
-                        <span>{scanBox ? 'Re-crop' : 'Crop area'}</span>
-                      </button>
-                      {scanBox && (
-                        <button
-                          onClick={() => {
-                            setScanBox(null);
-                            runCadInference(null, roleOverrides, false);
-                          }}
-                          className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border border-white/[0.08]"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => runCadInference(scanBox, roleOverrides, false)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-400 hover:bg-amber-300 text-zinc-950"
-                      >
-                        <Scan className="w-3.5 h-3.5" />
-                        <span>Scan CAD</span>
-                      </button>
-                    </div>
+      }
+      versions={versions}
+      currency={params.currency}
+      onRestoreVersion={handleRestoreVersion}
+      onExportCsv={handleExportCsv}
+      onSave={handleSave}
+      isSaving={isSaving}
+      steps={[
+        { id: 'scope', num: '1', label: 'Scope & layers' },
+        { id: 'points', num: '2', label: 'Point schedule' },
+        { id: 'specs', num: '3', label: 'Conduit & rates' },
+        { id: 'takeoff', num: '4', label: 'BOQ & audit' },
+      ]}
+      activeStep={step}
+      onStepChange={setStep}
+      isCanvasToolActive={isSelectingBox || pickingAvgRun}
+      canvas={
+        <CadEstimatorCanvas
+          rawData={activeRaw}
+          sheets={sheets}
+          activeSheetId={activeSheetId}
+          onSelectSheetId={handleSelectSheet}
+          highlightedLayers={highlightedLayers}
+          highlightedMark={highlightedMark}
+          layoutBox={scanBox}
+          boxSelectLabel={isSelectingBox ? 'Drag box around electrical layout to scope points' : null}
+          onBoxSelected={(bbox) => {
+            setScanBox(bbox);
+            setIsSelectingBox(false);
+            runCadInference(bbox, roleOverrides, false);
+          }}
+          twoPointPickLabel={
+            pickingAvgRun ? 'Click 2 points on CAD to measure typical conduit run between points' : null
+          }
+          onTwoPointPicked={(distM) => {
+            updateParam('averageRunBetweenPointsM', Math.round(distM * 100) / 100);
+            setPickingAvgRun(false);
+            showToast(`Set average point run to ${distM.toFixed(2)} m`);
+          }}
+          onCancelExternalTool={() => {
+            setIsSelectingBox(false);
+            setPickingAvgRun(false);
+          }}
+        />
+      }
+      panel={
+        <>
+          {step === 'scope' && (
+            <>
+              <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-white/[0.08] space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-xs font-medium text-zinc-100">Electrical layer & symbol detection</h2>
+                    <p className="text-[11px] text-zinc-400 mt-0.5">
+                      Counts fixture symbols, switchboard tags, and conduit polylines; falls back to room-by-room load inference on architectural plans
+                    </p>
                   </div>
-                  {lastScanNote && (
-                    <div className="text-[11px] text-zinc-300 bg-zinc-950/80 border border-white/[0.06] rounded-lg px-3 py-2 tabular-nums">
-                      {lastScanNote}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-xl border border-white/[0.08] bg-zinc-900/40 overflow-hidden">
-                  <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-medium text-zinc-200">
-                      <Layers className="w-3.5 h-3.5 text-zinc-400" />
-                      <span>CAD layers ({layerStats.length})</span>
-                    </div>
-                    {highlightedLayers.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={() => setIsSelectingBox((v) => !v)}
+                      className={`inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 px-2.5 py-1.5 rounded-lg text-xs border ${isSelectingBox
+                          ? 'bg-amber-400/15 text-amber-300 border-amber-400/40'
+                          : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-white/[0.08]'
+                        }`}
+                    >
+                      <Crop className="w-3.5 h-3.5" />
+                      <span>{scanBox ? 'Re-crop' : 'Crop area'}</span>
+                    </button>
+                    {scanBox && (
                       <button
-                        onClick={() => setHighlightedLayers([])}
-                        className="text-[11px] text-amber-400 hover:underline"
+                        onClick={() => {
+                          setScanBox(null);
+                          runCadInference(null, roleOverrides, false);
+                        }}
+                        className="min-w-[40px] min-h-[40px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 border border-white/[0.08] inline-flex items-center justify-center"
                       >
-                        Clear highlight
+                        <X className="w-3.5 h-3.5" />
                       </button>
                     )}
+                    <button
+                      onClick={() => runCadInference(scanBox, roleOverrides, false)}
+                      className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-400 hover:bg-amber-300 text-zinc-950"
+                    >
+                      <Scan className="w-3.5 h-3.5" />
+                      <span>Scan CAD</span>
+                    </button>
                   </div>
-                  <div className="max-h-[360px] overflow-y-auto divide-y divide-white/[0.05]">
-                    {layerStats.map((st) => {
-                      const isHi = highlightedLayers.includes(st.name);
-                      return (
-                        <div
-                          key={st.name}
-                          onClick={() =>
-                            setHighlightedLayers((prev) => (prev.includes(st.name) ? [] : [st.name]))
-                          }
-                          className={`px-3.5 py-2 flex items-center justify-between gap-2 text-xs cursor-pointer ${
-                            isHi ? 'bg-amber-400/10' : 'hover:bg-zinc-900/80'
+                </div>
+                {lastScanNote && (
+                  <div className="text-[11px] text-zinc-300 bg-zinc-950/80 border border-white/[0.06] rounded-lg px-3 py-2 tabular-nums">
+                    {lastScanNote}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-white/[0.08] bg-zinc-900/40 overflow-hidden">
+                <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-medium text-zinc-200">
+                    <Layers className="w-3.5 h-3.5 text-zinc-400" />
+                    <span>CAD layers ({layerStats.length})</span>
+                  </div>
+                  {highlightedLayers.length > 0 && (
+                    <button
+                      onClick={() => setHighlightedLayers([])}
+                      className="text-[11px] text-amber-400 hover:underline"
+                    >
+                      Clear highlight
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-[360px] overflow-y-auto divide-y divide-white/[0.05]">
+                  {layerStats.map((st) => {
+                    const isHi = highlightedLayers.includes(st.name);
+                    return (
+                      <div
+                        key={st.name}
+                        onClick={() =>
+                          setHighlightedLayers((prev) => (prev.includes(st.name) ? [] : [st.name]))
+                        }
+                        className={`px-3.5 py-2 flex items-center justify-between gap-2 text-xs cursor-pointer ${isHi ? 'bg-amber-400/10' : 'hover:bg-zinc-900/80'
                           }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span
-                              className="w-2.5 h-2.5 rounded-sm shrink-0 border border-white/20"
-                              style={{ backgroundColor: st.color }}
-                            />
-                            <span className="text-zinc-200 truncate font-mono text-[11px]">{st.name}</span>
-                          </div>
-                          <div className="flex items-center gap-3 shrink-0 tabular-nums">
-                            <span className="text-[11px] text-zinc-400">
-                              {st.circleArcCount > 0
-                                ? `${st.circleArcCount} sym`
-                                : `${st.lineLengthM} m`}
-                            </span>
-                            <select
-                              value={st.inferredRole}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => handleRoleChange(st.name, e.target.value)}
-                              className="bg-zinc-950 text-zinc-200 text-[11px] rounded-md px-2 py-1 border border-white/[0.08]"
-                            >
-                              {ELEC_ROLE_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
+                      >
+                        <div className="flex items-center gap-2 min-w-0 flex-1">
+                          <span
+                            className="w-2.5 h-2.5 rounded-sm shrink-0 border border-white/20"
+                            style={{ backgroundColor: st.color }}
+                          />
+                          <span className="text-zinc-200 truncate font-mono text-[11px]">{st.name}</span>
                         </div>
-                      );
-                    })}
+                        <div className="flex items-center gap-2 sm:gap-3 shrink-0 tabular-nums">
+                          <span className="text-[11px] text-zinc-400">
+                            {st.circleArcCount > 0
+                              ? `${st.circleArcCount} sym`
+                              : `${st.lineLengthM} m`}
+                          </span>
+                          <select
+                            value={st.inferredRole}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => handleRoleChange(st.name, e.target.value)}
+                            className="bg-zinc-950 text-zinc-200 text-[11px] rounded-md px-2 py-1.5 sm:py-1 border border-white/[0.08] max-w-[130px] sm:max-w-none"
+                          >
+                            {ELEC_ROLE_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+
+          {step === 'points' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-zinc-300">
+                  Detected electrical points ({summary.totalPoints})
+                </span>
+                <button
+                  onClick={() =>
+                    setPoints((prev) => [
+                      ...prev,
+                      {
+                        id: `ep_${Date.now()}`,
+                        name: 'Additional point group',
+                        type: 'light',
+                        count: 4,
+                        dropHeightM: 0.4,
+                      },
+                    ])
+                  }
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-white/[0.08]"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add point row</span>
+                </button>
+              </div>
+
+              {points.map((pt) => (
+                <div
+                  key={pt.id}
+                  onClick={() => {
+                    if (pt.sourceLayer) setHighlightedLayers([pt.sourceLayer]);
+                    setHighlightedMark(pt.type === 'distribution_board' ? 'DB' : null);
+                  }}
+                  className="p-3 rounded-xl bg-zinc-900/60 hover:bg-zinc-900 border border-white/[0.08] space-y-2 cursor-pointer"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <input
+                      value={pt.name}
+                      onChange={(e) =>
+                        setPoints((prev) =>
+                          prev.map((p) => (p.id === pt.id ? { ...p, name: e.target.value } : p))
+                        )
+                      }
+                      className="bg-zinc-950 text-xs font-medium text-zinc-100 px-2.5 py-1.5 sm:py-1 rounded-md border border-white/[0.08] flex-1 min-w-[140px]"
+                    />
+                    {pt.sourceLayer && (
+                      <span className="text-[10px] font-mono text-zinc-400 px-1.5 py-0.5 rounded bg-zinc-950 border border-white/[0.06] truncate max-w-[120px]">
+                        {pt.sourceLayer}
+                      </span>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPoints((prev) => prev.filter((p) => p.id !== pt.id));
+                      }}
+                      className="min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-1 text-zinc-500 hover:text-rose-400 inline-flex items-center justify-center"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-                </div>
-              </>
-            )}
 
-            {step === 'points' && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-zinc-300">
-                    Detected electrical points ({summary.totalPoints})
-                  </span>
-                  <button
-                    onClick={() =>
-                      setPoints((prev) => [
-                        ...prev,
-                        {
-                          id: `ep_${Date.now()}`,
-                          name: 'Additional point group',
-                          type: 'light',
-                          count: 4,
-                          dropHeightM: 0.4,
-                        },
-                      ])
-                    }
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-white/[0.08]"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add point row</span>
-                  </button>
-                </div>
-
-                {points.map((pt) => (
-                  <div
-                    key={pt.id}
-                    onClick={() => {
-                      if (pt.sourceLayer) setHighlightedLayers([pt.sourceLayer]);
-                      setHighlightedMark(pt.type === 'distribution_board' ? 'DB' : null);
-                    }}
-                    className="p-3 rounded-xl bg-zinc-900/60 hover:bg-zinc-900 border border-white/[0.08] space-y-2 cursor-pointer"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <input
-                        value={pt.name}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs tabular-nums">
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-zinc-400">Category</span>
+                      <select
+                        value={pt.type}
                         onChange={(e) =>
                           setPoints((prev) =>
-                            prev.map((p) => (p.id === pt.id ? { ...p, name: e.target.value } : p))
+                            prev.map((p) =>
+                              p.id === pt.id
+                                ? { ...p, type: e.target.value as ElectricalPointType }
+                                : p
+                            )
                           )
                         }
-                        className="bg-zinc-950 text-xs font-medium text-zinc-100 px-2.5 py-1 rounded-md border border-white/[0.08] flex-1"
-                      />
-                      {pt.sourceLayer && (
-                        <span className="text-[10px] font-mono text-zinc-400 px-1.5 py-0.5 rounded bg-zinc-950 border border-white/[0.06]">
-                          {pt.sourceLayer}
-                        </span>
-                      )}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setPoints((prev) => prev.filter((p) => p.id !== pt.id));
-                        }}
-                        className="p-1 text-zinc-500 hover:text-rose-400"
+                        className="w-full bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <option value="light">Light point</option>
+                        <option value="fan">Fan point</option>
+                        <option value="socket_6a">6A socket</option>
+                        <option value="socket_16a">16A power</option>
+                        <option value="ac_point">AC point</option>
+                        <option value="switchboard">Switchboard</option>
+                        <option value="distribution_board">MCB DB</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-zinc-400">Quantity</span>
+                      <input
+                        type="number"
+                        min="0"
+                        value={pt.count}
+                        onChange={(e) =>
+                          setPoints((prev) =>
+                            prev.map((p) =>
+                              p.id === pt.id ? { ...p, count: Number(e.target.value) || 0 } : p
+                            )
+                          )
+                        }
+                        className="w-full bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-[11px] text-zinc-400">Wall drop (m)</span>
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={pt.dropHeightM}
+                        onChange={(e) =>
+                          setPoints((prev) =>
+                            prev.map((p) =>
+                              p.id === pt.id
+                                ? { ...p, dropHeightM: Number(e.target.value) || 0 }
+                                : p
+                            )
+                          )
+                        }
+                        className="w-full bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
+                      />
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {step === 'specs' && (
+            <div className="space-y-4 text-xs tabular-nums">
+              <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.08] space-y-3">
+                <h3 className="font-medium text-zinc-200">Conduit routing & looping parameters</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Avg horizontal run / pt (m)</span>
+                    <div className="flex gap-1">
+                      <input
+                        type="number"
+                        step="0.1"
+                        value={params.averageRunBetweenPointsM}
+                        onChange={(e) =>
+                          updateParam('averageRunBetweenPointsM', Number(e.target.value) || 3)
+                        }
+                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setPickingAvgRun(true)}
+                        className="px-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
+                        title="Measure run on CAD"
+                      >
+                        <Ruler className="w-3.5 h-3.5" />
                       </button>
                     </div>
-
-                    <div className="grid grid-cols-3 gap-2 text-xs tabular-nums">
-                      <label className="space-y-1">
-                        <span className="text-[11px] text-zinc-400">Category</span>
-                        <select
-                          value={pt.type}
-                          onChange={(e) =>
-                            setPoints((prev) =>
-                              prev.map((p) =>
-                                p.id === pt.id
-                                  ? { ...p, type: e.target.value as ElectricalPointType }
-                                  : p
-                              )
-                            )
-                          }
-                          className="w-full bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
-                        >
-                          <option value="light">Light point</option>
-                          <option value="fan">Fan point</option>
-                          <option value="socket_6a">6A socket</option>
-                          <option value="socket_16a">16A power</option>
-                          <option value="ac_point">AC point</option>
-                          <option value="switchboard">Switchboard</option>
-                          <option value="distribution_board">MCB DB</option>
-                        </select>
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[11px] text-zinc-400">Quantity</span>
-                        <input
-                          type="number"
-                          min="0"
-                          value={pt.count}
-                          onChange={(e) =>
-                            setPoints((prev) =>
-                              prev.map((p) =>
-                                p.id === pt.id ? { ...p, count: Number(e.target.value) || 0 } : p
-                              )
-                            )
-                          }
-                          className="w-full bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
-                        />
-                      </label>
-                      <label className="space-y-1">
-                        <span className="text-[11px] text-zinc-400">Wall drop (m)</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={pt.dropHeightM}
-                          onChange={(e) =>
-                            setPoints((prev) =>
-                              prev.map((p) =>
-                                p.id === pt.id
-                                  ? { ...p, dropHeightM: Number(e.target.value) || 0 }
-                                  : p
-                              )
-                            )
-                          }
-                          className="w-full bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
-                        />
-                      </label>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {step === 'specs' && (
-              <div className="space-y-4 text-xs tabular-nums">
-                <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.08] space-y-3">
-                  <h3 className="font-medium text-zinc-200">Conduit routing & looping parameters</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Avg horizontal run / pt (m)</span>
-                      <div className="flex gap-1">
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={params.averageRunBetweenPointsM}
-                          onChange={(e) =>
-                            updateParam('averageRunBetweenPointsM', Number(e.target.value) || 3)
-                          }
-                          className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setPickingAvgRun(true)}
-                          className="px-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
-                          title="Measure run on CAD"
-                        >
-                          <Ruler className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Looping & termination (%)</span>
-                      <input
-                        type="number"
-                        value={params.loopingWastagePct}
-                        onChange={(e) => updateParam('loopingWastagePct', Number(e.target.value) || 0)}
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                  </div>
-                </div>
-
-                <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.08] space-y-3">
-                  <h3 className="font-medium text-zinc-200">Unit rates ({params.currency})</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">25mm PVC conduit / m</span>
-                      <input
-                        type="number"
-                        value={params.rateConduitPerM}
-                        onChange={(e) => updateParam('rateConduitPerM', Number(e.target.value) || 0)}
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Point wiring labor / pt</span>
-                      <input
-                        type="number"
-                        value={params.ratePerPointLabor}
-                        onChange={(e) => updateParam('ratePerPointLabor', Number(e.target.value) || 0)}
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">1.5 sq.mm FRLS / m</span>
-                      <input
-                        type="number"
-                        value={params.rateWire1_5PerM}
-                        onChange={(e) => updateParam('rateWire1_5PerM', Number(e.target.value) || 0)}
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">2.5 sq.mm FRLS / m</span>
-                      <input
-                        type="number"
-                        value={params.rateWire2_5PerM}
-                        onChange={(e) => updateParam('rateWire2_5PerM', Number(e.target.value) || 0)}
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">4.0 sq.mm FRLS / m</span>
-                      <input
-                        type="number"
-                        value={params.rateWire4_0PerM}
-                        onChange={(e) => updateParam('rateWire4_0PerM', Number(e.target.value) || 0)}
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                  </div>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Looping & termination (%)</span>
+                    <input
+                      type="number"
+                      value={params.loopingWastagePct}
+                      onChange={(e) => updateParam('loopingWastagePct', Number(e.target.value) || 0)}
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
                 </div>
               </div>
-            )}
 
-            {step === 'takeoff' && (
-              <div className="space-y-4">
-                <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
-                  <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-medium text-zinc-200">Electrical bill of quantities</span>
-                      <span className="ml-2 text-[10px] font-mono text-amber-300 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded">
-                        {activeSheetName}
-                      </span>
-                    </div>
-                    <span className="text-xs font-semibold text-amber-400 tabular-nums">
-                      {params.currency}
-                      {summary.totalCost.toLocaleString()}
+              <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.08] space-y-3">
+                <h3 className="font-medium text-zinc-200">Unit rates ({params.currency})</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">25mm PVC conduit / m</span>
+                    <input
+                      type="number"
+                      value={params.rateConduitPerM}
+                      onChange={(e) => updateParam('rateConduitPerM', Number(e.target.value) || 0)}
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Point wiring labor / pt</span>
+                    <input
+                      type="number"
+                      value={params.ratePerPointLabor}
+                      onChange={(e) => updateParam('ratePerPointLabor', Number(e.target.value) || 0)}
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">1.5 sq.mm FRLS / m</span>
+                    <input
+                      type="number"
+                      value={params.rateWire1_5PerM}
+                      onChange={(e) => updateParam('rateWire1_5PerM', Number(e.target.value) || 0)}
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">2.5 sq.mm FRLS / m</span>
+                    <input
+                      type="number"
+                      value={params.rateWire2_5PerM}
+                      onChange={(e) => updateParam('rateWire2_5PerM', Number(e.target.value) || 0)}
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">4.0 sq.mm FRLS / m</span>
+                    <input
+                      type="number"
+                      value={params.rateWire4_0PerM}
+                      onChange={(e) => updateParam('rateWire4_0PerM', Number(e.target.value) || 0)}
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step === 'takeoff' && (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
+                <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-medium text-zinc-200">Electrical bill of quantities</span>
+                    <span className="ml-2 text-[10px] font-mono text-amber-300 bg-amber-400/10 border border-amber-400/20 px-1.5 py-0.5 rounded">
+                      {activeSheetName}
                     </span>
                   </div>
-                  <table className="w-full text-xs tabular-nums">
+                  <span className="text-xs font-semibold text-amber-400 tabular-nums">
+                    {params.currency}
+                    {summary.totalCost.toLocaleString()}
+                  </span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[380px] text-xs tabular-nums">
                     <thead className="text-zinc-400 border-b border-white/[0.06] text-left">
                       <tr>
                         <th className="py-2 px-3 font-normal">Item</th>
@@ -912,72 +847,73 @@ export const ElectricalEstimatorPage: React.FC<ElectricalEstimatorPageProps> = (
                     </tbody>
                   </table>
                 </div>
-
-                <div className="p-3 rounded-xl bg-zinc-900/50 border border-white/[0.08] space-y-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-300 font-medium">Estimator notes ({activeSheetName})</span>
-                  </div>
-                  <textarea
-                    rows={2}
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Add circuit grouping assumptions, DB location notes, or cable tray exclusions..."
-                    className="w-full bg-zinc-950 text-xs text-zinc-100 px-2.5 py-1.5 rounded-lg border border-white/[0.08] resize-none"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <h3 className="text-xs font-medium text-zinc-300">IS 732 / IS 3043 checks</h3>
-                  {auditChecks.map((c, idx) => (
-                    <div
-                      key={idx}
-                      className="p-3 rounded-xl bg-zinc-900/50 border border-white/[0.08] flex items-start gap-2.5 text-xs"
-                    >
-                      {c.ok ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                      ) : (
-                        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                      )}
-                      <div>
-                        <div className="text-zinc-200 font-medium">{c.title}</div>
-                        <div className="text-zinc-400 text-[11px] mt-0.5 tabular-nums">{c.detail}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
-            )}
-          </div>
 
-          <div className="shrink-0 h-12 px-4 border-t border-white/[0.08] bg-zinc-950 flex items-center justify-between text-xs">
-            <span className="text-zinc-500 tabular-nums">
-              {summary.totalPoints} points · {summary.totalConduitLengthM} m conduit
-            </span>
-            {step !== 'takeoff' ? (
-              <button
-                onClick={() =>
-                  setStep(
-                    step === 'scope' ? 'points' : step === 'points' ? 'specs' : 'takeoff'
-                  )
-                }
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-100 border border-white/[0.08]"
-              >
-                <span>Next step</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            ) : (
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-zinc-950 font-medium"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>Save takeoff</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+              <div className="p-3 rounded-xl bg-zinc-900/50 border border-white/[0.08] space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-zinc-300 font-medium">Estimator notes ({activeSheetName})</span>
+                </div>
+                <textarea
+                  rows={2}
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Add circuit grouping assumptions, DB location notes, or cable tray exclusions..."
+                  className="w-full bg-zinc-950 text-xs text-zinc-100 px-2.5 py-1.5 rounded-lg border border-white/[0.08] resize-none"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <h3 className="text-xs font-medium text-zinc-300">IS 732 / IS 3043 checks</h3>
+                {auditChecks.map((c, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3 rounded-xl bg-zinc-900/50 border border-white/[0.08] flex items-start gap-2.5 text-xs"
+                  >
+                    {c.ok ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                    )}
+                    <div>
+                      <div className="text-zinc-200 font-medium">{c.title}</div>
+                      <div className="text-zinc-400 text-[11px] mt-0.5 tabular-nums">{c.detail}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      }
+      footer={
+        <>
+          <span className="text-zinc-500 tabular-nums truncate min-w-0">
+            {summary.totalPoints} points · {summary.totalConduitLengthM} m conduit
+          </span>
+          {step !== 'takeoff' ? (
+            <button
+              onClick={() =>
+                setStep(
+                  step === 'scope' ? 'points' : step === 'points' ? 'specs' : 'takeoff'
+                )
+              }
+              className="inline-flex items-center gap-1.5 min-h-[38px] sm:min-h-0 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-100 border border-white/[0.08] shrink-0"
+            >
+              <span>Next step</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1.5 min-h-[38px] sm:min-h-0 px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 font-medium shrink-0 disabled:opacity-50"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>Save takeoff</span>
+            </button>
+          )}
+        </>
+      }
+    />
   );
 };

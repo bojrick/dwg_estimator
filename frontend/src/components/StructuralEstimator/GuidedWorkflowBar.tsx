@@ -18,35 +18,35 @@ const STEPS: {
   desc: string;
   icon: any;
 }[] = [
-  {
-    id: 'scope',
-    number: 1,
-    label: 'Project setup & IS code',
-    desc: 'Rates, stock length & sheets',
-    icon: SlidersHorizontal,
-  },
-  {
-    id: 'catalog',
-    number: 2,
-    label: 'Members & sizes',
-    desc: 'Marks, spans & b×D sections',
-    icon: FolderKanban,
-  },
-  {
-    id: 'reinforcement',
-    number: 3,
-    label: 'Reinforcement & sections',
-    desc: 'Schedule & section linking',
-    icon: Layers,
-  },
-  {
-    id: 'takeoff',
-    number: 4,
-    label: 'BBS & steel takeoff',
-    desc: 'Cut lengths, weight & IS audit',
-    icon: FileSpreadsheet,
-  },
-];
+    {
+      id: 'scope',
+      number: 1,
+      label: 'Project setup & IS code',
+      desc: 'Rates, stock length & sheets',
+      icon: SlidersHorizontal,
+    },
+    {
+      id: 'catalog',
+      number: 2,
+      label: 'Members & sizes',
+      desc: 'Marks, spans & b×D sections',
+      icon: FolderKanban,
+    },
+    {
+      id: 'reinforcement',
+      number: 3,
+      label: 'Reinforcement & sections',
+      desc: 'Schedule & section linking',
+      icon: Layers,
+    },
+    {
+      id: 'takeoff',
+      number: 4,
+      label: 'BBS & steel takeoff',
+      desc: 'Cut lengths, weight & IS audit',
+      icon: FileSpreadsheet,
+    },
+  ];
 
 export const GuidedWorkflowBar: React.FC<GuidedWorkflowBarProps> = ({
   currentStep,
@@ -59,8 +59,8 @@ export const GuidedWorkflowBar: React.FC<GuidedWorkflowBarProps> = ({
   const currentIdx = STEPS.findIndex((s) => s.id === currentStep);
 
   return (
-    <div className="bg-zinc-950 border-b border-zinc-800/80 px-4 py-1.5 shrink-0">
-      <div className="flex items-center justify-between max-w-6xl mx-auto gap-2">
+    <div className="bg-zinc-950 border-b border-zinc-800/80 px-2.5 sm:px-4 py-1.5 shrink-0 overflow-x-auto no-scrollbar">
+      <div className="flex items-center gap-1.5 sm:justify-between sm:gap-2 max-w-6xl mx-auto min-w-max sm:min-w-0">
         {STEPS.map((step, idx) => {
           const isActive = step.id === currentStep;
           const isDone = idx < currentIdx;
@@ -70,22 +70,20 @@ export const GuidedWorkflowBar: React.FC<GuidedWorkflowBarProps> = ({
               <button
                 type="button"
                 onClick={() => onStepChange(step.id)}
-                className={`flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition text-left shrink-0 ${
-                  isActive
+                className={`min-h-[42px] flex items-center gap-2 sm:gap-2.5 px-2.5 sm:px-3 py-1.5 rounded-lg transition text-left shrink-0 ${isActive
                     ? 'bg-zinc-900 border border-zinc-700 text-zinc-100'
                     : isDone
-                    ? 'text-zinc-300 hover:bg-zinc-900/60 border border-transparent'
-                    : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
-                }`}
+                      ? 'text-zinc-300 hover:bg-zinc-900/60 border border-transparent'
+                      : 'text-zinc-500 hover:text-zinc-300 border border-transparent'
+                  }`}
               >
                 <div
-                  className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-medium font-mono tabular-nums transition ${
-                    isActive
+                  className={`w-5 h-5 rounded-md flex items-center justify-center text-[11px] font-medium font-mono tabular-nums transition ${isActive
                       ? 'bg-zinc-100 text-zinc-950'
                       : isDone
-                      ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                      : 'bg-zinc-900 text-zinc-500 border border-zinc-800'
-                  }`}
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-zinc-900 text-zinc-500 border border-zinc-800'
+                    }`}
                 >
                   {isDone ? <Check className="w-3 h-3" /> : step.number}
                 </div>

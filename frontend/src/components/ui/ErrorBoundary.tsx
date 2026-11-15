@@ -36,11 +36,11 @@ export class ErrorBoundary extends Component<Props, State> {
   public render() {
     if (this.state.hasError) {
       return (
-        <div className="h-full flex-1 flex flex-col items-center justify-center p-6 text-center bg-zinc-950 text-zinc-100">
-          <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-4">
+        <div className="h-full flex-1 flex flex-col items-center justify-center p-6 text-center bg-[#111315] text-zinc-100">
+          <div className="w-12 h-12 rounded-2xl bg-amber-400/10 border border-amber-400/25 flex items-center justify-center mb-4">
             <AlertTriangle className="w-6 h-6 text-amber-400" />
           </div>
-          <h2 className="text-base font-semibold text-white mb-1">
+          <h2 className="text-base font-medium text-zinc-100 mb-1">
             {this.props.fallbackTitle || 'Viewer Encountered an Error'}
           </h2>
           <p className="text-xs text-zinc-400 max-w-sm mb-4">
@@ -48,15 +48,17 @@ export class ErrorBoundary extends Component<Props, State> {
           </p>
           <div className="flex items-center gap-3">
             <button
+              type="button"
               onClick={this.handleReset}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium inline-flex items-center gap-2 shadow-lg"
+              className="px-4 py-2 min-h-[40px] sm:min-h-0 rounded-xl bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium inline-flex items-center gap-2 transition"
             >
               <RotateCcw className="w-3.5 h-3.5" />
               Return to Plan Vault
             </button>
             <button
+              type="button"
               onClick={() => window.location.reload()}
-              className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium border border-zinc-700"
+              className="px-4 py-2 min-h-[40px] sm:min-h-0 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-xs font-medium border border-zinc-800 transition"
             >
               Reload View
             </button>

@@ -56,21 +56,21 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="w-full sm:max-w-lg bg-zinc-900 border-t sm:border border-zinc-700 rounded-t-3xl sm:rounded-2xl p-5 space-y-4 shadow-2xl max-h-[92dvh] overflow-y-auto">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-medium text-white flex items-center gap-2">
-              <Upload className="w-4 h-4 text-blue-400" />
-              Upload CAD Drawing to Cloud Vault
+      <div className="w-full sm:max-w-lg bg-zinc-900 border-t sm:border border-zinc-800 rounded-t-2xl sm:rounded-xl p-5 pb-[max(20px,env(safe-area-inset-bottom))] sm:pb-5 space-y-4 max-h-[90dvh] overflow-y-auto">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <h3 className="text-sm font-medium text-zinc-100 flex items-center gap-2">
+              <Upload className="w-4 h-4 text-amber-400 shrink-0" />
+              <span className="truncate">Upload CAD drawing to vault</span>
             </h3>
             <p className="text-[11px] text-zinc-400 mt-0.5">
-              Organize by project & discipline; multi-sheet DWGs auto-clean to match your view.
+              Organize by project and discipline; multi-sheet DWGs auto-clean to match your view
             </p>
           </div>
           <button
             onClick={onClose}
             disabled={uploading}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-white disabled:opacity-40"
+            className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 disabled:opacity-40 transition shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -79,21 +79,21 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
         <form onSubmit={onSubmit} className="space-y-3.5">
           {/* 1. DWG / DXF Input */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
               <label className="block text-xs font-medium text-zinc-200">
-                1. CAD Drawing File(s) (.DWG or .DXF)
+                1. CAD drawing file(s) (.DWG or .DXF)
               </label>
               {uploadDwgFiles.length > 1 && (
-                <span className="text-[10px] font-semibold text-blue-400">
+                <span className="text-[10px] font-medium text-amber-400">
                   {uploadDwgFiles.length} files selected — will merge into 1 plan
                 </span>
               )}
             </div>
-            <label className="flex items-center justify-between gap-2 p-3 rounded-xl bg-zinc-950 border border-dashed border-zinc-700 hover:border-blue-500 cursor-pointer transition">
+            <label className="flex items-center justify-between gap-2 min-h-[56px] p-3 rounded-xl bg-zinc-950 border border-dashed border-zinc-700 hover:border-amber-400/60 cursor-pointer transition">
               <div className="flex items-center gap-2.5 min-w-0">
-                <FileCode2 className="w-5 h-5 text-blue-400 shrink-0" />
+                <FileCode2 className="w-5 h-5 text-amber-400 shrink-0" />
                 <div className="min-w-0">
-                  <div className="text-xs font-semibold text-white truncate">
+                  <div className="text-xs font-medium text-zinc-100 truncate">
                     {uploadDwgFiles.length === 0
                       ? 'Choose one or multiple .DWG / .DXF files'
                       : `${uploadDwgFiles.length} CAD file${uploadDwgFiles.length > 1 ? 's' : ''} selected`}
@@ -105,8 +105,8 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
                   </div>
                 </div>
               </div>
-              <span className="px-2.5 py-1 rounded-lg bg-zinc-800 text-[11px] font-medium text-zinc-200 shrink-0">
-                {uploadDwgFiles.length > 0 ? '+ Add More' : 'Browse'}
+              <span className="px-3 py-1.5 rounded-lg bg-zinc-800 text-[11px] font-medium text-zinc-200 shrink-0">
+                {uploadDwgFiles.length > 0 ? '+ Add more' : 'Browse'}
               </span>
               <input
                 type="file"
@@ -130,7 +130,7 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
                     <button
                       type="button"
                       onClick={() => onRemoveDwgFile(file.name)}
-                      className="text-zinc-400 hover:text-rose-400 p-0.5"
+                      className="text-zinc-400 hover:text-rose-400 p-1"
                       title="Remove file"
                     >
                       <X className="w-3 h-3" />
@@ -144,7 +144,7 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
           {/* 2. Project Name */}
           <div className="space-y-2">
             <label className="block text-xs font-medium text-zinc-200">
-              2. Project Name
+              2. Project name
             </label>
             <select
               value={creatingNewProject ? '__NEW__' : uploadProject}
@@ -161,7 +161,7 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
                   onChangeProject(val);
                 }
               }}
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+              className="w-full min-h-[42px] bg-zinc-950 border border-zinc-700/90 rounded-lg px-3 py-2 text-base sm:text-xs text-zinc-100 focus:outline-none focus:border-amber-400"
             >
               <option value="">Auto-detect from filename / Default Project</option>
               {distinctProjects.map((proj) => (
@@ -178,25 +178,25 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
                 value={uploadProject}
                 disabled={uploading}
                 onChange={(e) => onChangeProject(e.target.value)}
-                placeholder="Enter new project name (e.g., 1086 Mansa)"
-                className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                placeholder="Enter new project name (e.g. 1086 Mansa)"
+                className="w-full min-h-[42px] bg-zinc-950 border border-zinc-700/90 rounded-lg px-3 py-2 text-base sm:text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-400"
               />
             )}
           </div>
 
           {/* 3. Plan Discipline Type */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center justify-between gap-2 mb-1.5">
               <label className="block text-xs font-medium text-zinc-200">
-                3. Plan Type / Discipline
+                3. Plan type / discipline
               </label>
               {disciplineAutoDetected && (
-                <span className="text-[10px] font-semibold text-zinc-300">
-                  Auto-detected from file name (click to change)
+                <span className="text-[10px] font-medium text-zinc-400">
+                  Auto-detected from filename
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
               {DISCIPLINES.map((d) => {
                 const active = uploadDiscipline === d.id;
                 return (
@@ -205,7 +205,7 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
                     type="button"
                     disabled={uploading}
                     onClick={() => onChangeDiscipline(d.id)}
-                    className={`py-2 px-2 rounded-xl text-[11px] font-medium border transition text-center truncate ${
+                    className={`min-h-[40px] py-2 px-2 rounded-lg text-[11px] font-medium border transition text-center truncate ${
                       active
                         ? d.pillActiveClass
                         : 'bg-zinc-950 text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-zinc-200'
@@ -221,31 +221,31 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
           {/* 4. Plan Title */}
           <div>
             <label className="block text-xs font-medium text-zinc-200 mb-1">
-              4. Plan Title (Optional — auto-detected from sheet title)
+              4. Plan title (optional — auto-detected from sheet title)
             </label>
             <input
               type="text"
               value={uploadTitle}
               disabled={uploading}
               onChange={(e) => onChangeTitle(e.target.value)}
-              placeholder="e.g., Ground Floor Working Plan (Block A+B)"
-              className="w-full bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+              placeholder="e.g. Ground Floor Working Plan (Block A+B)"
+              className="w-full min-h-[42px] bg-zinc-950 border border-zinc-700/90 rounded-lg px-3 py-2 text-base sm:text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-amber-400"
             />
           </div>
 
           {/* Live Single Progress Bar */}
           {uploading && uploadProgress && (
-            <div className="p-3.5 rounded-xl bg-zinc-950 border border-blue-500/40 space-y-2.5">
+            <div className="p-3.5 rounded-xl bg-zinc-950 border border-amber-400/35 space-y-2.5">
               <div className="flex items-center justify-between gap-2 text-xs font-medium">
-                <span className="text-white flex items-center gap-2 truncate">
-                  <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-spin shrink-0" />
+                <span className="text-zinc-100 flex items-center gap-2 truncate">
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin shrink-0" />
                   <span className="truncate">{uploadProgress.stage}</span>
                 </span>
-                <span className="text-blue-400 font-mono tabular-nums shrink-0">{uploadProgress.pct}%</span>
+                <span className="text-amber-400 font-mono tabular-nums shrink-0">{uploadProgress.pct}%</span>
               </div>
-              <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
+              <div className="w-full h-1.5 bg-zinc-800 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-blue-500 transition-all duration-300"
+                  className="h-full bg-amber-400 transition-all duration-300"
                   style={{ width: `${uploadProgress.pct}%` }}
                 />
               </div>
@@ -262,7 +262,7 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
           )}
 
           {uploadError && (
-            <div className="p-2.5 rounded-xl bg-rose-950/60 border border-rose-500/40 text-xs text-rose-200">
+            <div className="p-2.5 rounded-lg bg-rose-950/60 border border-rose-500/40 text-xs text-rose-200">
               {uploadError}
             </div>
           )}
@@ -272,14 +272,14 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
               type="button"
               onClick={onClose}
               disabled={uploading}
-              className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-xs font-medium text-zinc-300 transition"
+              className="px-4 min-h-[44px] rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-xs font-medium text-zinc-200 transition"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={uploading || uploadDwgFiles.length === 0}
-              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-xs font-medium text-white flex items-center gap-2 shadow transition"
+              className="px-5 min-h-[44px] rounded-lg bg-zinc-100 hover:bg-white disabled:opacity-50 text-xs font-medium text-zinc-950 flex items-center justify-center gap-2 transition"
             >
               {uploading ? (
                 <>
@@ -289,7 +289,7 @@ export const UploadPlanModal: React.FC<UploadPlanModalProps> = ({
               ) : (
                 <>
                   <Upload className="w-4 h-4" />
-                  <span>Upload & Clean Plan</span>
+                  <span>Upload &amp; clean plan</span>
                 </>
               )}
             </button>

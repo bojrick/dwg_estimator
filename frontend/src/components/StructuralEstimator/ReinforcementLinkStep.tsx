@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Sparkles,
   Table as TableIcon,
   Check,
   ArrowRight,
@@ -181,10 +180,10 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
           : m.secondaryBars,
         stirrups: inspectedCrossSection.stirrups
           ? {
-              diameter: inspectedCrossSection.stirrups.diameter,
-              spacingMm: inspectedCrossSection.stirrups.spacingMm,
-              legs: inspectedCrossSection.stirrups.legs || 2,
-            }
+            diameter: inspectedCrossSection.stirrups.diameter,
+            spacingMm: inspectedCrossSection.stirrups.spacingMm,
+            legs: inspectedCrossSection.stirrups.legs || 2,
+          }
           : m.stirrups,
       };
     });
@@ -247,24 +246,22 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
       {/* Pinned Top Action & Filter Bar */}
       <div className="p-3 bg-zinc-950 border-b border-zinc-800/80 space-y-2 shrink-0">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[11px]">
+          <div className="flex flex-wrap items-center gap-1.5 bg-zinc-900 p-0.5 rounded-lg border border-zinc-800 text-[11px]">
             <button
               type="button"
               onClick={() => setFilterMode('all')}
-              className={`px-2.5 py-1 rounded-md font-medium tabular-nums transition ${
-                filterMode === 'all' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
-              }`}
+              className={`px-2.5 py-1 rounded-md font-medium tabular-nums transition ${filterMode === 'all' ? 'bg-zinc-800 text-zinc-100' : 'text-zinc-400 hover:text-zinc-200'
+                }`}
             >
               All ({members.length})
             </button>
             <button
               type="button"
               onClick={() => setFilterMode('pending')}
-              className={`px-2.5 py-1 rounded-md font-medium tabular-nums transition flex items-center gap-1 ${
-                filterMode === 'pending'
+              className={`px-2.5 py-1 rounded-md font-medium tabular-nums transition flex items-center gap-1 ${filterMode === 'pending'
                   ? 'bg-amber-500/20 text-amber-300'
                   : 'text-zinc-400 hover:text-zinc-200'
-              }`}
+                }`}
             >
               <span>Pending section review ({pendingMatchesCount})</span>
             </button>
@@ -272,30 +269,28 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
               <button
                 type="button"
                 onClick={() => setFilterMode('warnings')}
-                className={`px-2.5 py-1 rounded-md font-medium tabular-nums transition ${
-                  filterMode === 'warnings'
+                className={`px-2.5 py-1 rounded-md font-medium tabular-nums transition ${filterMode === 'warnings'
                     ? 'bg-rose-500/20 text-rose-300'
                     : 'text-rose-400/80 hover:text-rose-300'
-                }`}
+                  }`}
               >
                 Dia constraint ({warningCount})
               </button>
             )}
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center gap-1.5">
             {scope === 'beam' && onStartLongitudinalSectionWindow && (
               <button
                 type="button"
                 onClick={onStartLongitudinalSectionWindow}
-                className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium flex items-center gap-1.5 transition ${
-                  isLongitudinalSectionToolActive
-                    ? 'bg-blue-600 text-white border-blue-500'
+                className={`min-h-[38px] sm:min-h-0 px-2.5 py-1 rounded-lg border text-[11px] font-medium flex items-center gap-1.5 transition ${isLongitudinalSectionToolActive
+                    ? 'bg-amber-400 text-zinc-950 border-amber-400'
                     : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:border-zinc-700'
-                }`}
+                  }`}
                 title="Drag a box over a multi-span continuous beam Longitudinal Section (L-Section)"
               >
-                <Layers className="w-3.5 h-3.5 text-blue-400" />
+                <Layers className={`w-3.5 h-3.5 ${isLongitudinalSectionToolActive ? 'text-zinc-950' : 'text-zinc-400'}`} />
                 <span>
                   {isLongitudinalSectionToolActive
                     ? 'Cancel box'
@@ -308,11 +303,10 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
               <button
                 type="button"
                 onClick={onStartCrossSectionMarquee}
-                className={`px-2.5 py-1 rounded-lg border text-[11px] font-medium flex items-center gap-1.5 transition ${
-                  isCrossSectionToolActive
-                    ? 'bg-amber-500 text-zinc-950 border-amber-400'
+                className={`min-h-[38px] sm:min-h-0 px-2.5 py-1 rounded-lg border text-[11px] font-medium flex items-center gap-1.5 transition ${isCrossSectionToolActive
+                    ? 'bg-amber-400 text-zinc-950 border-amber-400'
                     : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:border-zinc-700'
-                }`}
+                  }`}
                 title="Drag a box over any cross-section detail on the drawing"
               >
                 <Scan className="w-3.5 h-3.5" />
@@ -324,9 +318,9 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
               <button
                 type="button"
                 onClick={() => onOpenScheduleTableModal(scheduleTables[0])}
-                className="px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-200 text-[11px] font-medium flex items-center gap-1.5 transition"
+                className="min-h-[38px] sm:min-h-0 px-2.5 py-1 rounded-lg bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-200 text-[11px] font-medium flex items-center gap-1.5 transition"
               >
-                <TableIcon className="w-3.5 h-3.5 text-blue-400" />
+                <TableIcon className="w-3.5 h-3.5 text-zinc-400" />
                 <span>Schedules ({scheduleTables.length})</span>
               </button>
             )}
@@ -336,10 +330,10 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
                 type="button"
                 onClick={onMatchSectionsAi}
                 disabled={isMatchingSectionsAi}
-                className="px-3 py-1 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-[11px] font-medium flex items-center gap-1.5 transition disabled:opacity-50"
+                className="min-h-[38px] sm:min-h-0 px-3 py-1 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-[11px] font-medium flex items-center gap-1.5 transition disabled:opacity-50"
                 title="Uses AI to find cross-sections across sheets and propose matches for human review"
               >
-                <AiBadge label="AI" className="bg-black/10 text-zinc-900 border-zinc-900/30" />
+                <AiBadge label="AI" className="!bg-zinc-900/10 !text-zinc-950 !border-zinc-900/25" />
                 <span>{isMatchingSectionsAi ? 'Matching with AI...' : 'Match scattered sections'}</span>
               </button>
             )}
@@ -349,9 +343,9 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
         {/* Defined Longitudinal Sections Manager Card */}
         {scope === 'beam' && longitudinalSections.length > 0 && (
           <div className="p-2.5 rounded-xl bg-zinc-900/70 border border-zinc-800 space-y-2">
-            <div className="flex items-center justify-between text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-1 text-xs">
               <span className="font-medium text-zinc-200 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-blue-400" />
+                <Layers className="w-3.5 h-3.5 text-amber-400" />
                 <span>Defined Longitudinal Sections ({longitudinalSections.length})</span>
               </span>
               <span className="text-[10px] text-zinc-500 font-mono">
@@ -362,7 +356,7 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
               {longitudinalSections.map((ls) => (
                 <div
                   key={ls.id}
-                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 hover:border-blue-500/80 text-xs text-zinc-200 transition cursor-pointer"
+                  className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 hover:border-amber-400/60 text-xs text-zinc-200 transition cursor-pointer"
                   onClick={() => onOpenLongitudinalSectionDrawer?.(ls)}
                   title="Click to view & edit continuous spans in L-Section drawer"
                 >
@@ -465,9 +459,9 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
         )}
       </div>
 
-      {/* Compact 4-Column Master List (Zero Horizontal Scroll) */}
-      <div className="flex-1 min-h-0 overflow-y-auto bg-zinc-950">
-        <table className="w-full border-collapse text-xs table-fixed">
+      {/* Compact 4-Column Master List */}
+      <div className="flex-1 min-h-0 overflow-auto bg-zinc-950">
+        <table className="w-full min-w-[520px] sm:min-w-0 border-collapse text-xs table-fixed">
           <thead className="sticky top-0 z-10 bg-zinc-900 border-b border-zinc-800 text-[11px] text-zinc-400">
             <tr>
               <th className="py-2 pl-3 pr-2 text-left font-medium w-[25%]">Member & section</th>
@@ -489,10 +483,10 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
               const coveredLs =
                 scope === 'beam'
                   ? longitudinalSections.find((ls) =>
-                      (ls.spans || []).some(
-                        (sp) => sp.beamMark?.trim().toUpperCase() === m.mark.trim().toUpperCase()
-                      )
+                    (ls.spans || []).some(
+                      (sp) => sp.beamMark?.trim().toUpperCase() === m.mark.trim().toUpperCase()
                     )
+                  )
                   : null;
 
               return (
@@ -502,9 +496,8 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
                     setActiveMemberId(m.id);
                     if (onHighlightMember) onHighlightMember(m.mark);
                   }}
-                  className={`cursor-pointer transition ${
-                    isSelected ? 'bg-zinc-900' : 'hover:bg-zinc-900/50'
-                  }`}
+                  className={`cursor-pointer transition ${isSelected ? 'bg-zinc-900' : 'hover:bg-zinc-900/50'
+                    }`}
                 >
                   <td className="py-2 pl-3 pr-2">
                     <div className="flex items-center gap-1.5">
@@ -540,7 +533,7 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
                       {m.secondaryBars ? `${m.secondaryBars.count} - Φ${m.secondaryBars.diameter}` : '—'}
                     </span>
                     {m.topSupportExtraBars && m.topSupportExtraBars.count > 0 && (
-                      <span className="block text-[10px] text-blue-400">
+                      <span className="block text-[10px] text-amber-300">
                         +{m.topSupportExtraBars.count} - Φ{m.topSupportExtraBars.diameter} supp
                       </span>
                     )}
@@ -549,11 +542,10 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
                   <td className="py-2 pl-2 pr-3 text-right">
                     <div className="text-zinc-300 text-[11px]">
                       {m.stirrups
-                        ? `${m.stirrups.legs || 2}L-Φ${m.stirrups.diameter}@${
-                            m.stirrups.supportSpacingMm
-                              ? `${m.stirrups.supportSpacingMm}/`
-                              : ''
-                          }${m.stirrups.spacingMm}`
+                        ? `${m.stirrups.legs || 2}L-Φ${m.stirrups.diameter}@${m.stirrups.supportSpacingMm
+                          ? `${m.stirrups.supportSpacingMm}/`
+                          : ''
+                        }${m.stirrups.spacingMm}`
                         : '—'}
                     </div>
                     {isPending ? (
@@ -579,7 +571,7 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
 
       {/* Docked Active Member Editor & Human-in-the-Loop Section Confirmation Drawer */}
       {activeMember && (
-        <div className="p-3 bg-zinc-900 border-t border-zinc-800 space-y-2.5 shrink-0 text-xs">
+        <div className="p-3 bg-zinc-900 border-t border-zinc-800 space-y-2.5 shrink-0 text-xs max-h-[45%] overflow-y-auto sm:max-h-none sm:overflow-visible">
           {/* Human-in-the-Loop Section Match Confirmation Prompt */}
           {activeMember.pendingSectionMatch?.status === 'pending' && (
             <div className="p-2.5 rounded-lg bg-amber-950/40 border border-amber-600/40 flex flex-wrap items-center justify-between gap-2">
@@ -684,11 +676,10 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
                       },
                     })
                   }
-                  className={`flex-1 bg-zinc-900 border rounded px-1 py-0.5 text-[11px] ${
-                    !allowedSet.has(activeMember.mainBars?.diameter || 16)
+                  className={`flex-1 bg-zinc-900 border rounded px-1 py-0.5 text-[11px] ${!allowedSet.has(activeMember.mainBars?.diameter || 16)
                       ? 'border-rose-500/60 text-rose-300'
                       : 'border-zinc-800 text-zinc-100'
-                  }`}
+                    }`}
                 >
                   {diameterOptions.map((d) => (
                     <option key={d} value={d}>
@@ -870,14 +861,15 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
       )}
 
       {/* Pinned Step Footer (Always visible without scrolling) */}
-      <div className="h-12 px-4 bg-zinc-950 border-t border-zinc-800 flex items-center justify-between gap-3 shrink-0">
+      <div className="min-h-12 py-2 sm:py-0 sm:h-12 px-3 sm:px-4 bg-zinc-950 border-t border-zinc-800 flex items-center justify-between gap-2 sm:gap-3 shrink-0">
         <button
           type="button"
           onClick={onBackToStep2}
-          className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-medium flex items-center gap-1.5 transition"
+          className="min-h-[40px] sm:min-h-0 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs font-medium flex items-center gap-1.5 transition shrink-0"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          <span>Members & sizes</span>
+          <span className="hidden sm:inline">Members & sizes</span>
+          <span className="sm:hidden">Members</span>
         </button>
 
         <div className="text-[11px] text-zinc-400 font-mono tabular-nums hidden sm:block">
@@ -889,9 +881,10 @@ export const ReinforcementLinkStep: React.FC<ReinforcementLinkStepProps> = ({
         <button
           type="button"
           onClick={onProceedToStep4}
-          className="px-4 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium flex items-center gap-1.5 transition"
+          className="min-h-[40px] sm:min-h-0 px-3 sm:px-4 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium flex items-center gap-1.5 transition shrink-0"
         >
-          <span>View BBS & steel takeoff</span>
+          <span className="hidden sm:inline">View BBS & steel takeoff</span>
+          <span className="sm:hidden">BBS & takeoff</span>
           <ArrowRight className="w-3.5 h-3.5" />
         </button>
       </div>

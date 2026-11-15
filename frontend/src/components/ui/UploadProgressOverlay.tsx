@@ -11,17 +11,17 @@ export const UploadProgressOverlay: React.FC<UploadProgressOverlayProps> = ({ pr
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-3 shadow-2xl">
-        <div className="flex items-center justify-between text-xs font-medium text-white">
-          <span className="flex items-center gap-2">
-            <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
+      <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-3">
+        <div className="flex items-center justify-between gap-2 text-xs font-medium text-zinc-100">
+          <span className="flex items-center gap-2 min-w-0">
+            <RefreshCw className="w-4 h-4 text-amber-400 animate-spin shrink-0" />
             <span className="truncate">{progress.stage}</span>
           </span>
-          <span className="text-blue-400 font-mono tabular-nums">{progress.pct}%</span>
+          <span className="text-amber-400 font-mono tabular-nums shrink-0">{progress.pct}%</span>
         </div>
         <div className="w-full h-2 bg-zinc-800 rounded-full overflow-hidden">
           <div
-            className="h-full bg-blue-500 transition-all duration-300"
+            className="h-full bg-amber-400 transition-all duration-300"
             style={{ width: `${progress.pct}%` }}
           />
         </div>

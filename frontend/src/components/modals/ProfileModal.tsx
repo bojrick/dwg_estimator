@@ -20,21 +20,21 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-5 shadow-2xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center shrink-0">
-              <Settings className="w-4 h-4 text-blue-400" />
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+      <div className="w-full sm:max-w-sm bg-zinc-900 border-t sm:border border-zinc-800 rounded-t-2xl sm:rounded-xl p-5 pb-[max(20px,env(safe-area-inset-bottom))] sm:pb-5 space-y-5 max-h-[90dvh] overflow-y-auto">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center shrink-0">
+              <Settings className="w-4 h-4 text-amber-400" />
             </div>
-            <div>
-              <h3 className="text-sm font-semibold text-white">Profile Preferences</h3>
-              <p className="text-[11px] text-zinc-400">{authSession?.user?.email}</p>
+            <div className="min-w-0">
+              <h3 className="text-sm font-medium text-zinc-100">Profile preferences</h3>
+              <p className="text-[11px] text-zinc-400 font-mono truncate">{authSession?.user?.email}</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1 rounded-lg text-zinc-400 hover:text-white"
+            className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800 transition shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
@@ -42,7 +42,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
         <div className="space-y-3">
           <label className="block text-xs font-medium text-zinc-300">
-            Default Takeoff Measurement Unit
+            Default takeoff measurement unit
           </label>
           <div className="grid grid-cols-2 gap-2">
             {[
@@ -65,24 +65,24 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                       showToast('Failed to update unit preference');
                     }
                   }}
-                  className={`p-3 rounded-2xl border text-left transition ${
+                  className={`min-h-[56px] p-3 rounded-xl border text-left transition ${
                     active
-                      ? 'bg-blue-600/20 border-blue-500 text-white'
-                      : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-white'
+                      ? 'bg-amber-400/10 border-amber-400/60 text-zinc-100'
+                      : 'bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-100 hover:border-zinc-700'
                   }`}
                 >
                   <div className="text-xs font-medium">{u.label}</div>
-                  <div className="text-[10px] text-zinc-400">{u.desc}</div>
+                  <div className="text-[10px] text-zinc-400 mt-0.5">{u.desc}</div>
                 </button>
               );
             })}
           </div>
         </div>
 
-        <div className="pt-2 border-t border-zinc-800 flex justify-end">
+        <div className="pt-2 border-t border-white/[0.08] flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-medium transition"
+            className="px-4 min-h-[42px] rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-medium transition"
           >
             Done
           </button>

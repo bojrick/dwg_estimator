@@ -846,19 +846,19 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4">
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl w-full max-w-6xl h-[calc(100dvh-16px)] sm:h-[94vh] flex flex-col shadow-2xl overflow-hidden">
-        
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4">
+      <div className="bg-zinc-900 border-0 sm:border sm:border-zinc-800 rounded-none sm:rounded-xl w-full max-w-6xl h-[100dvh] sm:h-[94dvh] flex flex-col overflow-hidden">
+
         {/* Top Header */}
-        <div className="px-4 py-3 border-b border-zinc-800 bg-zinc-950 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="px-3 sm:px-4 pb-3 pt-[max(12px,env(safe-area-inset-top))] sm:py-3 border-b border-zinc-800 bg-zinc-950 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
-            <div className="p-2 rounded-xl bg-blue-600/20 text-blue-400 shrink-0">
+            <div className="p-2 rounded-lg bg-zinc-900 border border-zinc-800 text-amber-400 shrink-0">
               {hasMultipleFiles ? <Files className="w-5 h-5" /> : <FileCode2 className="w-5 h-5" />}
             </div>
             <div className="min-w-0">
               <h2 className="text-sm sm:text-base font-medium text-white truncate flex items-center gap-2">
-                <span>Sheets and views</span>
-                <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-[10px] font-semibold">
+                <span className="truncate">Sheets and views</span>
+                <span className="px-2 py-0.5 rounded bg-amber-400/10 border border-amber-400/25 text-amber-300 font-mono text-[10px] font-medium tabular-nums shrink-0">
                   {keptCount} of {sheets.length} kept
                 </span>
               </h2>
@@ -868,17 +868,17 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={onCancel}
-              className="px-3 py-2 sm:py-1.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-semibold text-zinc-300 transition"
+              className="px-3 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700/60 text-xs font-medium text-zinc-300 transition"
             >
               Cancel
             </button>
             <button
               onClick={handleFinish}
               disabled={keptCount === 0}
-              className="flex items-center gap-1.5 px-4 py-2 sm:py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-xs font-medium text-white transition shadow"
+              className="flex items-center gap-1.5 px-4 py-2 sm:py-1.5 min-h-[40px] sm:min-h-0 rounded-lg bg-zinc-100 hover:bg-white disabled:opacity-40 text-xs font-medium text-zinc-950 transition"
             >
               <Check className="w-4 h-4" />
               <span>
@@ -889,24 +889,24 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
         </div>
 
         {/* Master Plan Name & Multi-file bar */}
-        <div className="px-4 py-2 bg-zinc-900/90 border-b border-zinc-800/80 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <div className="flex items-center gap-2 flex-1 min-w-[280px]">
-            <label className="font-medium text-zinc-300 shrink-0">Plan Title:</label>
+        <div className="px-3 sm:px-4 py-2 bg-zinc-900/90 border-b border-zinc-800/80 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 text-xs shrink-0">
+          <div className="flex items-center gap-2 min-w-0 w-full sm:w-auto sm:flex-1">
+            <label className="font-medium text-zinc-300 shrink-0">Plan title:</label>
             <input
               type="text"
               value={planTitle}
               onChange={(e) => setPlanTitle(e.target.value)}
-              className="flex-1 bg-zinc-950 border border-zinc-700 rounded-lg px-2.5 py-1 text-white font-medium focus:outline-none focus:border-blue-500"
+              className="min-w-0 flex-1 bg-zinc-950 border border-zinc-700/80 rounded-lg px-2.5 py-2 sm:py-1 text-base sm:text-xs text-white font-medium focus:outline-none focus:border-amber-400"
               placeholder="e.g. Ground Floor & Structural Layout"
             />
           </div>
 
           {/* Multi-DWG File Tabs Selector */}
           {hasMultipleFiles && normalizedFiles && (
-            <div className="flex items-center gap-1 overflow-x-auto max-w-full">
-              <span className="text-[11px] font-medium text-zinc-400 mr-1 flex items-center gap-1">
-                <Layers className="w-3.5 h-3.5 text-blue-400" />
-                <span>DWG Source:</span>
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar max-w-full w-full sm:w-auto">
+              <span className="text-[11px] font-medium text-zinc-400 mr-0.5 flex items-center gap-1 shrink-0">
+                <Layers className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span>DWG source:</span>
               </span>
               {normalizedFiles.map((f) => {
                 const isCurrent = f.fileId === activeFileId;
@@ -924,15 +924,17 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                         zoomToSheet(firstSheet);
                       }
                     }}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition truncate max-w-[200px] ${
-                      isCurrent
-                        ? 'bg-blue-600 text-white shadow'
+                    className={`flex items-center gap-1.5 px-2.5 py-1.5 min-h-[36px] sm:min-h-0 rounded-lg text-xs font-medium transition truncate shrink-0 max-w-[200px] ${isCurrent
+                        ? 'bg-amber-400 text-zinc-950'
                         : 'bg-zinc-950 border border-zinc-800 text-zinc-400 hover:text-zinc-200'
-                    }`}
+                      }`}
                     title={f.filename}
                   >
                     <span className="truncate">{f.name || f.filename}</span>
-                    <span className="px-1.5 py-0.2 rounded-full bg-black/30 text-[10px]">
+                    <span
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums ${isCurrent ? 'bg-black/15 text-zinc-950' : 'bg-zinc-900 text-zinc-400'
+                        }`}
+                    >
                       {keptFileSheets}/{fileSheets.length}
                     </span>
                   </button>
@@ -944,18 +946,17 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
 
         {/* Main Body: Left CAD Canvas + Right Sheets Sidebar */}
         <div className="flex-1 flex flex-col md:flex-row min-h-0 overflow-hidden">
-          
+
           {/* Canvas Area */}
           <div ref={containerRef} className="flex-1 relative bg-zinc-950 overflow-hidden flex flex-col min-h-[200px]">
-            
+
             {/* Canvas Toolbar overlay */}
-            <div className="absolute top-3 left-3 z-10 flex items-center gap-1.5 bg-zinc-900/90 backdrop-blur-xs border border-zinc-700 rounded-xl p-1 shadow-lg">
+            <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-zinc-900/95 backdrop-blur-xs border border-zinc-700/80 rounded-xl p-1 max-w-[calc(100%-24px)] overflow-x-auto no-scrollbar">
               <button
                 type="button"
                 onClick={() => setMode('pan')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
-                  mode === 'pan' ? 'bg-blue-600 text-white' : 'text-zinc-400 hover:text-white'
-                }`}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 sm:py-1 min-h-[36px] sm:min-h-0 rounded-lg text-xs font-medium shrink-0 transition ${mode === 'pan' ? 'bg-amber-400 text-zinc-950' : 'text-zinc-400 hover:text-white'
+                  }`}
                 title="Pan & Zoom around modelspace"
               >
                 <span>Pan</span>
@@ -963,21 +964,20 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
               <button
                 type="button"
                 onClick={() => setMode('draw-window')}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
-                  mode === 'draw-window'
-                    ? 'bg-blue-600 text-white ring-2 ring-blue-400/30'
-                    : 'text-zinc-300 hover:text-zinc-300 bg-blue-500/10'
-                }`}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 sm:py-1 min-h-[36px] sm:min-h-0 rounded-lg text-xs font-medium shrink-0 transition ${mode === 'draw-window'
+                    ? 'bg-amber-400 text-zinc-950'
+                    : 'text-zinc-300 hover:text-white hover:bg-zinc-800'
+                  }`}
                 title="Click and drag on the drawing to create a new sheet view window"
               >
                 <Square className="w-3.5 h-3.5" />
                 <span>Draw box</span>
               </button>
-              <div className="w-px h-4 bg-zinc-700 mx-0.5" />
+              <div className="w-px h-4 bg-zinc-700 mx-0.5 shrink-0" />
               <button
                 type="button"
                 onClick={() => setZoom((z) => Math.min(1000, z * 1.25))}
-                className="p-2 sm:p-1 rounded-lg text-zinc-400 hover:text-white"
+                className="min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 flex items-center justify-center p-1.5 sm:p-1 rounded-lg text-zinc-400 hover:text-white shrink-0"
                 title="Zoom In"
               >
                 <ZoomIn className="w-4 h-4" />
@@ -985,7 +985,7 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
               <button
                 type="button"
                 onClick={() => setZoom((z) => Math.max(1e-5, z * 0.8))}
-                className="p-2 sm:p-1 rounded-lg text-zinc-400 hover:text-white"
+                className="min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 flex items-center justify-center p-1.5 sm:p-1 rounded-lg text-zinc-400 hover:text-white shrink-0"
                 title="Zoom Out"
               >
                 <ZoomOut className="w-4 h-4" />
@@ -993,9 +993,8 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
               <button
                 type="button"
                 onClick={activeSheet ? () => zoomToSheet(activeSheet) : fitDrawing}
-                className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold transition ${
-                  !viewingFullDrawing ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-white'
-                }`}
+                className={`flex items-center gap-1 px-2 py-1.5 sm:py-1 min-h-[36px] sm:min-h-0 rounded-lg text-xs font-medium shrink-0 transition ${!viewingFullDrawing ? 'bg-zinc-800 text-amber-400' : 'text-zinc-400 hover:text-white'
+                  }`}
                 title="Frame Selected Sheet View"
               >
                 <Eye className="w-3.5 h-3.5" />
@@ -1004,9 +1003,8 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
               <button
                 type="button"
                 onClick={fitDrawing}
-                className={`p-1 rounded-lg transition ${
-                  viewingFullDrawing ? 'bg-zinc-800 text-blue-400' : 'text-zinc-400 hover:text-white'
-                }`}
+                className={`min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 flex items-center justify-center p-1.5 sm:p-1 rounded-lg shrink-0 transition ${viewingFullDrawing ? 'bg-zinc-800 text-amber-400' : 'text-zinc-400 hover:text-white'
+                  }`}
                 title="Fit Full Drawing Modelspace"
               >
                 <Maximize2 className="w-4 h-4" />
@@ -1015,9 +1013,9 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
 
             {/* Instruction banner in draw mode */}
             {mode === 'draw-window' && (
-              <div className="absolute top-14 left-3 z-10 bg-zinc-900 border border-blue-500/40 text-blue-200 text-xs px-3 py-1.5 rounded-lg shadow flex items-center gap-1.5 ">
-                <Square className="w-3.5 h-3.5 text-zinc-300 shrink-0" />
-                <span>Drag a rectangle to define a new sheet boundary</span>
+              <div className="absolute top-14 left-3 z-10 bg-zinc-900/95 border border-amber-400/40 text-amber-200 text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 max-w-[calc(100%-24px)]">
+                <Square className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="truncate">Drag a rectangle to define a new sheet boundary</span>
               </div>
             )}
 
@@ -1032,29 +1030,28 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
               onTouchMove={handleTouchMove}
               onTouchEnd={handleTouchEnd}
               onTouchCancel={handleTouchEnd}
-              className={`w-full h-full block touch-none ${
-                mode === 'draw-window' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
-              }`}
+              className={`w-full h-full block touch-none ${mode === 'draw-window' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'
+                }`}
             />
           </div>
 
           {/* Right Sheet Configuration Sidebar */}
-          <div className="w-full md:w-80 lg:w-96 border-t md:border-t-0 md:border-l border-zinc-800 bg-zinc-900/80 flex flex-col shrink-0">
-            
-            <div className="p-3 border-b border-zinc-800 space-y-2">
-              <div className="flex items-center justify-between">
-                <div>
+          <div className="w-full md:w-80 lg:w-96 max-h-[54dvh] md:max-h-none overflow-y-auto md:overflow-hidden border-t md:border-t-0 md:border-l border-zinc-800 bg-zinc-900/80 flex flex-col shrink-0">
+
+            <div className="p-3 border-b border-zinc-800 space-y-2 shrink-0">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
                   <h3 className="text-xs font-medium text-white flex items-center gap-1.5">
-                    <CheckSquare className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Sheets & Views</span>
+                    <CheckSquare className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="truncate">Sheets & views</span>
                   </h3>
-                  <p className="text-[11px] text-blue-400 font-semibold">
+                  <p className="text-[11px] text-amber-400 font-medium font-mono tabular-nums">
                     {keptCount} of {sheets.length} kept in plan
                   </p>
                 </div>
                 <button
                   onClick={() => setMode('draw-window')}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-zinc-300 text-xs font-semibold transition"
+                  className="flex items-center gap-1 px-2.5 py-1.5 min-h-[36px] sm:min-h-0 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-200 text-xs font-medium transition shrink-0"
                   title="Draw a new sheet window box"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -1063,11 +1060,11 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
               </div>
 
               {/* Quick view selection actions */}
-              <div className="flex items-center gap-1.5 pt-1 text-[10px]">
+              <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[11px]">
                 <button
                   type="button"
                   onClick={selectOnlyCurrent}
-                  className="px-2 py-0.5 rounded bg-blue-600/25 hover:bg-blue-600/40 text-blue-300 font-semibold transition border border-blue-500/30"
+                  className="px-2.5 py-1.5 sm:px-2 sm:py-0.5 rounded bg-amber-400/15 hover:bg-amber-400/25 text-amber-300 font-medium transition border border-amber-400/30"
                   title="Keep only this active sheet and discard all other clutter"
                 >
                   Only This View
@@ -1075,14 +1072,14 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                 <button
                   type="button"
                   onClick={selectAll}
-                  className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition"
+                  className="px-2.5 py-1.5 sm:px-2 sm:py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300 transition"
                 >
                   Select All
                 </button>
                 <button
                   type="button"
                   onClick={resetSelection}
-                  className="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 transition"
+                  className="px-2.5 py-1.5 sm:px-2 sm:py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400 transition"
                 >
                   Reset
                 </button>
@@ -1090,8 +1087,8 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
             </div>
 
             {/* Sheet Tabs / List with Checkboxes */}
-            <div className="p-3 space-y-2 overflow-y-auto max-h-36 md:max-h-64 border-b border-zinc-800">
-              {sheets.map((s, idx) => {
+            <div className="p-3 space-y-2 overflow-y-auto max-h-36 md:max-h-64 border-b border-zinc-800 shrink-0">
+              {sheets.map((s) => {
                 const isSelected = s.id === activeSheetId;
                 const isKept = selectedSheetIds.has(s.id);
                 return (
@@ -1107,13 +1104,12 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                       }
                       zoomToSheet(s);
                     }}
-                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition flex items-center justify-between gap-2.5 ${
-                      isSelected
-                        ? 'bg-blue-600/15 border-blue-500 text-white shadow-xs'
+                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition flex items-center justify-between gap-2.5 ${isSelected
+                        ? 'bg-amber-400/10 border-amber-400/50 text-white'
                         : isKept
-                        ? 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700 text-zinc-200'
-                        : 'bg-zinc-950/30 border-zinc-900 opacity-60 text-zinc-500'
-                    }`}
+                          ? 'bg-zinc-950/60 border-zinc-800 hover:border-zinc-700 text-zinc-200'
+                          : 'bg-zinc-950/30 border-zinc-900 opacity-60 text-zinc-500'
+                      }`}
                   >
                     {/* Prominent Inclusion Checkbox */}
                     <button
@@ -1122,11 +1118,10 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                         e.stopPropagation();
                         toggleSheetSelection(s.id);
                       }}
-                      className={`w-6 h-6 sm:w-4 sm:h-4 rounded flex items-center justify-center border transition shrink-0 ${
-                        isKept
-                          ? 'bg-blue-600 border-blue-500 text-white'
+                      className={`w-6 h-6 sm:w-4 sm:h-4 rounded flex items-center justify-center border transition shrink-0 ${isKept
+                          ? 'bg-amber-400 border-amber-400 text-zinc-950'
                           : 'bg-zinc-900 border-zinc-700 text-transparent hover:border-zinc-500'
-                      }`}
+                        }`}
                       title={isKept ? 'Included in plan (click to exclude)' : 'Excluded from plan (click to include)'}
                     >
                       <Check className="w-3 h-3 stroke-[3]" />
@@ -1138,19 +1133,19 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                           {s.name}
                         </span>
                         {s.is_custom_window && (
-                          <span className="px-1 py-0.2 rounded bg-blue-500/20 text-zinc-300 text-[9px] font-medium shrink-0">
+                          <span className="px-1.5 py-0.5 rounded bg-amber-400/15 border border-amber-400/25 text-amber-300 text-[9px] font-mono font-medium shrink-0">
                             Custom Box
                           </span>
                         )}
                         {!isKept && (
-                          <span className="px-1 py-0.2 rounded bg-zinc-800 text-zinc-500 text-[9px] font-medium shrink-0">
+                          <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-500 text-[9px] font-medium shrink-0">
                             Excluded
                           </span>
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-0.5 text-[10px] text-zinc-400 truncate">
                         {hasMultipleFiles && s.source_file && (
-                          <span className="text-blue-400 font-mono truncate">
+                          <span className="text-amber-400/90 font-mono truncate">
                             [{s.source_file.replace(/\.[^/.]+$/, '')}]
                           </span>
                         )}
@@ -1165,7 +1160,7 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                           e.stopPropagation();
                           deleteSheet(s.id);
                         }}
-                        className="p-1 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition shrink-0"
+                        className="p-1.5 sm:p-1 rounded-lg text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 transition shrink-0"
                         title="Delete view"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -1178,19 +1173,19 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
 
             {/* Active Sheet Metadata Editor */}
             {activeSheet && (
-              <div className="p-4 flex-1 flex flex-col space-y-3 overflow-y-auto bg-zinc-950/50">
-                <div className="text-xs font-medium text-zinc-200 flex items-center justify-between">
-                  <span>Edit Selected View #{sheets.findIndex((s) => s.id === activeSheet.id) + 1}</span>
+              <div className="p-4 pb-[max(16px,env(safe-area-inset-bottom))] md:pb-4 md:flex-1 flex flex-col space-y-3 md:overflow-y-auto bg-zinc-950/50">
+                <div className="text-xs font-medium text-zinc-200 flex items-center justify-between gap-2">
+                  <span>Edit selected view #{sheets.findIndex((s) => s.id === activeSheet.id) + 1}</span>
                   {selectedSheetIds.has(activeSheet.id) ? (
-                    <span className="text-[10px] text-zinc-300 font-semibold flex items-center gap-1">
-                      <Check className="w-3 h-3" />
-                      <span>Included in Plan</span>
+                    <span className="text-[11px] text-zinc-300 font-medium flex items-center gap-1 shrink-0">
+                      <Check className="w-3 h-3 text-amber-400" />
+                      <span>Included in plan</span>
                     </span>
                   ) : (
                     <button
                       type="button"
                       onClick={() => toggleSheetSelection(activeSheet.id)}
-                      className="text-[10px] text-blue-400 hover:text-blue-300 font-semibold"
+                      className="text-[11px] text-amber-400 hover:text-amber-300 font-medium shrink-0"
                     >
                       + Include in Plan
                     </button>
@@ -1198,14 +1193,14 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-[11px] font-semibold text-zinc-400">
-                    Sheet Name
+                  <label className="block text-[11px] font-medium text-zinc-400">
+                    Sheet name
                   </label>
                   <input
                     type="text"
                     value={activeSheet.name}
                     onChange={(e) => updateActiveSheet({ name: e.target.value })}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg px-2.5 py-2 sm:py-1.5 text-base sm:text-xs text-white focus:outline-none focus:border-amber-400"
                     placeholder="e.g. Ground Floor Plan"
                   />
                   {sheetSnapshots[activeSheet.id] && (
@@ -1223,20 +1218,20 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-zinc-400 mb-1">
-                    Sheet Description (What this view represents)
+                  <label className="block text-[11px] font-medium text-zinc-400 mb-1">
+                    Sheet description (what this view represents)
                   </label>
                   <textarea
                     rows={3}
                     value={activeSheet.description}
                     onChange={(e) => updateActiveSheet({ description: e.target.value })}
-                    className="w-full bg-zinc-900 border border-zinc-700 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-blue-500 resize-none"
+                    className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg p-2.5 text-base sm:text-xs text-white focus:outline-none focus:border-amber-400 resize-none"
                     placeholder="e.g., Working plan showing room boundaries, external columns, staircase details..."
                   />
                 </div>
 
-                <div className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-[10px] text-zinc-400 space-y-1 font-mono">
-                  <div>Window Bounds:</div>
+                <div className="p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-[10px] text-zinc-400 space-y-1 font-mono tabular-nums">
+                  <div>Window bounds:</div>
                   <div className="text-zinc-300">
                     X: [{activeSheet.bbox.min_x.toFixed(1)}, {activeSheet.bbox.max_x.toFixed(1)}] | Y: [{activeSheet.bbox.min_y.toFixed(1)}, {activeSheet.bbox.max_y.toFixed(1)}]
                   </div>
@@ -1245,11 +1240,11 @@ export const SheetSelectorModal: React.FC<SheetSelectorModalProps> = ({
                   </div>
                 </div>
 
-                <div className="pt-2 flex items-center justify-between">
+                <div className="pt-1 flex items-center justify-between">
                   <button
                     type="button"
                     onClick={() => zoomToSheet(activeSheet)}
-                    className="text-[11px] text-blue-400 hover:text-blue-300 flex items-center gap-1 font-semibold"
+                    className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1 font-medium py-1"
                   >
                     <Maximize2 className="w-3 h-3" />
                     <span>Focus View on Canvas</span>

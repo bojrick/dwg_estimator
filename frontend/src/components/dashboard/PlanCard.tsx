@@ -39,11 +39,11 @@ export const PlanCard: React.FC<PlanCardProps> = ({
     DISCIPLINES.find((d) => d.id === (plan.discipline || 'architectural')) || DISCIPLINES[0];
 
   return (
-    <div className="bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-2xl p-3.5 sm:p-4 flex flex-col justify-between gap-3 transition shadow-xs overflow-hidden">
+    <div className="bg-zinc-900/90 border border-zinc-800/90 hover:border-zinc-700 rounded-xl p-3.5 sm:p-4 flex flex-col justify-between gap-3 transition overflow-hidden">
       <div className="space-y-2">
         {/* Row 1: Discipline Tag + Project & Actions */}
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             <span
               className={`px-2 py-0.5 rounded-md border text-[10px] font-medium shrink-0 ${discObj.badgeClass}`}
             >
@@ -52,7 +52,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({
             {selectedProject === 'ALL' && (
               <span className="text-[10px] font-mono text-zinc-400 flex items-center gap-1 truncate min-w-0">
                 <FolderKanban className="w-2.5 h-2.5 opacity-60 shrink-0" />
-                <span className="truncate max-w-[110px] sm:max-w-[150px]">
+                <span className="truncate">
                   {plan.project_name || 'Default Project'}
                 </span>
               </span>
@@ -62,28 +62,28 @@ export const PlanCard: React.FC<PlanCardProps> = ({
           <div className="flex items-center gap-1 shrink-0">
             <button
               onClick={() => onMovePlan(plan)}
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition"
+              className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100 transition"
               title="Move to another project"
             >
               <FolderInput className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => onRenamePlan(plan)}
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition"
+              className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100 transition"
               title="Rename plan"
             >
               <Pencil className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => onSharePlan(plan)}
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-blue-600 text-zinc-400 hover:text-white transition"
+              className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-amber-400 transition"
               title="Share plan link"
             >
               <Share2 className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => onDeletePlan(plan)}
-              className="p-1.5 rounded-lg bg-zinc-800 hover:bg-rose-600 text-zinc-400 hover:text-white transition"
+              className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg bg-zinc-800/80 hover:bg-rose-600 text-zinc-400 hover:text-white transition"
               title="Delete plan"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -95,7 +95,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({
         <div>
           <h3
             onClick={() => onOpenPlan(plan)}
-            className="text-sm sm:text-base font-semibold text-white hover:text-blue-400 transition cursor-pointer line-clamp-1"
+            className="text-sm sm:text-base font-medium text-zinc-100 hover:text-amber-400 transition cursor-pointer line-clamp-1"
             title={plan.name}
           >
             {plan.name}
@@ -103,7 +103,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({
           <div className="flex items-center gap-1.5 text-zinc-400 text-[11px] font-mono mt-0.5 truncate">
             <FileCode2 className="w-3 h-3 text-zinc-500 shrink-0" />
             <span className="truncate" title={plan.dwg_filename || ''}>
-              {plan.dwg_filename || 'Vector CAD Drawing'}
+              {plan.dwg_filename || 'Vector CAD drawing'}
             </span>
           </div>
         </div>
@@ -134,16 +134,16 @@ export const PlanCard: React.FC<PlanCardProps> = ({
       </div>
 
       {/* Row 4: Action Buttons */}
-      <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-between gap-2">
+      <div className="pt-2 border-t border-white/[0.08] flex items-center justify-between gap-2">
         <button
           onClick={() => onOpenPlan(plan)}
-          className="flex-1 py-1.5 px-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-white transition text-center truncate"
+          className="flex-1 min-h-[40px] py-2 px-3 rounded-lg bg-zinc-800 hover:bg-zinc-700/80 text-xs font-medium text-zinc-200 transition text-center truncate"
         >
           Open drawing
         </button>
         <button
           onClick={() => onOpenEstimator(plan)}
-          className="py-1.5 px-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white flex items-center justify-center gap-1.5 transition shrink-0 shadow-xs"
+          className="min-h-[40px] py-2 px-3 rounded-lg bg-zinc-100 hover:bg-white text-xs font-medium text-zinc-950 flex items-center justify-center gap-1.5 transition shrink-0"
           title={`Launch ${discObj.estimatorLabel}`}
         >
           <FileSpreadsheet className="w-3.5 h-3.5" />

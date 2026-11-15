@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
-  ArrowLeft,
   Save,
   Download,
   Plus,
@@ -37,7 +36,7 @@ import {
   pointInPoly,
   traceWallBoundaryEnclosure,
 } from '../shared/cadLayerInference';
-import { VersionHistoryControl } from '../shared/VersionHistoryControl';
+import { EstimatorWorkstationShell } from '../shared/EstimatorWorkstationShell';
 
 interface ArchitecturalEstimatorPageProps {
   plan: any;
@@ -129,7 +128,7 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
   const initialSheetRecord = savedState.by_sheet?.[activeSheetId] || savedState;
   const hasSavedForInitialSheet = Boolean(
     (initialSheetRecord?.rooms && initialSheetRecord.rooms.length > 0) ||
-      (initialSheetRecord?.openings && initialSheetRecord.openings.length > 0)
+    (initialSheetRecord?.openings && initialSheetRecord.openings.length > 0)
   );
 
   const [step, setStep] = useState<ArchStep>('scope');
@@ -161,17 +160,17 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
   const [pickTarget, setPickTarget] = useState<
     | null
     | {
-        kind:
-          | 'extWall'
-          | 'intWall'
-          | 'parapetWall'
-          | 'roomPerim'
-          | 'verifyRoomRect'
-          | 'newRoomRect'
-          | 'traceWallBoundary';
-        roomId?: string;
-        label: string;
-      }
+      kind:
+      | 'extWall'
+      | 'intWall'
+      | 'parapetWall'
+      | 'roomPerim'
+      | 'verifyRoomRect'
+      | 'newRoomRect'
+      | 'traceWallBoundary';
+      roomId?: string;
+      label: string;
+    }
   >(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -554,9 +553,8 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${(plan?.title || plan?.name || 'architectural').replace(/\s+/g, '_')}_${
-      combined ? 'Combined_Plan' : activeSheetName.replace(/\s+/g, '_')
-    }_BOQ.csv`;
+    a.download = `${(plan?.title || plan?.name || 'architectural').replace(/\s+/g, '_')}_${combined ? 'Combined_Plan' : activeSheetName.replace(/\s+/g, '_')
+      }_BOQ.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -766,29 +764,12 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
   ]);
 
   return (
-    <div className="h-screen w-screen bg-zinc-950 text-zinc-100 flex flex-col overflow-hidden select-none">
-      {/* Top Bar */}
-      <header className="h-12 shrink-0 border-b border-white/[0.08] bg-zinc-950 px-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={onBack}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 hover:text-white hover:bg-zinc-900 border border-white/[0.08] transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back</span>
-          </button>
-          <div className="h-4 w-px bg-white/[0.08]" />
-          <div className="min-w-0 flex items-center gap-2">
-            <h1 className="text-sm font-medium text-zinc-100 truncate">
-              {plan?.title || plan?.name || 'Architectural takeoff'}
-            </h1>
-            <span className="text-[11px] text-amber-300 px-2 py-0.5 rounded bg-amber-400/10 border border-amber-400/30 truncate max-w-[180px]">
-              {activeSheetName}
-            </span>
-          </div>
-        </div>
-
-        {/* Summary KPIs */}
+    <EstimatorWorkstationShell
+      onBack={onBack}
+      title={plan?.title || plan?.name || 'Architectural takeoff'}
+      subtitle={activeSheetName}
+      subtitleAccent
+      headerCenter={
         <div className="hidden xl:flex items-center gap-5 text-xs tabular-nums">
           <div>
             <span className="text-zinc-500 mr-1.5">Flooring</span>
@@ -805,676 +786,621 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
             </span>
           </div>
           <div>
-            <span className="text-zinc-500 mr-1.5">Sheet Total</span>
+            <span className="text-zinc-500 mr-1.5">Sheet total</span>
             <span className="text-amber-400 font-medium">
               {params.currency}
               {summary.totalCost.toLocaleString()}
             </span>
           </div>
         </div>
+      }
+      versions={versions}
+      currency={params.currency}
+      onRestoreVersion={handleRestoreVersion}
+      onExportCsv={() => handleExportCsv(takeoffSubTab === 'combined')}
+      onSave={handleSave}
+      isSaving={isSaving}
+      steps={[
+        { id: 'scope', num: '1', label: 'Sheet & layers' },
+        { id: 'elements', num: '2', label: 'Rooms & openings' },
+        { id: 'specs', num: '3', label: 'Specs & rates' },
+        { id: 'takeoff', num: '4', label: 'BOQ & reports' },
+      ]}
+      activeStep={step}
+      onStepChange={setStep}
+      isCanvasToolActive={isSelectingBox || Boolean(pickTarget)}
+      canvas={
+        <CadEstimatorCanvas
+          rawData={activeRaw}
+          sheets={sheets}
+          activeSheetId={activeSheetId}
+          onSelectSheetId={handleSelectSheet}
+          highlightedLayers={highlightedLayers}
+          highlightedMark={highlightedMark}
+          layoutBox={scanBox}
+          boxSelectLabel={
+            isSelectingBox ? 'Drag box around floor plan area to scope walls & rooms' : null
+          }
+          onBoxSelected={(bbox) => {
+            setScanBox(bbox);
+            setIsSelectingBox(false);
+            runCadInference(activeRaw, bbox, roleOverrides, false);
+          }}
+          twoPointPickLabel={
+            pickTarget && pickTarget.kind !== 'traceWallBoundary' ? pickTarget.label : null
+          }
+          singlePointPickLabel={
+            pickTarget && pickTarget.kind === 'traceWallBoundary' ? pickTarget.label : null
+          }
+          twoPointPickIsRect={
+            pickTarget?.kind === 'verifyRoomRect' || pickTarget?.kind === 'newRoomRect'
+          }
+          onTwoPointPicked={(distM, p1, p2) => {
+            if (!pickTarget) return;
+            const scaleToM = Number(activeRaw?.scale_to_m) || 1.0;
+            const wM = Math.round(Math.abs(p2[0] - p1[0]) * scaleToM * 100) / 100;
+            const hM = Math.round(Math.abs(p2[1] - p1[1]) * scaleToM * 100) / 100;
+            const rectBbox: WorldBBox = {
+              min_x: Math.min(p1[0], p2[0]),
+              min_y: Math.min(p1[1], p2[1]),
+              max_x: Math.max(p1[0], p2[0]),
+              max_y: Math.max(p1[1], p2[1]),
+            };
 
-        <div className="flex items-center gap-2">
-          <VersionHistoryControl
-            versions={versions}
-            currency={params.currency}
-            onRestoreVersion={handleRestoreVersion}
-          />
-          <button
-            onClick={() => handleExportCsv(takeoffSubTab === 'combined')}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-white/[0.08] transition-colors"
-            title="Export CSV"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">CSV</span>
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-100 hover:bg-white text-zinc-950 transition-colors disabled:opacity-50"
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>{isSaving ? 'Saving...' : 'Save estimate'}</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Main Split Workstation */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        {/* Left Interactive CAD Viewport */}
-        <div className="lg:w-[55%] h-[45vh] lg:h-full border-b lg:border-b-0 lg:border-r border-white/[0.08] relative">
-          <CadEstimatorCanvas
-            rawData={activeRaw}
-            sheets={sheets}
-            activeSheetId={activeSheetId}
-            onSelectSheetId={handleSelectSheet}
-            highlightedLayers={highlightedLayers}
-            highlightedMark={highlightedMark}
-            layoutBox={scanBox}
-            boxSelectLabel={
-              isSelectingBox ? 'Drag box around floor plan area to scope walls & rooms' : null
-            }
-            onBoxSelected={(bbox) => {
-              setScanBox(bbox);
-              setIsSelectingBox(false);
-              runCadInference(activeRaw, bbox, roleOverrides, false);
-            }}
-            twoPointPickLabel={
-              pickTarget && pickTarget.kind !== 'traceWallBoundary' ? pickTarget.label : null
-            }
-            singlePointPickLabel={
-              pickTarget && pickTarget.kind === 'traceWallBoundary' ? pickTarget.label : null
-            }
-            twoPointPickIsRect={
-              pickTarget?.kind === 'verifyRoomRect' || pickTarget?.kind === 'newRoomRect'
-            }
-            onTwoPointPicked={(distM, p1, p2) => {
-              if (!pickTarget) return;
-              const scaleToM = Number(activeRaw?.scale_to_m) || 1.0;
-              const wM = Math.round(Math.abs(p2[0] - p1[0]) * scaleToM * 100) / 100;
-              const hM = Math.round(Math.abs(p2[1] - p1[1]) * scaleToM * 100) / 100;
-              const rectBbox: WorldBBox = {
-                min_x: Math.min(p1[0], p2[0]),
-                min_y: Math.min(p1[1], p2[1]),
-                max_x: Math.max(p1[0], p2[0]),
-                max_y: Math.max(p1[1], p2[1]),
-              };
-
-              if (pickTarget.kind === 'verifyRoomRect' && pickTarget.roomId) {
-                const area = Math.round(wM * hM * 100) / 100;
-                const perim = Math.round(2 * (wM + hM) * 100) / 100;
-                setRooms((prev) =>
-                  prev.map((r) =>
-                    r.id === pickTarget.roomId
-                      ? {
-                          ...r,
-                          widthM: wM,
-                          lengthM: hM,
-                          areaM2: area > 0.2 ? area : r.areaM2,
-                          perimeterM: perim > 0.5 ? perim : r.perimeterM,
-                          derivationMethod: 'user_picked',
-                          dimensionText: `CAD Picked (${wM.toFixed(2)}m × ${hM.toFixed(2)}m)`,
-                          isVerified: true,
-                          included: true,
-                          bbox: rectBbox,
-                        }
-                      : r
-                  )
-                );
-                showToast(`Verified room: ${wM.toFixed(2)}m × ${hM.toFixed(2)}m = ${area.toFixed(2)} m²`);
-              } else if (pickTarget.kind === 'newRoomRect') {
-                const area = Math.round(wM * hM * 100) / 100;
-                const perim = Math.round(2 * (wM + hM) * 100) / 100;
-                const newRm: RoomDefinition = {
-                  id: `rm_pick_${Date.now()}`,
-                  name: `Room ${rooms.length + 1}`,
-                  widthM: wM,
-                  lengthM: hM,
-                  areaM2: area,
-                  perimeterM: perim,
-                  floorFinish: 'vitrified_tile',
-                  included: true,
-                  derivationMethod: 'user_picked',
-                  dimensionText: `CAD Picked (${wM.toFixed(2)}m × ${hM.toFixed(2)}m)`,
-                  isVerified: true,
-                  bbox: rectBbox,
-                };
-                setRooms((prev) => [...prev, newRm]);
-                setSelectedRoomId(newRm.id);
-                showToast(`Added room from CAD: ${area.toFixed(2)} m²`);
-              } else if (pickTarget.kind === 'extWall') {
-                updateParam('extWallLengthM', Math.round((params.extWallLengthM + distM) * 10) / 10);
-                showToast(`Added ${distM.toFixed(2)} m to external wall length`);
-              } else if (pickTarget.kind === 'intWall') {
-                updateParam('intWallLengthM', Math.round((params.intWallLengthM + distM) * 10) / 10);
-                showToast(`Added ${distM.toFixed(2)} m to internal wall length`);
-              } else if (pickTarget.kind === 'parapetWall') {
-                updateParam(
-                  'parapetWallLengthM',
-                  Math.round(((params.parapetWallLengthM || 0) + distM) * 10) / 10
-                );
-                showToast(`Added ${distM.toFixed(2)} m to parapet wall length`);
-              } else if (pickTarget.kind === 'roomPerim' && pickTarget.roomId) {
-                setRooms((prev) =>
-                  prev.map((r) =>
-                    r.id === pickTarget.roomId
-                      ? { ...r, perimeterM: Math.round(distM * 100) / 100 }
-                      : r
-                  )
-                );
-                showToast(`Updated room perimeter to ${distM.toFixed(2)} m`);
-              }
-              setPickTarget(null);
-            }}
-            onClickWorld={handleCanvasClickWorld}
-            renderCustomOverlay={renderRoomOverlay}
-            onCancelExternalTool={() => {
-              setIsSelectingBox(false);
-              setPickTarget(null);
-            }}
-          />
-        </div>
-
-        {/* Right 4-Step Guided Panel */}
-        <div className="lg:w-[45%] flex-1 flex flex-col bg-zinc-950 overflow-hidden">
-          {/* Stepper */}
-          <div className="shrink-0 grid grid-cols-4 border-b border-white/[0.08] bg-zinc-900/50">
-            {(
-              [
-                { id: 'scope', num: '1', label: 'Sheet & layers' },
-                { id: 'elements', num: '2', label: 'Rooms & openings' },
-                { id: 'specs', num: '3', label: 'Specs & rates' },
-                { id: 'takeoff', num: '4', label: 'BOQ & reports' },
-              ] as { id: ArchStep; num: string; label: string }[]
-            ).map((s) => {
-              const active = step === s.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => setStep(s.id)}
-                  className={`py-2.5 px-2 text-xs font-medium border-b-2 transition-colors flex items-center justify-center gap-1.5 ${
-                    active
-                      ? 'border-amber-400 text-zinc-100 bg-zinc-900'
-                      : 'border-transparent text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  <span
-                    className={`w-4 h-4 rounded text-[10px] inline-flex items-center justify-center tabular-nums ${
-                      active ? 'bg-amber-400 text-zinc-950 font-semibold' : 'bg-zinc-800 text-zinc-400'
-                    }`}
-                  >
-                    {s.num}
-                  </span>
-                  <span className="truncate">{s.label}</span>
-                </button>
+            if (pickTarget.kind === 'verifyRoomRect' && pickTarget.roomId) {
+              const area = Math.round(wM * hM * 100) / 100;
+              const perim = Math.round(2 * (wM + hM) * 100) / 100;
+              setRooms((prev) =>
+                prev.map((r) =>
+                  r.id === pickTarget.roomId
+                    ? {
+                      ...r,
+                      widthM: wM,
+                      lengthM: hM,
+                      areaM2: area > 0.2 ? area : r.areaM2,
+                      perimeterM: perim > 0.5 ? perim : r.perimeterM,
+                      derivationMethod: 'user_picked',
+                      dimensionText: `CAD Picked (${wM.toFixed(2)}m × ${hM.toFixed(2)}m)`,
+                      isVerified: true,
+                      included: true,
+                      bbox: rectBbox,
+                    }
+                    : r
+                )
               );
-            })}
-          </div>
-
-          {/* Step Content */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {step === 'scope' && (
-              <>
-                <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-white/[0.08] space-y-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h2 className="text-xs font-medium text-zinc-100">
-                        Active scope: {activeSheetName}
-                      </h2>
-                      <p className="text-[11px] text-zinc-400 mt-0.5">
-                        Wall lengths, room enclosures, and door/window tags are measured strictly within the selected sheet or cropped box
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        onClick={() => setIsSelectingBox((v) => !v)}
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs border transition-colors ${
-                          isSelectingBox
-                            ? 'bg-amber-400/15 text-amber-300 border-amber-400/40'
-                            : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-white/[0.08]'
+              showToast(`Verified room: ${wM.toFixed(2)}m × ${hM.toFixed(2)}m = ${area.toFixed(2)} m²`);
+            } else if (pickTarget.kind === 'newRoomRect') {
+              const area = Math.round(wM * hM * 100) / 100;
+              const perim = Math.round(2 * (wM + hM) * 100) / 100;
+              const newRm: RoomDefinition = {
+                id: `rm_pick_${Date.now()}`,
+                name: `Room ${rooms.length + 1}`,
+                widthM: wM,
+                lengthM: hM,
+                areaM2: area,
+                perimeterM: perim,
+                floorFinish: 'vitrified_tile',
+                included: true,
+                derivationMethod: 'user_picked',
+                dimensionText: `CAD Picked (${wM.toFixed(2)}m × ${hM.toFixed(2)}m)`,
+                isVerified: true,
+                bbox: rectBbox,
+              };
+              setRooms((prev) => [...prev, newRm]);
+              setSelectedRoomId(newRm.id);
+              showToast(`Added room from CAD: ${area.toFixed(2)} m²`);
+            } else if (pickTarget.kind === 'extWall') {
+              updateParam('extWallLengthM', Math.round((params.extWallLengthM + distM) * 10) / 10);
+              showToast(`Added ${distM.toFixed(2)} m to external wall length`);
+            } else if (pickTarget.kind === 'intWall') {
+              updateParam('intWallLengthM', Math.round((params.intWallLengthM + distM) * 10) / 10);
+              showToast(`Added ${distM.toFixed(2)} m to internal wall length`);
+            } else if (pickTarget.kind === 'parapetWall') {
+              updateParam(
+                'parapetWallLengthM',
+                Math.round(((params.parapetWallLengthM || 0) + distM) * 10) / 10
+              );
+              showToast(`Added ${distM.toFixed(2)} m to parapet wall length`);
+            } else if (pickTarget.kind === 'roomPerim' && pickTarget.roomId) {
+              setRooms((prev) =>
+                prev.map((r) =>
+                  r.id === pickTarget.roomId
+                    ? { ...r, perimeterM: Math.round(distM * 100) / 100 }
+                    : r
+                )
+              );
+              showToast(`Updated room perimeter to ${distM.toFixed(2)} m`);
+            }
+            setPickTarget(null);
+          }}
+          onClickWorld={handleCanvasClickWorld}
+          renderCustomOverlay={renderRoomOverlay}
+          onCancelExternalTool={() => {
+            setIsSelectingBox(false);
+            setPickTarget(null);
+          }}
+        />
+      }
+      panel={
+        <>
+          {step === 'scope' && (
+            <>
+              <div className="p-3.5 rounded-xl bg-zinc-900/70 border border-white/[0.08] space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-xs font-medium text-zinc-100">
+                      Active scope: {activeSheetName}
+                    </h2>
+                    <p className="text-[11px] text-zinc-400 mt-0.5">
+                      Wall lengths, room enclosures, and door/window tags are measured strictly within the selected sheet or cropped box
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                    <button
+                      onClick={() => setIsSelectingBox((v) => !v)}
+                      className={`inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 px-2.5 py-1.5 rounded-lg text-xs border transition-colors ${isSelectingBox
+                          ? 'bg-amber-400/15 text-amber-300 border-amber-400/40'
+                          : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border-white/[0.08]'
                         }`}
-                      >
-                        <Crop className="w-3.5 h-3.5" />
-                        <span>{scanBox ? 'Re-crop area' : 'Crop area'}</span>
-                      </button>
-                      {scanBox && (
-                        <button
-                          onClick={() => {
-                            setScanBox(null);
-                            runCadInference(activeRaw, null, roleOverrides, false);
-                          }}
-                          className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-white/[0.08]"
-                          title="Clear crop region"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => runCadInference(activeRaw, scanBox, roleOverrides, false)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-400 hover:bg-amber-300 text-zinc-950 transition-colors"
-                      >
-                        <Scan className="w-3.5 h-3.5" />
-                        <span>Scan sheet</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {lastScanNote && (
-                    <div className="text-[11px] text-zinc-300 bg-zinc-950/80 border border-white/[0.06] rounded-lg px-3 py-2 tabular-nums">
-                      {lastScanNote}
-                    </div>
-                  )}
-                </div>
-
-                {/* CAD Layer Classification Table */}
-                <div className="rounded-xl border border-white/[0.08] bg-zinc-900/40 overflow-hidden">
-                  <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-xs font-medium text-zinc-200">
-                      <Layers className="w-3.5 h-3.5 text-zinc-400" />
-                      <span>Sheet CAD layers ({layerStats.length})</span>
-                    </div>
-                    {highlightedLayers.length > 0 && (
-                      <button
-                        onClick={() => setHighlightedLayers([])}
-                        className="text-[11px] text-amber-400 hover:underline"
-                      >
-                        Clear highlight
-                      </button>
-                    )}
-                  </div>
-                  <div className="max-h-[340px] overflow-y-auto divide-y divide-white/[0.05]">
-                    {layerStats.length === 0 ? (
-                      <div className="p-6 text-center text-xs text-zinc-500">
-                        No CAD vector layers detected on this sheet.
-                      </div>
-                    ) : (
-                      layerStats.map((st) => {
-                        const isHi = highlightedLayers.includes(st.name);
-                        return (
-                          <div
-                            key={st.name}
-                            onClick={() =>
-                              setHighlightedLayers((prev) =>
-                                prev.includes(st.name) ? [] : [st.name]
-                              )
-                            }
-                            className={`px-3.5 py-2 flex items-center justify-between gap-2 text-xs cursor-pointer transition-colors ${
-                              isHi ? 'bg-amber-400/10' : 'hover:bg-zinc-900/80'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span
-                                className="w-2.5 h-2.5 rounded-sm shrink-0 border border-white/20"
-                                style={{ backgroundColor: st.color }}
-                              />
-                              <span className="text-zinc-200 truncate font-mono text-[11px]">
-                                {st.name}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-3 shrink-0 tabular-nums">
-                              <span className="text-[11px] text-zinc-400">
-                                {st.lineLengthM > 0 ? `${st.lineLengthM} m` : `${st.entityCount} ent`}
-                              </span>
-                              <select
-                                value={st.inferredRole}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => handleRoleChange(st.name, e.target.value)}
-                                className="bg-zinc-950 text-zinc-200 text-[11px] rounded-md px-2 py-1 border border-white/[0.08] focus:outline-none focus:border-amber-400"
-                              >
-                                {ARCH_ROLE_OPTIONS.map((opt) => (
-                                  <option key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {step === 'elements' && (
-              <>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="inline-flex rounded-lg p-0.5 bg-zinc-900 border border-white/[0.08]">
-                    <button
-                      onClick={() => setElementSubTab('rooms')}
-                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors tabular-nums ${
-                        elementSubTab === 'rooms'
-                          ? 'bg-zinc-800 text-zinc-100'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
                     >
-                      Rooms ({activeRoomsCount}/{rooms.length})
+                      <Crop className="w-3.5 h-3.5" />
+                      <span>{scanBox ? 'Re-crop area' : 'Crop area'}</span>
                     </button>
-                    <button
-                      onClick={() => setElementSubTab('openings')}
-                      className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors tabular-nums ${
-                        elementSubTab === 'openings'
-                          ? 'bg-zinc-800 text-zinc-100'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      Doors & Windows ({summary.doorsCount + summary.windowsCount + summary.ventilatorsCount})
-                    </button>
-                  </div>
-
-                  {elementSubTab === 'rooms' ? (
-                    <div className="flex items-center gap-1.5">
-                      {(selectedRoomId || highlightedMark) && (
-                        <button
-                          onClick={() => {
-                            setSelectedRoomId(null);
-                            setHighlightedMark(null);
-                            setHighlightedLayers([]);
-                          }}
-                          className="px-2 py-1.5 rounded-lg text-[11px] text-zinc-400 hover:text-white bg-zinc-900 border border-white/[0.08]"
-                        >
-                          Unselect highlight
-                        </button>
-                      )}
+                    {scanBox && (
                       <button
                         onClick={() => {
-                          const anyUnchecked = rooms.some((r) => r.included === false);
-                          setRooms((prev) => prev.map((r) => ({ ...r, included: anyUnchecked })));
+                          setScanBox(null);
+                          runCadInference(activeRaw, null, roleOverrides, false);
                         }}
-                        className="px-2 py-1.5 rounded-lg text-[11px] text-zinc-300 hover:text-white bg-zinc-900 border border-white/[0.08]"
+                        className="min-w-[40px] min-h-[40px] sm:min-w-0 sm:min-h-0 p-2 sm:p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-white/[0.08] inline-flex items-center justify-center"
+                        title="Clear crop region"
                       >
-                        {rooms.some((r) => r.included === false) ? 'Select all' : 'Unselect all'}
+                        <X className="w-3.5 h-3.5" />
                       </button>
-                      <button
-                        onClick={() =>
-                          setPickTarget({
-                            kind: 'traceWallBoundary',
-                            label: 'Click inside any room or balcony to trace wall/parapet boundary',
-                          })
-                        }
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-500 hover:bg-emerald-400 text-zinc-950"
-                        title="Click inside room or balcony on CAD to auto-trace wall/parapet boundary"
-                      >
-                        <Scan className="w-3.5 h-3.5" />
-                        <span>Trace boundary</span>
-                      </button>
-                      <button
-                        onClick={() =>
-                          setPickTarget({
-                            kind: 'newRoomRect',
-                            label: 'Click 2 opposite room corners on CAD (OSNAP) to add room',
-                          })
-                        }
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/[0.08]"
-                        title="Pick 2 corners for rectangular room"
-                      >
-                        <Crosshair className="w-3.5 h-3.5" />
-                        <span>2-Point box</span>
-                      </button>
-                      <button
-                        onClick={() =>
-                          setRooms((prev) => [
-                            ...prev,
-                            {
-                              id: `rm_${Date.now()}`,
-                              name: `Room ${prev.length + 1}`,
-                              areaM2: 12.0,
-                              perimeterM: 14.0,
-                              floorFinish: 'vitrified_tile',
-                              included: true,
-                              derivationMethod: 'manual',
-                              isVerified: true,
-                            },
-                          ])
-                        }
-                        className="p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-white/[0.08]"
-                        title="Add blank room row"
-                      >
-                        <Plus className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  ) : (
+                    )}
                     <button
-                      onClick={() =>
-                        setOpenings((prev) => [
-                          ...prev,
-                          {
-                            id: `op_${Date.now()}`,
-                            mark: `D${prev.length + 1}`,
-                            type: 'door',
-                            widthM: 0.9,
-                            heightM: 2.1,
-                            count: 1,
-                            included: true,
-                          },
-                        ])
-                      }
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-white/[0.08]"
+                      onClick={() => runCadInference(activeRaw, scanBox, roleOverrides, false)}
+                      className="inline-flex items-center gap-1.5 min-h-[40px] sm:min-h-0 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-400 hover:bg-amber-300 text-zinc-950 transition-colors"
                     >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Add door / window</span>
+                      <Scan className="w-3.5 h-3.5" />
+                      <span>Scan sheet</span>
+                    </button>
+                  </div>
+                </div>
+
+                {lastScanNote && (
+                  <div className="text-[11px] text-zinc-300 bg-zinc-950/80 border border-white/[0.06] rounded-lg px-3 py-2 tabular-nums">
+                    {lastScanNote}
+                  </div>
+                )}
+              </div>
+
+              {/* CAD Layer Classification Table */}
+              <div className="rounded-xl border border-white/[0.08] bg-zinc-900/40 overflow-hidden">
+                <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-medium text-zinc-200">
+                    <Layers className="w-3.5 h-3.5 text-zinc-400" />
+                    <span>Sheet CAD layers ({layerStats.length})</span>
+                  </div>
+                  {highlightedLayers.length > 0 && (
+                    <button
+                      onClick={() => setHighlightedLayers([])}
+                      className="text-[11px] text-amber-400 hover:underline"
+                    >
+                      Clear highlight
                     </button>
                   )}
                 </div>
-
-                {elementSubTab === 'rooms' ? (
-                  <div className="space-y-2">
-                    {rooms.map((rm) => {
-                      const isInc = rm.included !== false;
-                      const isSel = selectedRoomId === rm.id;
+                <div className="max-h-[340px] overflow-y-auto divide-y divide-white/[0.05]">
+                  {layerStats.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-zinc-500">
+                      No CAD vector layers detected on this sheet.
+                    </div>
+                  ) : (
+                    layerStats.map((st) => {
+                      const isHi = highlightedLayers.includes(st.name);
                       return (
                         <div
-                          key={rm.id}
-                          onClick={() => {
-                            if (isSel) {
-                              setSelectedRoomId(null);
-                              setHighlightedMark(null);
-                            } else {
-                              setSelectedRoomId(rm.id);
-                              setHighlightedMark(rm.name);
-                              if (rm.sourceLayer) setHighlightedLayers([rm.sourceLayer]);
-                            }
-                          }}
-                          className={`p-3 rounded-xl border space-y-2 transition-colors cursor-pointer ${
-                            !isInc
-                              ? 'bg-zinc-950/50 border-white/[0.04] opacity-55'
-                              : isSel
-                              ? 'bg-amber-400/10 border-amber-400/40'
-                              : 'bg-zinc-900/60 hover:bg-zinc-900 border-white/[0.08]'
-                          }`}
+                          key={st.name}
+                          onClick={() =>
+                            setHighlightedLayers((prev) =>
+                              prev.includes(st.name) ? [] : [st.name]
+                            )
+                          }
+                          className={`px-3.5 py-2 flex items-center justify-between gap-2 text-xs cursor-pointer transition-colors ${isHi ? 'bg-amber-400/10' : 'hover:bg-zinc-900/80'
+                            }`}
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <input
-                                type="checkbox"
-                                checked={isInc}
-                                title="Include room in takeoff"
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                  setRooms((prev) =>
-                                    prev.map((r) =>
-                                      r.id === rm.id ? { ...r, included: e.target.checked } : r
-                                    )
-                                  )
-                                }
-                                className="w-3.5 h-3.5 accent-amber-400 rounded cursor-pointer shrink-0"
-                              />
-                              <input
-                                value={rm.name}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) =>
-                                  setRooms((prev) =>
-                                    prev.map((r) =>
-                                      r.id === rm.id ? { ...r, name: e.target.value } : r
-                                    )
-                                  )
-                                }
-                                className="bg-zinc-950 text-xs font-medium text-zinc-100 px-2 py-1 rounded-md border border-white/[0.08] flex-1 min-w-0"
-                              />
-                            </div>
-
-                            <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-                              {rm.boundaryPolygon && rm.boundaryPolygon.length > 2 && (
-                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30">
-                                  {rm.boundaryPolygon.length}-pt poly
-                                </span>
-                              )}
-                              {Boolean(rm.parapetLengthM && rm.parapetLengthM > 0) && (
-                                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/30">
-                                  Parapet {rm.parapetLengthM!.toFixed(1)}m
-                                </span>
-                              )}
-                              <span
-                                className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
-                                  rm.isVerified
-                                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
-                                    : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                                }`}
-                              >
-                                {rm.dimensionText || (rm.isVerified ? 'Verified' : 'Verify on CAD')}
-                              </span>
-                              <button
-                                type="button"
-                                title="Click inside room on CAD to trace surrounding walls/parapets"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setPickTarget({
-                                    kind: 'traceWallBoundary',
-                                    roomId: rm.id,
-                                    label: `Click inside "${rm.name}" on CAD to trace wall boundary`,
-                                  });
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 hover:bg-emerald-400 hover:text-zinc-950 text-zinc-200 text-[11px] font-medium transition-colors"
-                              >
-                                <Scan className="w-3 h-3" />
-                                <span>Trace</span>
-                              </button>
-                              <button
-                                type="button"
-                                title="Verify / Measure exact room corners on CAD (OSNAP)"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setPickTarget({
-                                    kind: 'verifyRoomRect',
-                                    roomId: rm.id,
-                                    label: `Click 2 opposite corners of "${rm.name}" on CAD`,
-                                  });
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded bg-zinc-800 hover:bg-amber-400 hover:text-zinc-950 text-zinc-200 text-[11px] font-medium transition-colors"
-                              >
-                                <Crosshair className="w-3 h-3" />
-                                <span>2-pt box</span>
-                              </button>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setRooms((prev) => prev.filter((r) => r.id !== rm.id));
-                                }}
-                                className="p-1 text-zinc-500 hover:text-rose-400"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <span
+                              className="w-2.5 h-2.5 rounded-sm shrink-0 border border-white/20"
+                              style={{ backgroundColor: st.color }}
+                            />
+                            <span className="text-zinc-200 truncate font-mono text-[11px]">
+                              {st.name}
+                            </span>
                           </div>
-
-                          <div
-                            className="grid grid-cols-3 gap-2 text-xs tabular-nums"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <label className="space-y-1">
-                              <span className="text-[11px] text-zinc-400">
-                                Area (m² · {Math.round(rm.areaM2 * 10.7639)} sq.ft)
-                              </span>
-                              <input
-                                type="number"
-                                step="0.1"
-                                value={rm.areaM2}
-                                onChange={(e) =>
-                                  setRooms((prev) =>
-                                    prev.map((r) =>
-                                      r.id === rm.id
-                                        ? {
-                                            ...r,
-                                            areaM2: Number(e.target.value) || 0,
-                                            isVerified: true,
-                                          }
-                                        : r
-                                    )
-                                  )
-                                }
-                                className="w-full bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
-                              />
-                            </label>
-                            <label className="space-y-1">
-                              <span className="text-[11px] text-zinc-400">Perimeter (m)</span>
-                              <div className="flex gap-1">
-                                <input
-                                  type="number"
-                                  step="0.1"
-                                  value={rm.perimeterM}
-                                  onChange={(e) =>
-                                    setRooms((prev) =>
-                                      prev.map((r) =>
-                                        r.id === rm.id
-                                          ? { ...r, perimeterM: Number(e.target.value) || 0 }
-                                          : r
-                                      )
-                                    )
-                                  }
-                                  className="w-full bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
-                                />
-                                <button
-                                  type="button"
-                                  title="Pick length on CAD"
-                                  onClick={() =>
-                                    setPickTarget({
-                                      kind: 'roomPerim',
-                                      roomId: rm.id,
-                                      label: `Pick perimeter length for ${rm.name}`,
-                                    })
-                                  }
-                                  className="px-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
-                                >
-                                  <Ruler className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </label>
-                            <label className="space-y-1">
-                              <span className="text-[11px] text-zinc-400">Finish</span>
-                              <select
-                                value={rm.floorFinish}
-                                onChange={(e) =>
-                                  setRooms((prev) =>
-                                    prev.map((r) =>
-                                      r.id === rm.id
-                                        ? { ...r, floorFinish: e.target.value as FloorFinishType }
-                                        : r
-                                    )
-                                  )
-                                }
-                                className="w-full bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
-                              >
-                                <option value="vitrified_tile">Vitrified tile</option>
-                                <option value="marble">Marble</option>
-                                <option value="granite">Granite</option>
-                                <option value="wooden">Wooden</option>
-                                <option value="concrete">IPS / Concrete</option>
-                              </select>
-                            </label>
+                          <div className="flex items-center gap-2 sm:gap-3 shrink-0 tabular-nums">
+                            <span className="text-[11px] text-zinc-400">
+                              {st.lineLengthM > 0 ? `${st.lineLengthM} m` : `${st.entityCount} ent`}
+                            </span>
+                            <select
+                              value={st.inferredRole}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => handleRoleChange(st.name, e.target.value)}
+                              className="bg-zinc-950 text-zinc-200 text-[11px] rounded-md px-2 py-1.5 sm:py-1 border border-white/[0.08] focus:outline-none focus:border-amber-400 max-w-[130px] sm:max-w-none"
+                            >
+                              {ARCH_ROLE_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         </div>
                       );
-                    })}
+                    })
+                  )}
+                </div>
+              </div>
+            </>
+          )}
+
+          {step === 'elements' && (
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex rounded-lg p-0.5 bg-zinc-900 border border-white/[0.08]">
+                  <button
+                    onClick={() => setElementSubTab('rooms')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors tabular-nums ${elementSubTab === 'rooms'
+                        ? 'bg-zinc-800 text-zinc-100'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                  >
+                    Rooms ({activeRoomsCount}/{rooms.length})
+                  </button>
+                  <button
+                    onClick={() => setElementSubTab('openings')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors tabular-nums ${elementSubTab === 'openings'
+                        ? 'bg-zinc-800 text-zinc-100'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                  >
+                    Doors & windows ({summary.doorsCount + summary.windowsCount + summary.ventilatorsCount})
+                  </button>
+                </div>
+
+                {elementSubTab === 'rooms' ? (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {(selectedRoomId || highlightedMark) && (
+                      <button
+                        onClick={() => {
+                          setSelectedRoomId(null);
+                          setHighlightedMark(null);
+                          setHighlightedLayers([]);
+                        }}
+                        className="min-h-[38px] sm:min-h-0 px-2 py-1.5 rounded-lg text-[11px] text-zinc-400 hover:text-white bg-zinc-900 border border-white/[0.08]"
+                      >
+                        Unselect highlight
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        const anyUnchecked = rooms.some((r) => r.included === false);
+                        setRooms((prev) => prev.map((r) => ({ ...r, included: anyUnchecked })));
+                      }}
+                      className="min-h-[38px] sm:min-h-0 px-2 py-1.5 rounded-lg text-[11px] text-zinc-300 hover:text-white bg-zinc-900 border border-white/[0.08]"
+                    >
+                      {rooms.some((r) => r.included === false) ? 'Select all' : 'Unselect all'}
+                    </button>
+                    <button
+                      onClick={() =>
+                        setPickTarget({
+                          kind: 'traceWallBoundary',
+                          label: 'Click inside any room or balcony to trace wall/parapet boundary',
+                        })
+                      }
+                      className="inline-flex items-center gap-1 min-h-[38px] sm:min-h-0 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-400 hover:bg-amber-300 text-zinc-950"
+                      title="Click inside room or balcony on CAD to auto-trace wall/parapet boundary"
+                    >
+                      <Scan className="w-3.5 h-3.5" />
+                      <span>Trace boundary</span>
+                    </button>
+                    <button
+                      onClick={() =>
+                        setPickTarget({
+                          kind: 'newRoomRect',
+                          label: 'Click 2 opposite room corners on CAD (OSNAP) to add room',
+                        })
+                      }
+                      className="inline-flex items-center gap-1 min-h-[38px] sm:min-h-0 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/[0.08]"
+                      title="Pick 2 corners for rectangular room"
+                    >
+                      <Crosshair className="w-3.5 h-3.5" />
+                      <span>2-Point box</span>
+                    </button>
+                    <button
+                      onClick={() =>
+                        setRooms((prev) => [
+                          ...prev,
+                          {
+                            id: `rm_${Date.now()}`,
+                            name: `Room ${prev.length + 1}`,
+                            areaM2: 12.0,
+                            perimeterM: 14.0,
+                            floorFinish: 'vitrified_tile',
+                            included: true,
+                            derivationMethod: 'manual',
+                            isVerified: true,
+                          },
+                        ])
+                      }
+                      className="min-w-[38px] min-h-[38px] sm:min-w-0 sm:min-h-0 p-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-white/[0.08] inline-flex items-center justify-center"
+                      title="Add blank room row"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-6 gap-2 px-3 text-[11px] text-zinc-400">
-                      <span>Mark</span>
-                      <span>Type</span>
-                      <span>Width (m)</span>
-                      <span>Height (m)</span>
-                      <span>Count</span>
-                      <span className="text-right">Area</span>
-                    </div>
-                    {openings.map((op) => {
-                      const isInc = op.included !== false;
-                      return (
-                        <div
-                          key={op.id}
-                          onClick={() => {
-                            setHighlightedMark((prev) => (prev === op.mark ? null : op.mark));
-                            if (op.sourceLayer) setHighlightedLayers([op.sourceLayer]);
-                          }}
-                          className={`p-2.5 rounded-xl border transition-colors cursor-pointer ${
-                            !isInc
-                              ? 'bg-zinc-950/50 border-white/[0.04] opacity-55'
+                  <button
+                    onClick={() =>
+                      setOpenings((prev) => [
+                        ...prev,
+                        {
+                          id: `op_${Date.now()}`,
+                          mark: `D${prev.length + 1}`,
+                          type: 'door',
+                          widthM: 0.9,
+                          heightM: 2.1,
+                          count: 1,
+                          included: true,
+                        },
+                      ])
+                    }
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-white/[0.08]"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add door / window</span>
+                  </button>
+                )}
+              </div>
+
+              {elementSubTab === 'rooms' ? (
+                <div className="space-y-2">
+                  {rooms.map((rm) => {
+                    const isInc = rm.included !== false;
+                    const isSel = selectedRoomId === rm.id;
+                    return (
+                      <div
+                        key={rm.id}
+                        onClick={() => {
+                          if (isSel) {
+                            setSelectedRoomId(null);
+                            setHighlightedMark(null);
+                          } else {
+                            setSelectedRoomId(rm.id);
+                            setHighlightedMark(rm.name);
+                            if (rm.sourceLayer) setHighlightedLayers([rm.sourceLayer]);
+                          }
+                        }}
+                        className={`p-3 rounded-xl border space-y-2 transition-colors cursor-pointer ${!isInc
+                            ? 'bg-zinc-950/50 border-white/[0.04] opacity-55'
+                            : isSel
+                              ? 'bg-amber-400/10 border-amber-400/40'
                               : 'bg-zinc-900/60 hover:bg-zinc-900 border-white/[0.08]'
                           }`}
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isInc}
+                              title="Include room in takeoff"
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) =>
+                                setRooms((prev) =>
+                                  prev.map((r) =>
+                                    r.id === rm.id ? { ...r, included: e.target.checked } : r
+                                  )
+                                )
+                              }
+                              className="w-4 h-4 accent-amber-400 rounded cursor-pointer shrink-0"
+                            />
+                            <input
+                              value={rm.name}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) =>
+                                setRooms((prev) =>
+                                  prev.map((r) =>
+                                    r.id === rm.id ? { ...r, name: e.target.value } : r
+                                  )
+                                )
+                              }
+                              className="bg-zinc-950 text-xs font-medium text-zinc-100 px-2 py-1.5 sm:py-1 rounded-md border border-white/[0.08] flex-1 min-w-0"
+                            />
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0 flex-wrap sm:justify-end">
+                            {rm.boundaryPolygon && rm.boundaryPolygon.length > 2 && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-950 text-zinc-300 border border-zinc-700/80">
+                                {rm.boundaryPolygon.length}-pt poly
+                              </span>
+                            )}
+                            {Boolean(rm.parapetLengthM && rm.parapetLengthM > 0) && (
+                              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-950 text-zinc-300 border border-zinc-700/80">
+                                Parapet {rm.parapetLengthM!.toFixed(1)}m
+                              </span>
+                            )}
+                            <span
+                              className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${rm.isVerified
+                                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                                  : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                }`}
+                            >
+                              {rm.dimensionText || (rm.isVerified ? 'Verified' : 'Verify on CAD')}
+                            </span>
+                            <button
+                              type="button"
+                              title="Click inside room on CAD to trace surrounding walls/parapets"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPickTarget({
+                                  kind: 'traceWallBoundary',
+                                  roomId: rm.id,
+                                  label: `Click inside "${rm.name}" on CAD to trace wall boundary`,
+                                });
+                              }}
+                              className="inline-flex items-center gap-1 min-h-[36px] sm:min-h-0 px-2.5 sm:px-2 py-1 rounded bg-zinc-800 hover:bg-amber-400 hover:text-zinc-950 text-zinc-200 text-[11px] font-medium transition-colors"
+                            >
+                              <Scan className="w-3 h-3" />
+                              <span>Trace</span>
+                            </button>
+                            <button
+                              type="button"
+                              title="Verify / Measure exact room corners on CAD (OSNAP)"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setPickTarget({
+                                  kind: 'verifyRoomRect',
+                                  roomId: rm.id,
+                                  label: `Click 2 opposite corners of "${rm.name}" on CAD`,
+                                });
+                              }}
+                              className="inline-flex items-center gap-1 min-h-[36px] sm:min-h-0 px-2.5 sm:px-2 py-1 rounded bg-zinc-800 hover:bg-amber-400 hover:text-zinc-950 text-zinc-200 text-[11px] font-medium transition-colors"
+                            >
+                              <Crosshair className="w-3 h-3" />
+                              <span>2-pt box</span>
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRooms((prev) => prev.filter((r) => r.id !== rm.id));
+                              }}
+                              className="min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-1.5 sm:p-1 text-zinc-500 hover:text-rose-400 inline-flex items-center justify-center"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div
+                          className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs tabular-nums"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          <div
-                            className="grid grid-cols-6 gap-2 items-center text-xs tabular-nums"
-                            onClick={(e) => e.stopPropagation()}
-                          >
+                          <label className="space-y-1">
+                            <span className="text-[11px] text-zinc-400">
+                              Area (m² · {Math.round(rm.areaM2 * 10.7639)} sq.ft)
+                            </span>
+                            <input
+                              type="number"
+                              step="0.1"
+                              value={rm.areaM2}
+                              onChange={(e) =>
+                                setRooms((prev) =>
+                                  prev.map((r) =>
+                                    r.id === rm.id
+                                      ? {
+                                        ...r,
+                                        areaM2: Number(e.target.value) || 0,
+                                        isVerified: true,
+                                      }
+                                      : r
+                                  )
+                                )
+                              }
+                              className="w-full bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[11px] text-zinc-400">Perimeter (m)</span>
+                            <div className="flex gap-1">
+                              <input
+                                type="number"
+                                step="0.1"
+                                value={rm.perimeterM}
+                                onChange={(e) =>
+                                  setRooms((prev) =>
+                                    prev.map((r) =>
+                                      r.id === rm.id
+                                        ? { ...r, perimeterM: Number(e.target.value) || 0 }
+                                        : r
+                                    )
+                                  )
+                                }
+                                className="w-full bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
+                              />
+                              <button
+                                type="button"
+                                title="Pick length on CAD"
+                                onClick={() =>
+                                  setPickTarget({
+                                    kind: 'roomPerim',
+                                    roomId: rm.id,
+                                    label: `Pick perimeter length for ${rm.name}`,
+                                  })
+                                }
+                                className="px-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                              >
+                                <Ruler className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[11px] text-zinc-400">Finish</span>
+                            <select
+                              value={rm.floorFinish}
+                              onChange={(e) =>
+                                setRooms((prev) =>
+                                  prev.map((r) =>
+                                    r.id === rm.id
+                                      ? { ...r, floorFinish: e.target.value as FloorFinishType }
+                                      : r
+                                  )
+                                )
+                              }
+                              className="w-full bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
+                            >
+                              <option value="vitrified_tile">Vitrified tile</option>
+                              <option value="marble">Marble</option>
+                              <option value="granite">Granite</option>
+                              <option value="wooden">Wooden</option>
+                              <option value="concrete">IPS / Concrete</option>
+                            </select>
+                          </label>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="hidden sm:grid sm:grid-cols-6 gap-2 px-3 text-[11px] text-zinc-400">
+                    <span>Mark</span>
+                    <span>Type</span>
+                    <span>Width (m)</span>
+                    <span>Height (m)</span>
+                    <span>Count</span>
+                    <span className="text-right">Area</span>
+                  </div>
+                  {openings.map((op) => {
+                    const isInc = op.included !== false;
+                    return (
+                      <div
+                        key={op.id}
+                        onClick={() => {
+                          setHighlightedMark((prev) => (prev === op.mark ? null : op.mark));
+                          if (op.sourceLayer) setHighlightedLayers([op.sourceLayer]);
+                        }}
+                        className={`p-2.5 rounded-xl border transition-colors cursor-pointer ${!isInc
+                            ? 'bg-zinc-950/50 border-white/[0.04] opacity-55'
+                            : 'bg-zinc-900/60 hover:bg-zinc-900 border-white/[0.08]'
+                          }`}
+                      >
+                        <div
+                          className="grid grid-cols-2 sm:grid-cols-6 gap-2 items-center text-xs tabular-nums"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div>
+                            <span className="block sm:hidden text-[10px] text-zinc-500 mb-0.5">Mark</span>
                             <div className="flex items-center gap-1.5">
                               <input
                                 type="checkbox"
@@ -1486,7 +1412,7 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
                                     )
                                   )
                                 }
-                                className="w-3.5 h-3.5 accent-amber-400 rounded"
+                                className="w-4 h-4 accent-amber-400 rounded shrink-0"
                               />
                               <input
                                 value={op.mark}
@@ -1497,9 +1423,12 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
                                     )
                                   )
                                 }
-                                className="w-full bg-zinc-950 text-zinc-100 font-mono px-2 py-1 rounded border border-white/[0.08]"
+                                className="w-full min-w-0 bg-zinc-950 text-zinc-100 font-mono px-2 py-1.5 sm:py-1 rounded border border-white/[0.08]"
                               />
                             </div>
+                          </div>
+                          <div>
+                            <span className="block sm:hidden text-[10px] text-zinc-500 mb-0.5">Type</span>
                             <select
                               value={op.type}
                               onChange={(e) =>
@@ -1511,12 +1440,15 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
                                   )
                                 )
                               }
-                              className="bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
+                              className="w-full bg-zinc-950 text-zinc-100 px-2 py-1.5 sm:py-1 rounded border border-white/[0.08]"
                             >
                               <option value="door">Door</option>
                               <option value="window">Window</option>
                               <option value="ventilator">Ventilator</option>
                             </select>
+                          </div>
+                          <div>
+                            <span className="block sm:hidden text-[10px] text-zinc-500 mb-0.5">Width (m)</span>
                             <input
                               type="number"
                               step="0.05"
@@ -1530,8 +1462,11 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
                                   )
                                 )
                               }
-                              className="bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
+                              className="w-full bg-zinc-950 text-zinc-100 px-2 py-1.5 sm:py-1 rounded border border-white/[0.08]"
                             />
+                          </div>
+                          <div>
+                            <span className="block sm:hidden text-[10px] text-zinc-500 mb-0.5">Height (m)</span>
                             <input
                               type="number"
                               step="0.05"
@@ -1545,8 +1480,11 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
                                   )
                                 )
                               }
-                              className="bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
+                              className="w-full bg-zinc-950 text-zinc-100 px-2 py-1.5 sm:py-1 rounded border border-white/[0.08]"
                             />
+                          </div>
+                          <div>
+                            <span className="block sm:hidden text-[10px] text-zinc-500 mb-0.5">Count</span>
                             <input
                               type="number"
                               min="0"
@@ -1560,331 +1498,330 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
                                   )
                                 )
                               }
-                              className="bg-zinc-950 text-zinc-100 px-2 py-1 rounded border border-white/[0.08]"
+                              className="w-full bg-zinc-950 text-zinc-100 px-2 py-1.5 sm:py-1 rounded border border-white/[0.08]"
                             />
-                            <div className="flex items-center justify-end gap-1">
-                              <span className="text-[11px] text-zinc-300 font-mono">
-                                {(op.widthM * op.heightM * op.count).toFixed(1)}m²
-                              </span>
-                              <button
-                                onClick={() =>
-                                  setOpenings((prev) => prev.filter((o) => o.id !== op.id))
-                                }
-                                className="p-1 text-zinc-500 hover:text-rose-400"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
+                          </div>
+                          <div className="flex items-center justify-end gap-1 pt-3 sm:pt-0">
+                            <span className="text-[11px] text-zinc-300 font-mono">
+                              {(op.widthM * op.heightM * op.count).toFixed(1)}m²
+                            </span>
+                            <button
+                              onClick={() =>
+                                setOpenings((prev) => prev.filter((o) => o.id !== op.id))
+                              }
+                              className="min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 p-1 text-zinc-500 hover:text-rose-400 inline-flex items-center justify-center"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </>
-            )}
-
-            {step === 'specs' && (
-              <div className="space-y-4 text-xs tabular-nums">
-                <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.08] space-y-3">
-                  <h3 className="font-medium text-zinc-200">
-                    Sheet wall geometry & masonry unit ({activeSheetName})
-                  </h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Floor height (m)</span>
-                      <input
-                        type="number"
-                        step="0.05"
-                        value={params.floorHeightM}
-                        onChange={(e) => updateParam('floorHeightM', Number(e.target.value) || 3)}
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Block / brick type</span>
-                      <select
-                        value={params.blockType}
-                        onChange={(e) => updateParam('blockType', e.target.value as BlockType)}
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      >
-                        <option value="aac">AAC block (600×200)</option>
-                        <option value="clay_brick">Clay brick (230×115×75)</option>
-                        <option value="concrete_block">Solid concrete block</option>
-                      </select>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">External wall length (m)</span>
-                      <div className="flex gap-1">
-                        <input
-                          type="number"
-                          step="0.5"
-                          value={params.extWallLengthM}
-                          onChange={(e) =>
-                            updateParam('extWallLengthM', Number(e.target.value) || 0)
-                          }
-                          className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPickTarget({
-                              kind: 'extWall',
-                              label: 'Click 2 points on CAD to add external wall segment',
-                            })
-                          }
-                          className="px-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
-                          title="Measure & add from CAD"
-                        >
-                          <Ruler className="w-3.5 h-3.5" />
-                        </button>
                       </div>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Internal wall length (m)</span>
-                      <div className="flex gap-1">
-                        <input
-                          type="number"
-                          step="0.5"
-                          value={params.intWallLengthM}
-                          onChange={(e) =>
-                            updateParam('intWallLengthM', Number(e.target.value) || 0)
-                          }
-                          className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPickTarget({
-                              kind: 'intWall',
-                              label: 'Click 2 points on CAD to add internal wall segment',
-                            })
-                          }
-                          className="px-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
-                          title="Measure & add from CAD"
-                        >
-                          <Ruler className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Ext wall thickness (m)</span>
-                      <input
-                        type="number"
-                        step="0.015"
-                        value={params.extWallThicknessM}
-                        onChange={(e) =>
-                          updateParam('extWallThicknessM', Number(e.target.value) || 0.23)
-                        }
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Int wall thickness (m)</span>
-                      <input
-                        type="number"
-                        step="0.015"
-                        value={params.intWallThicknessM}
-                        onChange={(e) =>
-                          updateParam('intWallThicknessM', Number(e.target.value) || 0.115)
-                        }
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Parapet wall length (m)</span>
-                      <div className="flex gap-1">
-                        <input
-                          type="number"
-                          step="0.5"
-                          value={params.parapetWallLengthM ?? 0}
-                          onChange={(e) =>
-                            updateParam('parapetWallLengthM', Number(e.target.value) || 0)
-                          }
-                          className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPickTarget({
-                              kind: 'parapetWall',
-                              label: 'Click 2 points on CAD to add parapet wall segment',
-                            })
-                          }
-                          className="px-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
-                          title="Measure & add parapet from CAD"
-                        >
-                          <Ruler className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Parapet height (m)</span>
-                      <input
-                        type="number"
-                        step="0.1"
-                        value={params.parapetWallHeightM ?? 1.0}
-                        onChange={(e) =>
-                          updateParam('parapetWallHeightM', Number(e.target.value) || 1.0)
-                        }
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Parapet thickness (m)</span>
-                      <input
-                        type="number"
-                        step="0.015"
-                        value={params.parapetWallThicknessM ?? 0.115}
-                        onChange={(e) =>
-                          updateParam('parapetWallThicknessM', Number(e.target.value) || 0.115)
-                        }
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                  </div>
+                    );
+                  })}
                 </div>
+              )}
+            </>
+          )}
 
-                <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.08] space-y-3">
-                  <h3 className="font-medium text-zinc-200">Unit rates ({params.currency})</h3>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Masonry / m³</span>
+          {step === 'specs' && (
+            <div className="space-y-4 text-xs tabular-nums">
+              <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.08] space-y-3">
+                <h3 className="font-medium text-zinc-200">
+                  Sheet wall geometry & masonry unit ({activeSheetName})
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Floor height (m)</span>
+                    <input
+                      type="number"
+                      step="0.05"
+                      value={params.floorHeightM}
+                      onChange={(e) => updateParam('floorHeightM', Number(e.target.value) || 3)}
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Block / brick type</span>
+                    <select
+                      value={params.blockType}
+                      onChange={(e) => updateParam('blockType', e.target.value as BlockType)}
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    >
+                      <option value="aac">AAC block (600×200)</option>
+                      <option value="clay_brick">Clay brick (230×115×75)</option>
+                      <option value="concrete_block">Solid concrete block</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">External wall length (m)</span>
+                    <div className="flex gap-1">
                       <input
                         type="number"
-                        value={params.masonryRatePerM3}
+                        step="0.5"
+                        value={params.extWallLengthM}
                         onChange={(e) =>
-                          updateParam('masonryRatePerM3', Number(e.target.value) || 0)
+                          updateParam('extWallLengthM', Number(e.target.value) || 0)
                         }
                         className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
                       />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Parapet masonry / m³</span>
-                      <input
-                        type="number"
-                        value={params.parapetMasonryRatePerM3 ?? params.masonryRatePerM3}
-                        onChange={(e) =>
-                          updateParam('parapetMasonryRatePerM3', Number(e.target.value) || 0)
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPickTarget({
+                            kind: 'extWall',
+                            label: 'Click 2 points on CAD to add external wall segment',
+                          })
                         }
-                        placeholder={String(params.masonryRatePerM3)}
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Plaster / m²</span>
+                        className="px-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
+                        title="Measure & add from CAD"
+                      >
+                        <Ruler className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Internal wall length (m)</span>
+                    <div className="flex gap-1">
                       <input
                         type="number"
-                        value={params.plasterRatePerM2}
+                        step="0.5"
+                        value={params.intWallLengthM}
                         onChange={(e) =>
-                          updateParam('plasterRatePerM2', Number(e.target.value) || 0)
-                        }
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Paint / m²</span>
-                      <input
-                        type="number"
-                        value={params.paintRatePerM2}
-                        onChange={(e) =>
-                          updateParam('paintRatePerM2', Number(e.target.value) || 0)
+                          updateParam('intWallLengthM', Number(e.target.value) || 0)
                         }
                         className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
                       />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Flooring / m²</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPickTarget({
+                            kind: 'intWall',
+                            label: 'Click 2 points on CAD to add internal wall segment',
+                          })
+                        }
+                        className="px-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
+                        title="Measure & add from CAD"
+                      >
+                        <Ruler className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Ext wall thickness (m)</span>
+                    <input
+                      type="number"
+                      step="0.015"
+                      value={params.extWallThicknessM}
+                      onChange={(e) =>
+                        updateParam('extWallThicknessM', Number(e.target.value) || 0.23)
+                      }
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Int wall thickness (m)</span>
+                    <input
+                      type="number"
+                      step="0.015"
+                      value={params.intWallThicknessM}
+                      onChange={(e) =>
+                        updateParam('intWallThicknessM', Number(e.target.value) || 0.115)
+                      }
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Parapet wall length (m)</span>
+                    <div className="flex gap-1">
                       <input
                         type="number"
-                        value={params.flooringRatePerM2}
+                        step="0.5"
+                        value={params.parapetWallLengthM ?? 0}
                         onChange={(e) =>
-                          updateParam('flooringRatePerM2', Number(e.target.value) || 0)
+                          updateParam('parapetWallLengthM', Number(e.target.value) || 0)
                         }
                         className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
                       />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Doors / m²</span>
-                      <input
-                        type="number"
-                        value={params.doorRatePerM2 ?? 4200}
-                        onChange={(e) => updateParam('doorRatePerM2', Number(e.target.value) || 0)}
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                    <label className="space-y-1">
-                      <span className="text-zinc-400">Windows / m²</span>
-                      <input
-                        type="number"
-                        value={params.windowRatePerM2 ?? 3600}
-                        onChange={(e) =>
-                          updateParam('windowRatePerM2', Number(e.target.value) || 0)
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPickTarget({
+                            kind: 'parapetWall',
+                            label: 'Click 2 points on CAD to add parapet wall segment',
+                          })
                         }
-                        className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
-                      />
-                    </label>
-                  </div>
+                        className="px-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200"
+                        title="Measure & add parapet from CAD"
+                      >
+                        <Ruler className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Parapet height (m)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={params.parapetWallHeightM ?? 1.0}
+                      onChange={(e) =>
+                        updateParam('parapetWallHeightM', Number(e.target.value) || 1.0)
+                      }
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Parapet thickness (m)</span>
+                    <input
+                      type="number"
+                      step="0.015"
+                      value={params.parapetWallThicknessM ?? 0.115}
+                      onChange={(e) =>
+                        updateParam('parapetWallThicknessM', Number(e.target.value) || 0.115)
+                      }
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
                 </div>
               </div>
-            )}
 
-            {step === 'takeoff' && (
-              <div className="space-y-4">
-                {/* Step 4 Sub-navigation: Sheet BOQ vs Order Quantities vs Combined Plan Report */}
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="inline-flex rounded-lg p-0.5 bg-zinc-900 border border-white/[0.08]">
-                    <button
-                      onClick={() => setTakeoffSubTab('boq')}
-                      className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                        takeoffSubTab === 'boq'
-                          ? 'bg-zinc-800 text-zinc-100'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      Sheet BOQ & Openings
-                    </button>
-                    <button
-                      onClick={() => setTakeoffSubTab('orders')}
-                      className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors inline-flex items-center gap-1 ${
-                        takeoffSubTab === 'orders'
-                          ? 'bg-zinc-800 text-zinc-100'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      <PackageCheck className="w-3.5 h-3.5" />
-                      <span>Order quantities</span>
-                    </button>
-                    <button
-                      onClick={() => setTakeoffSubTab('combined')}
-                      className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors inline-flex items-center gap-1 ${
-                        takeoffSubTab === 'combined'
-                          ? 'bg-amber-400 text-zinc-950'
-                          : 'text-zinc-400 hover:text-zinc-200'
-                      }`}
-                    >
-                      <FileSpreadsheet className="w-3.5 h-3.5" />
-                      <span>Combined plan ({allSheetRecords.length})</span>
-                    </button>
-                  </div>
+              <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.08] space-y-3">
+                <h3 className="font-medium text-zinc-200">Unit rates ({params.currency})</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Masonry / m³</span>
+                    <input
+                      type="number"
+                      value={params.masonryRatePerM3}
+                      onChange={(e) =>
+                        updateParam('masonryRatePerM3', Number(e.target.value) || 0)
+                      }
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Parapet masonry / m³</span>
+                    <input
+                      type="number"
+                      value={params.parapetMasonryRatePerM3 ?? params.masonryRatePerM3}
+                      onChange={(e) =>
+                        updateParam('parapetMasonryRatePerM3', Number(e.target.value) || 0)
+                      }
+                      placeholder={String(params.masonryRatePerM3)}
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Plaster / m²</span>
+                    <input
+                      type="number"
+                      value={params.plasterRatePerM2}
+                      onChange={(e) =>
+                        updateParam('plasterRatePerM2', Number(e.target.value) || 0)
+                      }
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Paint / m²</span>
+                    <input
+                      type="number"
+                      value={params.paintRatePerM2}
+                      onChange={(e) =>
+                        updateParam('paintRatePerM2', Number(e.target.value) || 0)
+                      }
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Flooring / m²</span>
+                    <input
+                      type="number"
+                      value={params.flooringRatePerM2}
+                      onChange={(e) =>
+                        updateParam('flooringRatePerM2', Number(e.target.value) || 0)
+                      }
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Doors / m²</span>
+                    <input
+                      type="number"
+                      value={params.doorRatePerM2 ?? 4200}
+                      onChange={(e) => updateParam('doorRatePerM2', Number(e.target.value) || 0)}
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-zinc-400">Windows / m²</span>
+                    <input
+                      type="number"
+                      value={params.windowRatePerM2 ?? 3600}
+                      onChange={(e) =>
+                        updateParam('windowRatePerM2', Number(e.target.value) || 0)
+                      }
+                      className="w-full bg-zinc-950 px-2.5 py-1.5 rounded-lg border border-white/[0.08]"
+                    />
+                  </label>
                 </div>
+              </div>
+            </div>
+          )}
 
-                {takeoffSubTab === 'boq' && (
-                  <>
-                    {/* Civil Bill of Quantities */}
-                    <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
-                      <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
-                        <div>
-                          <span className="text-xs font-medium text-zinc-200">
-                            Sheet BOQ — {activeSheetName}
-                          </span>
-                        </div>
-                        <span className="text-xs font-semibold text-amber-400 tabular-nums">
-                          {params.currency}
-                          {summary.totalCost.toLocaleString()}
+          {step === 'takeoff' && (
+            <div className="space-y-4">
+              {/* Step 4 Sub-navigation: Sheet BOQ vs Order Quantities vs Combined Plan Report */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="inline-flex flex-wrap rounded-lg p-0.5 bg-zinc-900 border border-white/[0.08] max-w-full">
+                  <button
+                    onClick={() => setTakeoffSubTab('boq')}
+                    className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${takeoffSubTab === 'boq'
+                        ? 'bg-zinc-800 text-zinc-100'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                  >
+                    Sheet BOQ & openings
+                  </button>
+                  <button
+                    onClick={() => setTakeoffSubTab('orders')}
+                    className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors inline-flex items-center gap-1 ${takeoffSubTab === 'orders'
+                        ? 'bg-zinc-800 text-zinc-100'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                  >
+                    <PackageCheck className="w-3.5 h-3.5" />
+                    <span>Order quantities</span>
+                  </button>
+                  <button
+                    onClick={() => setTakeoffSubTab('combined')}
+                    className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors inline-flex items-center gap-1 ${takeoffSubTab === 'combined'
+                        ? 'bg-amber-400 text-zinc-950'
+                        : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Combined plan ({allSheetRecords.length})</span>
+                  </button>
+                </div>
+              </div>
+
+              {takeoffSubTab === 'boq' && (
+                <>
+                  {/* Civil Bill of Quantities */}
+                  <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
+                    <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-medium text-zinc-200">
+                          Sheet BOQ — {activeSheetName}
                         </span>
                       </div>
-                      <table className="w-full text-xs tabular-nums">
+                      <span className="text-xs font-semibold text-amber-400 tabular-nums">
+                        {params.currency}
+                        {summary.totalCost.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[400px] text-xs tabular-nums">
                         <thead className="text-zinc-400 border-b border-white/[0.06] text-left">
                           <tr>
                             <th className="py-2 px-3 font-normal">Work item</th>
@@ -1943,7 +1880,7 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
                               {params.currency}
                               {Math.round(
                                 (summary.internalPlasterAreaM2 + summary.externalPlasterAreaM2) *
-                                  params.paintRatePerM2
+                                params.paintRatePerM2
                               ).toLocaleString()}
                             </td>
                           </tr>
@@ -1964,21 +1901,23 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
                         </tbody>
                       </table>
                     </div>
+                  </div>
 
-                    {/* Itemized Door & Window Schedule in BOQ */}
-                    <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
-                      <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
-                        <span className="text-xs font-medium text-zinc-200">
-                          Door & window schedule ({summary.openingSchedule.length} types ·{' '}
-                          {summary.doorsCount} doors, {summary.windowsCount} windows,{' '}
-                          {summary.ventilatorsCount} vent.)
-                        </span>
-                        <span className="text-xs font-mono text-zinc-200 tabular-nums">
-                          {params.currency}
-                          {summary.openingsCost.toLocaleString()}
-                        </span>
-                      </div>
-                      <table className="w-full text-xs tabular-nums">
+                  {/* Itemized Door & Window Schedule in BOQ */}
+                  <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
+                    <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
+                      <span className="text-xs font-medium text-zinc-200">
+                        Door & window schedule ({summary.openingSchedule.length} types ·{' '}
+                        {summary.doorsCount} doors, {summary.windowsCount} windows,{' '}
+                        {summary.ventilatorsCount} vent.)
+                      </span>
+                      <span className="text-xs font-mono text-zinc-200 tabular-nums">
+                        {params.currency}
+                        {summary.openingsCost.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[400px] text-xs tabular-nums">
                         <thead className="text-zinc-400 border-b border-white/[0.06] text-left">
                           <tr>
                             <th className="py-2 px-3 font-normal">Mark & type</th>
@@ -2013,62 +1952,64 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
                         </tbody>
                       </table>
                     </div>
+                  </div>
 
-                    {/* Estimator Notes */}
-                    <div className="p-3.5 rounded-xl bg-zinc-900/50 border border-white/[0.08] space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-medium text-zinc-200">
-                          Estimator notes ({activeSheetName})
-                        </span>
-                        <span className="text-[11px] text-zinc-500">Saved with sheet & CSV</span>
-                      </div>
-                      <textarea
-                        rows={2}
-                        value={notes}
-                        onChange={(e) => setNotes(e.target.value)}
-                        placeholder="Add assumptions, finish specs, exclusions, or revision remarks for this sheet..."
-                        className="w-full bg-zinc-950 text-xs text-zinc-100 placeholder-zinc-500 rounded-lg px-3 py-2 border border-white/[0.08] focus:outline-none focus:border-amber-400"
-                      />
+                  {/* Estimator Notes */}
+                  <div className="p-3.5 rounded-xl bg-zinc-900/50 border border-white/[0.08] space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-zinc-200">
+                        Estimator notes ({activeSheetName})
+                      </span>
+                      <span className="text-[11px] text-zinc-500">Saved with sheet & CSV</span>
                     </div>
+                    <textarea
+                      rows={2}
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Add assumptions, finish specs, exclusions, or revision remarks for this sheet..."
+                      className="w-full bg-zinc-950 text-xs text-zinc-100 placeholder-zinc-500 rounded-lg px-3 py-2 border border-white/[0.08] focus:outline-none focus:border-amber-400"
+                    />
+                  </div>
 
-                    {/* Audit Checks */}
-                    <div className="space-y-2">
-                      <h3 className="text-xs font-medium text-zinc-300">Verification checks</h3>
-                      {auditChecks.map((c, idx) => (
-                        <div
-                          key={idx}
-                          className="p-3 rounded-xl bg-zinc-900/50 border border-white/[0.08] flex items-start gap-2.5 text-xs"
-                        >
-                          {c.ok ? (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                          ) : (
-                            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                          )}
-                          <div>
-                            <div className="text-zinc-200 font-medium">{c.title}</div>
-                            <div className="text-zinc-400 text-[11px] mt-0.5 tabular-nums">
-                              {c.detail}
-                            </div>
+                  {/* Audit Checks */}
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-medium text-zinc-300">Verification checks</h3>
+                    {auditChecks.map((c, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3 rounded-xl bg-zinc-900/50 border border-white/[0.08] flex items-start gap-2.5 text-xs"
+                      >
+                        {c.ok ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                        )}
+                        <div>
+                          <div className="text-zinc-200 font-medium">{c.title}</div>
+                          <div className="text-zinc-400 text-[11px] mt-0.5 tabular-nums">
+                            {c.detail}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-
-                {takeoffSubTab === 'orders' && (
-                  <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
-                    <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-medium text-zinc-200">
-                          Material procurement order quantities ({activeSheetName})
-                        </span>
-                        <p className="text-[11px] text-zinc-400">
-                          Commercial order units including standard wastage & IS 2250 mix factors
-                        </p>
                       </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {takeoffSubTab === 'orders' && (
+                <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
+                  <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-medium text-zinc-200">
+                        Material procurement order quantities ({activeSheetName})
+                      </span>
+                      <p className="text-[11px] text-zinc-400">
+                        Commercial order units including standard wastage & IS 2250 mix factors
+                      </p>
                     </div>
-                    <table className="w-full text-xs tabular-nums">
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[400px] text-xs tabular-nums">
                       <thead className="text-zinc-400 border-b border-white/[0.06] text-left">
                         <tr>
                           <th className="py-2 px-3 font-normal">Material</th>
@@ -2097,41 +2038,43 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
                       </tbody>
                     </table>
                   </div>
-                )}
+                </div>
+              )}
 
-                {takeoffSubTab === 'combined' && (
-                  <div className="space-y-4">
-                    <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.08] flex items-center justify-between gap-3">
-                      <div>
-                        <h3 className="text-xs font-medium text-zinc-100">
-                          Combined whole-plan report ({allSheetRecords.length} sheet
-                          {allSheetRecords.length === 1 ? '' : 's'})
-                        </h3>
-                        <p className="text-[11px] text-zinc-400 mt-0.5">
-                          Aggregates every sheet estimate saved in this plan into one consolidated takeoff
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => handleExportCsv(true)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-400 hover:bg-amber-300 text-zinc-950 shrink-0"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>Export combined CSV</span>
-                      </button>
+              {takeoffSubTab === 'combined' && (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-xl bg-zinc-900/60 border border-white/[0.08] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <h3 className="text-xs font-medium text-zinc-100">
+                        Combined whole-plan report ({allSheetRecords.length} sheet
+                        {allSheetRecords.length === 1 ? '' : 's'})
+                      </h3>
+                      <p className="text-[11px] text-zinc-400 mt-0.5">
+                        Aggregates every sheet estimate saved in this plan into one consolidated takeoff
+                      </p>
                     </div>
+                    <button
+                      onClick={() => handleExportCsv(true)}
+                      className="inline-flex items-center justify-center gap-1.5 min-h-[38px] sm:min-h-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-400 hover:bg-amber-300 text-zinc-950 shrink-0"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Export combined CSV</span>
+                    </button>
+                  </div>
 
-                    {/* Sheet-by-Sheet Breakdown */}
-                    <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
-                      <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
-                        <span className="text-xs font-medium text-zinc-200">
-                          Breakdown by sheet
-                        </span>
-                        <span className="text-xs font-semibold text-amber-400 tabular-nums">
-                          Grand total: {params.currency}
-                          {combinedReport.totalCost.toLocaleString()}
-                        </span>
-                      </div>
-                      <table className="w-full text-xs tabular-nums">
+                  {/* Sheet-by-Sheet Breakdown */}
+                  <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
+                    <div className="px-3.5 py-2.5 border-b border-white/[0.08] flex items-center justify-between">
+                      <span className="text-xs font-medium text-zinc-200">
+                        Breakdown by sheet
+                      </span>
+                      <span className="text-xs font-semibold text-amber-400 tabular-nums">
+                        Grand total: {params.currency}
+                        {combinedReport.totalCost.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[400px] text-xs tabular-nums">
                         <thead className="text-zinc-400 border-b border-white/[0.06] text-left">
                           <tr>
                             <th className="py-2 px-3 font-normal">Sheet name</th>
@@ -2166,13 +2109,15 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
                         </tbody>
                       </table>
                     </div>
+                  </div>
 
-                    {/* Combined Procurement Rollup */}
-                    <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
-                      <div className="px-3.5 py-2 border-b border-white/[0.08] text-xs font-medium text-zinc-200">
-                        Consolidated plan order quantities
-                      </div>
-                      <table className="w-full text-xs tabular-nums">
+                  {/* Combined Procurement Rollup */}
+                  <div className="rounded-xl border border-white/[0.08] bg-zinc-900/50 overflow-hidden">
+                    <div className="px-3.5 py-2 border-b border-white/[0.08] text-xs font-medium text-zinc-200">
+                      Consolidated plan order quantities
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[360px] text-xs tabular-nums">
                         <tbody className="divide-y divide-white/[0.05]">
                           {combinedReport.orders.map((ord, i) => (
                             <tr key={i}>
@@ -2191,41 +2136,41 @@ export const ArchitecturalEstimatorPage: React.FC<ArchitecturalEstimatorPageProp
                       </table>
                     </div>
                   </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Bottom Step Navigation */}
-          <div className="shrink-0 h-12 px-4 border-t border-white/[0.08] bg-zinc-950 flex items-center justify-between text-xs">
-            <span className="text-zinc-400 tabular-nums truncate">
-              {activeSheetName} · {activeRoomsCount} rooms · {summary.doorsCount}D/{summary.windowsCount}W
-            </span>
-            {step !== 'takeoff' ? (
-              <button
-                onClick={() =>
-                  setStep(
-                    step === 'scope' ? 'elements' : step === 'elements' ? 'specs' : 'takeoff'
-                  )
-                }
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-100 border border-white/[0.08]"
-              >
-                <span>Next step</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            ) : (
-              <button
-                onClick={handleSave}
-                disabled={isSaving}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-zinc-950 font-medium"
-              >
-                <Save className="w-3.5 h-3.5" />
-                <span>Save sheet & version</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      }
+      footer={
+        <>
+          <span className="text-zinc-400 tabular-nums truncate min-w-0">
+            {activeSheetName} · {activeRoomsCount} rooms · {summary.doorsCount}D/{summary.windowsCount}W
+          </span>
+          {step !== 'takeoff' ? (
+            <button
+              onClick={() =>
+                setStep(
+                  step === 'scope' ? 'elements' : step === 'elements' ? 'specs' : 'takeoff'
+                )
+              }
+              className="inline-flex items-center gap-1.5 min-h-[38px] sm:min-h-0 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-100 border border-white/[0.08] shrink-0"
+            >
+              <span>Next step</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="inline-flex items-center gap-1.5 min-h-[38px] sm:min-h-0 px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 font-medium shrink-0 disabled:opacity-50"
+            >
+              <Save className="w-3.5 h-3.5" />
+              <span>Save sheet & version</span>
+            </button>
+          )}
+        </>
+      }
+    />
   );
 };
