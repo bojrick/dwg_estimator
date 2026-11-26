@@ -40,6 +40,14 @@ SAMPLE_DWG_2 = (
     / "sources"
     / "STAIRCASE-1-ST-CF-01-20260301.dwg"
 )
+SAMPLE_DWG_DGN_BLOATED = (
+    REPO_ROOT
+    / "storage"
+    / "cloud"
+    / "plans"
+    / "plan_3"
+    / "1086  Electrical Layout Ground floor.dwg"
+)
 
 
 def _free_port() -> int:
@@ -117,6 +125,70 @@ def test_ensure_dxf_non_utf8_stderr():
                 raised = exc
             assert raised is not None, "Expected RuntimeError on failed dwg2dxf conversion"
             assert "failed to convert" in str(raised)
+        finally:
+            dwg_converter_mod.find_binary = orig_find_binary
+
+
+def test_ensure_dxf_fallback_to_minimal_on_sigkill():
+    with tempfile.TemporaryDirectory(prefix="dwg_sigkill_min_") as td:
+        td_path = Path(td)
+        sample_dxf = td_path / "minimal_fixture.dxf"
+        doc = ezdxf.new("R2010")
+        doc.modelspace().add_line((0, 0), (5, 0))
+        doc.saveas(str(sample_dxf))
+
+        fake_bin = td_path / "fake_dwg2dxf_min.py"
+        fake_bin.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, shutil, signal, sys\n"
+            "if '--minimal' in sys.argv:\n"
+            "    out = sys.argv[sys.argv.index('-o') + 1]\n"
+            f"    shutil.copy2({repr(str(sample_dxf))}, out)\n"
+            "    sys.exit(0)\n"
+            "os.kill(os.getpid(), signal.SIGKILL)\n",
+            encoding="utf-8",
+        )
+        fake_bin.chmod(0o755)
+        fake_dwg = td_path / "bloated.dwg"
+        fake_dwg.write_bytes(b"AC1024dummy")
+
+        orig_find_binary = dwg_converter_mod.find_binary
+        dwg_converter_mod.find_binary = lambda name: str(fake_bin) if name == "dwg2dxf" else orig_find_binary(name)
+        try:
+            out_path, msg = dwg_converter_mod.ensure_dxf(fake_dwg, td_path / "out")
+            assert out_path.exists() and out_path.stat().st_size > 0
+            assert "--minimal" in msg
+        finally:
+            dwg_converter_mod.find_binary = orig_find_binary
+
+
+def test_ensure_dxf_oom_message_when_all_attempts_killed():
+    with tempfile.TemporaryDirectory(prefix="dwg_sigkill_oom_") as td:
+        td_path = Path(td)
+        fake_bin = td_path / "fake_dwg2dxf_oom.py"
+        fake_bin.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, signal\n"
+            "os.kill(os.getpid(), signal.SIGKILL)\n",
+            encoding="utf-8",
+        )
+        fake_bin.chmod(0o755)
+        fake_dwg = td_path / "bloated.dwg"
+        fake_dwg.write_bytes(b"AC1024dummy")
+
+        orig_find_binary = dwg_converter_mod.find_binary
+        dwg_converter_mod.find_binary = lambda name: str(fake_bin) if name == "dwg2dxf" else orig_find_binary(name)
+        try:
+            raised = None
+            try:
+                dwg_converter_mod.ensure_dxf(fake_dwg, td_path / "out")
+            except RuntimeError as exc:
+                raised = exc
+            assert raised is not None, "Expected RuntimeError when all dwg2dxf attempts are SIGKILLed"
+            msg = str(raised)
+            assert "out of server memory" in msg
+            assert "exit -9" in msg
+            assert "DXF" in msg
         finally:
             dwg_converter_mod.find_binary = orig_find_binary
 
@@ -273,6 +345,18 @@ def test_guest_upload_endpoints_http():
         assert len(merged["sheets"]) == 2
         assert len(merged["raw_data"]["lines"]) > 0
         assert len(merged["full_raw_data"]["lines"]) > 0
+
+        # 10. Real 18 MB DGN-bloated DWG (LSINTERNALCOMPONENT)
+        assert SAMPLE_DWG_DGN_BLOATED.exists(), f"Missing bloated sample DWG: {SAMPLE_DWG_DGN_BLOATED}"
+        st, dgn_data = _post_multipart(
+            base_url,
+            "/api/plans/preview-guest",
+            files=[("dwg_file", SAMPLE_DWG_DGN_BLOATED.name, SAMPLE_DWG_DGN_BLOATED.read_bytes())],
+            timeout=60,
+        )
+        assert st == 200, f"Expected 200 for DGN-bloated DWG, got {st}: {dgn_data}"
+        assert len(dgn_data["raw_data"]["lines"]) > 0
+        assert len(dgn_data["sheets"]) >= 1
     finally:
         server.should_exit = True
         thread.join(timeout=3)
@@ -281,6 +365,8 @@ def test_guest_upload_endpoints_http():
 if __name__ == "__main__":
     try:
         test_ensure_dxf_non_utf8_stderr()
+        test_ensure_dxf_fallback_to_minimal_on_sigkill()
+        test_ensure_dxf_oom_message_when_all_attempts_killed()
         test_non_finite_floats_sanitized_in_dxf()
         test_guest_upload_endpoints_http()
         print("✓ ALL GUEST UPLOAD TESTS PASSED!")

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import gc
 import json
 from pathlib import Path
 import shutil
@@ -437,21 +438,36 @@ def _safe_cad_filename(raw_name: Optional[str]) -> str:
     return Path((raw_name or "").replace("\\", "/")).name
 
 
-def _parse_cad_bytes(dwg_bytes: bytes, display_name: str, work_dir: Path) -> Dict[str, Any]:
+async def _save_upload_to_path(upload: UploadFile, dest: Path) -> int:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    total = 0
+    with dest.open("wb") as fh:
+        while True:
+            chunk = await upload.read(1024 * 1024)
+            if not chunk:
+                break
+            fh.write(chunk)
+            total += len(chunk)
+    return total
+
+
+def _parse_cad_path(in_path: Path, work_dir: Path) -> Dict[str, Any]:
     work_dir.mkdir(parents=True, exist_ok=True)
-    ext = Path(display_name).suffix.lower()
-    in_path = work_dir / f"input{ext}"
-    in_path.write_bytes(dwg_bytes)
     dxf_path, _ = ensure_dxf(in_path, work_dir)
     doc = load_ezdxf_doc(dxf_path)
     raw_data = extract_dxf_raw_entities(dxf_path, doc=doc)
-    return clean_raw_data_to_sheet(raw_data, None)
+    cleaned_raw = clean_raw_data_to_sheet(raw_data, None)
+    del doc
+    if cleaned_raw is not raw_data:
+        del raw_data
+    gc.collect()
+    return cleaned_raw
 
 
-def _preview_multi_sync(file_items: List[Tuple[bytes, str]], temp_dir: Path) -> List[Dict[str, Any]]:
+def _preview_multi_sync(file_items: List[Tuple[Path, str, Path]]) -> List[Dict[str, Any]]:
     out_files = []
-    for idx, (f_bytes, f_name) in enumerate(file_items):
-        cleaned_raw = _parse_cad_bytes(f_bytes, f_name, temp_dir / f"file_{idx}")
+    for idx, (in_path, f_name, sub_dir) in enumerate(file_items):
+        cleaned_raw = _parse_cad_path(in_path, sub_dir)
         summary = _build_summary(cleaned_raw)
         file_id = f"file_{idx}"
         out_files.append({
@@ -478,13 +494,12 @@ def _preview_multi_sync(file_items: List[Tuple[bytes, str]], temp_dir: Path) -> 
 
 
 def _merge_preview_sync(
-    file_items: List[Tuple[bytes, str]],
+    file_items: List[Tuple[Path, str, Path]],
     selected_sheets: List[Dict[str, Any]],
-    temp_dir: Path,
 ) -> Dict[str, Any]:
     files_data: Dict[str, Dict[str, Any]] = {}
-    for idx, (f_bytes, f_name) in enumerate(file_items):
-        cleaned_raw = _parse_cad_bytes(f_bytes, f_name, temp_dir / f"file_{idx}")
+    for idx, (in_path, f_name, sub_dir) in enumerate(file_items):
+        cleaned_raw = _parse_cad_path(in_path, sub_dir)
         file_id = f"file_{idx}"
         files_data[file_id] = {
             "file_id": file_id,
@@ -521,13 +536,13 @@ async def preview_guest_cad(
     if ext not in (".dwg", ".dxf"):
         raise HTTPException(status_code=400, detail="CAD file must be .dwg or .dxf")
 
-    dwg_bytes = await dwg_file.read()
-    if not dwg_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded CAD file is empty")
-
     temp_dir = _make_temp_work_dir("guest")
     try:
-        cleaned_raw = await run_in_threadpool(_parse_cad_bytes, dwg_bytes, safe_name, temp_dir)
+        in_path = temp_dir / f"input{ext}"
+        written = await _save_upload_to_path(dwg_file, in_path)
+        if written == 0:
+            raise HTTPException(status_code=400, detail="Uploaded CAD file is empty")
+        cleaned_raw = await run_in_threadpool(_parse_cad_path, in_path, temp_dir)
         summary = _build_summary(cleaned_raw)
         return {
             "name": Path(safe_name).stem.replace("_", " ").strip(),
@@ -559,16 +574,19 @@ async def preview_multi_cad(
     if not valid_files:
         raise HTTPException(status_code=400, detail="At least one .dwg or .dxf file is required")
 
-    file_items: List[Tuple[bytes, str]] = []
-    for f, safe_name in valid_files:
-        f_bytes = await f.read()
-        if not f_bytes:
-            raise HTTPException(status_code=400, detail=f"Uploaded CAD file '{safe_name}' is empty")
-        file_items.append((f_bytes, safe_name))
-
     temp_dir = _make_temp_work_dir("multi_preview")
     try:
-        out_files = await run_in_threadpool(_preview_multi_sync, file_items, temp_dir)
+        file_items: List[Tuple[Path, str, Path]] = []
+        for idx, (f, safe_name) in enumerate(valid_files):
+            sub_dir = temp_dir / f"file_{idx}"
+            ext = Path(safe_name).suffix.lower()
+            in_path = sub_dir / f"input{ext}"
+            written = await _save_upload_to_path(f, in_path)
+            if written == 0:
+                raise HTTPException(status_code=400, detail=f"Uploaded CAD file '{safe_name}' is empty")
+            file_items.append((in_path, safe_name, sub_dir))
+
+        out_files = await run_in_threadpool(_preview_multi_sync, file_items)
         return {"files": out_files}
     except HTTPException:
         raise
@@ -598,16 +616,19 @@ async def merge_preview_cad(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid sheets_json format")
 
-    file_items: List[Tuple[bytes, str]] = []
-    for f, safe_name in valid_files:
-        f_bytes = await f.read()
-        if not f_bytes:
-            raise HTTPException(status_code=400, detail=f"Uploaded CAD file '{safe_name}' is empty")
-        file_items.append((f_bytes, safe_name))
-
     temp_dir = _make_temp_work_dir("merge_preview")
     try:
-        return await run_in_threadpool(_merge_preview_sync, file_items, selected_sheets, temp_dir)
+        file_items: List[Tuple[Path, str, Path]] = []
+        for idx, (f, safe_name) in enumerate(valid_files):
+            sub_dir = temp_dir / f"file_{idx}"
+            ext = Path(safe_name).suffix.lower()
+            in_path = sub_dir / f"input{ext}"
+            written = await _save_upload_to_path(f, in_path)
+            if written == 0:
+                raise HTTPException(status_code=400, detail=f"Uploaded CAD file '{safe_name}' is empty")
+            file_items.append((in_path, safe_name, sub_dir))
+
+        return await run_in_threadpool(_merge_preview_sync, file_items, selected_sheets)
     except HTTPException:
         raise
     except Exception as exc:

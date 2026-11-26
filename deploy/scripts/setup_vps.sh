@@ -122,6 +122,19 @@ mkdir -p /var/www/certbot
 chown -R planvault:www-data "$INSTALL_DIR/storage"
 chmod -R 775 "$INSTALL_DIR/storage"
 
+# Ensure >= 2GB swap so heavy LibreDWG conversions do not OOM-kill on small VPS nodes
+SWAP_MB=$(free -m | awk '/^Swap:/{print $2}')
+if [ "${SWAP_MB:-0}" -lt 2048 ] && [ ! -f /swapfile ]; then
+    echo ">> Provisioning 4G swapfile for LibreDWG memory spikes..."
+    (
+        (fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096 status=none) && \
+        chmod 600 /swapfile && \
+        mkswap /swapfile && \
+        swapon /swapfile && \
+        (grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab)
+    ) || echo "WARNING: Could not configure swapfile"
+fi
+
 # ------------------------------------------------------------------------------
 # 4. Firewall Hardening (UFW)
 # ------------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 # ==============================================================================
 set -euo pipefail
 
-INSTALL_DIR="${1:-/opt/dwg_estimator}"
+INSTALL_DIR="${1:-/home/ubuntu/dwg_estimator}"
 
 if [ "$EUID" -ne 0 ]; then
     echo "ERROR: Please run this script with sudo or as root:"
@@ -35,8 +35,19 @@ npm install --no-audit --no-fund
 npm run build
 chown -R www-data:www-data "$INSTALL_DIR/frontend/dist"
 
-# 4. Restart backend service
+# 4. Ensure swap headroom and restart backend service
 echo ">> Ensuring storage/logs directory permissions & restarting FastAPI backend service..."
+SWAP_MB=$(free -m | awk '/^Swap:/{print $2}')
+if [ "${SWAP_MB:-0}" -lt 2048 ] && [ ! -f /swapfile ]; then
+    echo ">> Provisioning 4G swapfile for LibreDWG memory spikes..."
+    (
+        (fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096 status=none) && \
+        chmod 600 /swapfile && \
+        mkswap /swapfile && \
+        swapon /swapfile && \
+        (grep -q '^/swapfile ' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab)
+    ) || echo "WARNING: Could not configure swapfile"
+fi
 mkdir -p "$INSTALL_DIR/storage/logs"
 chown -R planvault:www-data "$INSTALL_DIR/storage"
 systemctl restart planvault
