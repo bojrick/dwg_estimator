@@ -7,6 +7,7 @@ import urllib.parse
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.database import TMP_WORK_DIR, get_session
@@ -20,6 +21,7 @@ from app.services.auth import (
     hash_password,
     is_auth_enabled,
     is_supabase_enabled,
+    sign_in_supabase,
     verify_password,
     verify_token,
 )
@@ -329,8 +331,40 @@ def auth_signup(payload: AuthPayload, session: Session = Depends(get_session)):
 @router.post("/auth/signin")
 def auth_signin(payload: AuthPayload, session: Session = Depends(get_session)):
     email = payload.email.strip().lower()
-    user = session.exec(select(User).where(User.email == email)).first()
-    if not user or not verify_password(payload.password, user.salt, user.password_hash):
+    user = session.exec(select(User).where(func.lower(User.email) == email)).first()
+    authenticated = bool(
+        user
+        and user.salt
+        and user.password_hash
+        and verify_password(payload.password, user.salt, user.password_hash)
+    )
+
+    if not authenticated and is_supabase_enabled():
+        supa_user = sign_in_supabase(email, payload.password)
+        if supa_user:
+            pwd_hash, salt = hash_password(payload.password)
+            if not user:
+                user = session.get(User, supa_user["id"])
+            if not user:
+                user = User(
+                    id=supa_user["id"],
+                    email=supa_user["email"] or email,
+                    password_hash=pwd_hash,
+                    salt=salt,
+                    default_unit="m",
+                )
+            else:
+                if not user.email:
+                    user.email = supa_user["email"] or email
+                user.password_hash = pwd_hash
+                user.salt = salt
+                user.updated_at = datetime.now(timezone.utc)
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            authenticated = True
+
+    if not authenticated or not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     token = create_access_token(user.id, user.email)
@@ -371,7 +405,7 @@ def update_auth_profile(
     user = session.get(User, user_id)
     if not user:
         # Create minimal user record if it was a Supabase ID
-        user = User(id=user_id, email="", password_hash="", salt="", default_unit="m")
+        user = User(id=user_id, email=f"{user_id}@supabase.local", password_hash="", salt="", default_unit="m")
         session.add(user)
     if req.default_unit and req.default_unit in ("m", "mm", "ft", "in"):
         user.default_unit = req.default_unit
@@ -530,9 +564,12 @@ async def merge_preview_cad(
 def list_plans(
     session: Session = Depends(get_session),
     user_id: Optional[str] = Depends(get_optional_user_id),
+    authorization: Optional[str] = Header(default=None),
 ):
     uid = _resolve_uid(user_id)
     if not uid:
+        if isinstance(authorization, str) and extract_bearer_token(authorization):
+            raise HTTPException(status_code=401, detail="Invalid or expired session, please sign in again")
         return {
             "storage_backend": get_storage_backend_name(),
             "projects": [],

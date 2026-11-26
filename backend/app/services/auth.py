@@ -13,6 +13,7 @@ from fastapi import Header, HTTPException
 from pathlib import Path
 
 load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env.production")
 load_dotenv()
 
 # Secret key for signing FOSS native tokens (defaults to local random / env)
@@ -97,6 +98,37 @@ def get_supabase_config() -> Dict[str, str]:
 def is_supabase_enabled() -> bool:
     cfg = get_supabase_config()
     return bool((cfg["url"] and cfg["anon_key"]) or cfg["jwt_secret"])
+
+
+def sign_in_supabase(email: str, password: str) -> Optional[Dict[str, Any]]:
+    """Authenticate an existing Supabase user via password grant when Supabase is configured."""
+    cfg = get_supabase_config()
+    if not (cfg["url"] and cfg["anon_key"]):
+        return None
+    body = json.dumps({"email": email, "password": password}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{cfg['url']}/auth/v1/token?grant_type=password",
+        data=body,
+        headers={
+            "apikey": cfg["anon_key"],
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            user = data.get("user") or {}
+            uid = user.get("id")
+            if uid:
+                return {
+                    "id": str(uid),
+                    "email": (user.get("email") or email).strip().lower(),
+                    "access_token": data.get("access_token"),
+                }
+    except Exception:
+        return None
+    return None
 
 
 def is_auth_enabled() -> bool:

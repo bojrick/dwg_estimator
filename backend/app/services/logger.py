@@ -7,8 +7,9 @@ from pathlib import Path
 import traceback
 from typing import Any, Dict, List, Optional
 
-LOG_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
+from app.database import STORAGE_DIR
+
+LOG_DIR = STORAGE_DIR / "logs"
 LOG_FILE = LOG_DIR / "app.log"
 
 # Circular buffer for real-time interactive log inspection (last 1000 items)
@@ -82,10 +83,14 @@ console_handler = logging.StreamHandler()
 console_handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s"))
 root_logger.addHandler(console_handler)
 
-# 2. Rotating file handler (up to 5MB, 3 backups)
-file_handler = RotatingFileHandler(str(LOG_FILE), maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
-file_handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"))
-root_logger.addHandler(file_handler)
+# 2. Rotating file handler (up to 5MB, 3 backups) — guarded so read-only FS never crashes startup
+try:
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    file_handler = RotatingFileHandler(str(LOG_FILE), maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"))
+    root_logger.addHandler(file_handler)
+except OSError as exc:
+    logging.getLogger("planvault").warning("File logging disabled (%s): %s", LOG_FILE, exc)
 
 # 3. In-memory buffer handler for interactive frontend viewing
 mem_handler = AppMemoryLogHandler()

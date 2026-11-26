@@ -77,7 +77,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <input
               type="password"
               required
-              minLength={6}
+              minLength={authMode === 'signup' ? 6 : undefined}
               value={authPassword}
               onChange={(e) => setAuthPassword(e.target.value)}
               placeholder="••••••••"

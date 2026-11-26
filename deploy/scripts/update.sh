@@ -36,7 +36,9 @@ npm run build
 chown -R www-data:www-data "$INSTALL_DIR/frontend/dist"
 
 # 4. Restart backend service
-echo ">> Restarting FastAPI backend service..."
+echo ">> Ensuring storage/logs directory permissions & restarting FastAPI backend service..."
+mkdir -p "$INSTALL_DIR/storage/logs"
+chown -R planvault:www-data "$INSTALL_DIR/storage"
 systemctl restart planvault
 
 # 5. Reload Nginx

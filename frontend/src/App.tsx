@@ -153,17 +153,24 @@ export function App() {
         saveSession(null);
         setAuthSession(null);
         setPlans([]);
+        showToast('Session expired. Please sign in again');
+        setAuthMode('signin');
+        setShowAuthModal(true);
         return;
       }
       if (res.ok) {
         const data = await res.json();
         setPlans(data.plans || []);
         if (data.storage_backend) setStorageBackend(data.storage_backend);
+      } else {
+        showToast('Unable to load plans — server unavailable');
       }
+    } catch {
+      showToast('Unable to load plans — server unavailable');
     } finally {
       setLoadingVault(false);
     }
-  }, []);
+  }, [showToast]);
 
   const openPlanById = useCallback(
     async (planId: number, startMeasure = false, skipHistoryPush = false) => {
@@ -171,6 +178,14 @@ export function App() {
       setViewerInitialMeasure(startMeasure);
       try {
         const res = await authFetch(`/api/plans/${planId}`);
+        if (res.status === 401) {
+          saveSession(null);
+          setAuthSession(null);
+          showToast('Session expired. Please sign in again');
+          setAuthMode('signin');
+          setShowAuthModal(true);
+          return null;
+        }
         if (res.ok) {
           const data = await res.json();
           setActivePlanPayload(data);
@@ -557,6 +572,10 @@ export function App() {
         setAuthPassword('');
         setShowAuthModal(false);
         await fetchVaultPlans();
+        const planIdParam = new URLSearchParams(window.location.search).get('planId');
+        if (planIdParam && !activePlanPayload) {
+          openPlanById(Number(planIdParam), false, true);
+        }
         showToast('Signed in');
       } else {
         const { session } = await signUpWithEmail(cfg, authEmail.trim(), authPassword);

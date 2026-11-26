@@ -66,6 +66,16 @@ export async function fetchAuthConfig(): Promise<AuthConfig> {
   };
 }
 
+function authErrorFromResponse(res: Response, data: any, fallback: string): Error {
+  if (res.status >= 500) {
+    return new Error(data.detail || 'Server is temporarily unavailable. Please try again shortly.');
+  }
+  if (res.status === 429) {
+    return new Error(data.detail || 'Too many attempts. Please wait a minute and try again.');
+  }
+  return new Error(data.detail || data.message || fallback);
+}
+
 export async function signInWithEmail(
   cfg: AuthConfig,
   email: string,
@@ -78,7 +88,7 @@ export async function signInWithEmail(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.detail || data.message || 'Invalid email or password');
+    throw authErrorFromResponse(res, data, 'Invalid email or password');
   }
   const session: AuthSession = {
     access_token: data.access_token,
@@ -104,7 +114,7 @@ export async function signUpWithEmail(
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(data.detail || data.message || 'Sign up failed');
+    throw authErrorFromResponse(res, data, 'Sign up failed');
   }
   const session: AuthSession = {
     access_token: data.access_token,

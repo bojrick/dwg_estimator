@@ -25,39 +25,45 @@ DATABASE_URL = _raw_db_url or f"sqlite:///{DB_PATH}"
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    connect_args={"check_same_thread": False, "timeout": 30} if DATABASE_URL.startswith("sqlite") else {},
     pool_pre_ping=not DATABASE_URL.startswith("sqlite"),
     echo=False,
 )
+
+
+def _add_column_if_missing(conn, cols: set, col_name: str, ddl: str) -> None:
+    if col_name not in cols:
+        try:
+            conn.execute(text(ddl))
+        except Exception:
+            # Guard against concurrent worker startup race adding the same column
+            pass
 
 
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     with engine.begin() as conn:
         cols = {c["name"] for c in inspect(conn).get_columns("plan")}
-        if "project_name" not in cols:
-            conn.execute(text("ALTER TABLE plan ADD COLUMN project_name VARCHAR NOT NULL DEFAULT 'Default Project'"))
-        if "discipline" not in cols:
-            conn.execute(text("ALTER TABLE plan ADD COLUMN discipline VARCHAR NOT NULL DEFAULT 'architectural'"))
-        if "user_id" not in cols:
-            conn.execute(text("ALTER TABLE plan ADD COLUMN user_id VARCHAR"))
-        if "structural_estimate_json" not in cols:
-            conn.execute(text("ALTER TABLE plan ADD COLUMN structural_estimate_json TEXT NOT NULL DEFAULT '{}'"))
-        if "measurements_json" not in cols:
-            conn.execute(text("ALTER TABLE plan ADD COLUMN measurements_json TEXT NOT NULL DEFAULT '[]'"))
+        _add_column_if_missing(conn, cols, "project_name", "ALTER TABLE plan ADD COLUMN project_name VARCHAR NOT NULL DEFAULT 'Default Project'")
+        _add_column_if_missing(conn, cols, "discipline", "ALTER TABLE plan ADD COLUMN discipline VARCHAR NOT NULL DEFAULT 'architectural'")
+        _add_column_if_missing(conn, cols, "user_id", "ALTER TABLE plan ADD COLUMN user_id VARCHAR")
+        _add_column_if_missing(conn, cols, "structural_estimate_json", "ALTER TABLE plan ADD COLUMN structural_estimate_json TEXT NOT NULL DEFAULT '{}'")
+        _add_column_if_missing(conn, cols, "measurements_json", "ALTER TABLE plan ADD COLUMN measurements_json TEXT NOT NULL DEFAULT '[]'")
 
     from app.models.schema import Plan, User
+    from app.services.auth import is_supabase_enabled
     from app.services.dxf_parser import infer_discipline, infer_project_name
 
     with Session(engine) as session:
         users = session.exec(select(User)).all()
         valid_uids = {u.id for u in users}
+        supabase_enabled = is_supabase_enabled()
         plans = session.exec(select(Plan).order_by(Plan.id)).all()
         known_projects = [p.project_name for p in plans if p.project_name and p.project_name != "Default Project"]
         dirty = False
         for p in plans:
-            if p.user_id and p.user_id not in valid_uids:
-                p.user_id = users[0].id if len(users) == 1 else None
+            if len(users) == 1 and (not p.user_id or (not supabase_enabled and p.user_id not in valid_uids)):
+                p.user_id = users[0].id
                 dirty = True
             src_name = p.dwg_filename or p.pdf_filename or p.name
             if not p.project_name or p.project_name == "Default Project":
