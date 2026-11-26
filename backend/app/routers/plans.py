@@ -2,9 +2,12 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import shutil
-from typing import Any, Dict, List, Optional
+import tempfile
+from typing import Any, Dict, List, Optional, Tuple
 import urllib.parse
+import uuid
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -26,6 +29,7 @@ from app.services.auth import (
     verify_token,
 )
 from app.services.dwg_converter import ensure_dxf, load_ezdxf_doc
+from app.services.logger import app_logger
 from app.services.dxf_parser import (
     VALID_DISCIPLINES,
     clean_raw_data_to_sheet,
@@ -420,38 +424,125 @@ def update_auth_profile(
     }
 
 
+def _make_temp_work_dir(prefix: str) -> Path:
+    candidate = Path(TMP_WORK_DIR) / f"{prefix}_{uuid.uuid4().hex[:12]}"
+    try:
+        candidate.mkdir(parents=True, exist_ok=True)
+        return candidate
+    except OSError:
+        return Path(tempfile.mkdtemp(prefix=f"{prefix}_"))
+
+
+def _safe_cad_filename(raw_name: Optional[str]) -> str:
+    return Path((raw_name or "").replace("\\", "/")).name
+
+
+def _parse_cad_bytes(dwg_bytes: bytes, display_name: str, work_dir: Path) -> Dict[str, Any]:
+    work_dir.mkdir(parents=True, exist_ok=True)
+    ext = Path(display_name).suffix.lower()
+    in_path = work_dir / f"input{ext}"
+    in_path.write_bytes(dwg_bytes)
+    dxf_path, _ = ensure_dxf(in_path, work_dir)
+    doc = load_ezdxf_doc(dxf_path)
+    raw_data = extract_dxf_raw_entities(dxf_path, doc=doc)
+    return clean_raw_data_to_sheet(raw_data, None)
+
+
+def _preview_multi_sync(file_items: List[Tuple[bytes, str]], temp_dir: Path) -> List[Dict[str, Any]]:
+    out_files = []
+    for idx, (f_bytes, f_name) in enumerate(file_items):
+        cleaned_raw = _parse_cad_bytes(f_bytes, f_name, temp_dir / f"file_{idx}")
+        summary = _build_summary(cleaned_raw)
+        file_id = f"file_{idx}"
+        out_files.append({
+            "file_id": file_id,
+            "fileId": file_id,
+            "filename": f_name,
+            "name": Path(f_name).stem.replace("_", " ").strip(),
+            "raw_data": cleaned_raw,
+            "rawData": cleaned_raw,
+            "summary": summary,
+            "sheets": [
+                {
+                    **s,
+                    "id": f"{file_id}__{s.get('id', f'sheet_{s_idx + 1}')}",
+                    "file_id": file_id,
+                    "source_file": f_name,
+                }
+                for s_idx, s in enumerate(cleaned_raw.get("sheets", []))
+            ],
+            "unit_name": cleaned_raw.get("unit_name", "m"),
+            "scale_to_m": cleaned_raw.get("scale_to_m", 1.0),
+        })
+    return out_files
+
+
+def _merge_preview_sync(
+    file_items: List[Tuple[bytes, str]],
+    selected_sheets: List[Dict[str, Any]],
+    temp_dir: Path,
+) -> Dict[str, Any]:
+    files_data: Dict[str, Dict[str, Any]] = {}
+    for idx, (f_bytes, f_name) in enumerate(file_items):
+        cleaned_raw = _parse_cad_bytes(f_bytes, f_name, temp_dir / f"file_{idx}")
+        file_id = f"file_{idx}"
+        files_data[file_id] = {
+            "file_id": file_id,
+            "filename": f_name,
+            "raw_data": cleaned_raw,
+        }
+        files_data[f_name] = files_data[file_id]
+
+    merged_full = merge_dwg_views_to_single_plan(selected_sheets, files_data)
+    merged_sheets = merged_full.get("sheets", [])
+    target_sheet_id = merged_sheets[0]["id"] if len(merged_sheets) == 1 else "all"
+    cleaned_raw = clean_raw_data_to_sheet(merged_full, target_sheet_id)
+    summary = _build_summary(cleaned_raw)
+    return {
+        "name": "Merged CAD Plan",
+        "raw_data": cleaned_raw,
+        "full_raw_data": merged_full,
+        "summary": summary,
+        "sheets": merged_sheets,
+        "active_sheet_id": target_sheet_id,
+        "unit_name": "m",
+        "scale_to_m": 1.0,
+    }
+
+
 @router.post("/plans/preview-guest")
 async def preview_guest_cad(
     dwg_file: UploadFile = File(...),
 ):
-    if not dwg_file.filename:
+    safe_name = _safe_cad_filename(dwg_file.filename)
+    if not safe_name:
         raise HTTPException(status_code=400, detail="CAD file is required")
-    ext = Path(dwg_file.filename).suffix.lower()
+    ext = Path(safe_name).suffix.lower()
     if ext not in (".dwg", ".dxf"):
         raise HTTPException(status_code=400, detail="CAD file must be .dwg or .dxf")
 
     dwg_bytes = await dwg_file.read()
-    temp_dir = Path(TMP_WORK_DIR) / f"guest_{datetime.now(timezone.utc).timestamp()}"
-    temp_dir.mkdir(parents=True, exist_ok=True)
-    in_path = temp_dir / Path(dwg_file.filename).name
-    in_path.write_bytes(dwg_bytes)
+    if not dwg_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded CAD file is empty")
 
+    temp_dir = _make_temp_work_dir("guest")
     try:
-        dxf_path, _ = ensure_dxf(in_path, temp_dir)
-        doc = load_ezdxf_doc(dxf_path)
-        raw_data = extract_dxf_raw_entities(dxf_path, doc=doc)
-        cleaned_raw = clean_raw_data_to_sheet(raw_data, None)
+        cleaned_raw = await run_in_threadpool(_parse_cad_bytes, dwg_bytes, safe_name, temp_dir)
         summary = _build_summary(cleaned_raw)
-
         return {
-            "name": Path(dwg_file.filename).stem.replace("_", " ").strip(),
-            "dwg_filename": Path(dwg_file.filename).name,
+            "name": Path(safe_name).stem.replace("_", " ").strip(),
+            "dwg_filename": safe_name,
             "raw_data": cleaned_raw,
             "summary": summary,
             "sheets": cleaned_raw.get("sheets", []),
             "unit_name": cleaned_raw.get("unit_name", "m"),
             "scale_to_m": cleaned_raw.get("scale_to_m", 1.0),
         }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        app_logger.exception("Guest CAD preview failed for %s", safe_name)
+        raise HTTPException(status_code=400, detail=f"Failed to parse CAD file: {exc}")
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -460,46 +551,30 @@ async def preview_guest_cad(
 async def preview_multi_cad(
     dwg_files: List[UploadFile] = File(...),
 ):
-    valid_files = [f for f in dwg_files if f.filename and Path(f.filename).suffix.lower() in (".dwg", ".dxf")]
+    valid_files = []
+    for f in dwg_files:
+        safe_name = _safe_cad_filename(f.filename)
+        if safe_name and Path(safe_name).suffix.lower() in (".dwg", ".dxf"):
+            valid_files.append((f, safe_name))
     if not valid_files:
         raise HTTPException(status_code=400, detail="At least one .dwg or .dxf file is required")
 
-    temp_dir = Path(TMP_WORK_DIR) / f"multi_preview_{datetime.now(timezone.utc).timestamp()}"
-    temp_dir.mkdir(parents=True, exist_ok=True)
-    out_files = []
+    file_items: List[Tuple[bytes, str]] = []
+    for f, safe_name in valid_files:
+        f_bytes = await f.read()
+        if not f_bytes:
+            raise HTTPException(status_code=400, detail=f"Uploaded CAD file '{safe_name}' is empty")
+        file_items.append((f_bytes, safe_name))
+
+    temp_dir = _make_temp_work_dir("multi_preview")
     try:
-        for idx, f in enumerate(valid_files):
-            f_bytes = await f.read()
-            f_name = Path(f.filename).name
-            in_path = temp_dir / f_name
-            in_path.write_bytes(f_bytes)
-            dxf_path, _ = ensure_dxf(in_path, temp_dir)
-            doc = load_ezdxf_doc(dxf_path)
-            raw_data = extract_dxf_raw_entities(dxf_path, doc=doc)
-            cleaned_raw = clean_raw_data_to_sheet(raw_data, None)
-            summary = _build_summary(cleaned_raw)
-            file_id = f"file_{idx}"
-            out_files.append({
-                "file_id": file_id,
-                "fileId": file_id,
-                "filename": f_name,
-                "name": Path(f.filename).stem.replace("_", " ").strip(),
-                "raw_data": cleaned_raw,
-                "rawData": cleaned_raw,
-                "summary": summary,
-                "sheets": [
-                    {
-                        **s,
-                        "id": f"{file_id}__{s.get('id', f'sheet_{s_idx + 1}')}",
-                        "file_id": file_id,
-                        "source_file": f_name,
-                    }
-                    for s_idx, s in enumerate(cleaned_raw.get("sheets", []))
-                ],
-                "unit_name": cleaned_raw.get("unit_name", "m"),
-                "scale_to_m": cleaned_raw.get("scale_to_m", 1.0),
-            })
+        out_files = await run_in_threadpool(_preview_multi_sync, file_items, temp_dir)
         return {"files": out_files}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        app_logger.exception("Multi-file guest CAD preview failed")
+        raise HTTPException(status_code=400, detail=f"Failed to parse CAD files: {exc}")
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
@@ -510,7 +585,11 @@ async def merge_preview_cad(
     sheets_json: str = Form(...),
     active_sheet_id: Optional[str] = Form(None),
 ):
-    valid_files = [f for f in dwg_files if f.filename and Path(f.filename).suffix.lower() in (".dwg", ".dxf")]
+    valid_files = []
+    for f in dwg_files:
+        safe_name = _safe_cad_filename(f.filename)
+        if safe_name and Path(safe_name).suffix.lower() in (".dwg", ".dxf"):
+            valid_files.append((f, safe_name))
     if not valid_files:
         raise HTTPException(status_code=400, detail="At least one .dwg or .dxf file is required")
 
@@ -519,43 +598,21 @@ async def merge_preview_cad(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid sheets_json format")
 
-    temp_dir = Path(TMP_WORK_DIR) / f"merge_preview_{datetime.now(timezone.utc).timestamp()}"
-    temp_dir.mkdir(parents=True, exist_ok=True)
-    files_data = {}
+    file_items: List[Tuple[bytes, str]] = []
+    for f, safe_name in valid_files:
+        f_bytes = await f.read()
+        if not f_bytes:
+            raise HTTPException(status_code=400, detail=f"Uploaded CAD file '{safe_name}' is empty")
+        file_items.append((f_bytes, safe_name))
+
+    temp_dir = _make_temp_work_dir("merge_preview")
     try:
-        for idx, f in enumerate(valid_files):
-            f_bytes = await f.read()
-            f_name = Path(f.filename).name
-            in_path = temp_dir / f_name
-            in_path.write_bytes(f_bytes)
-            dxf_path, _ = ensure_dxf(in_path, temp_dir)
-            doc = load_ezdxf_doc(dxf_path)
-            raw_data = extract_dxf_raw_entities(dxf_path, doc=doc)
-            cleaned_raw = clean_raw_data_to_sheet(raw_data, None)
-            file_id = f"file_{idx}"
-            files_data[file_id] = {
-                "file_id": file_id,
-                "filename": f_name,
-                "raw_data": cleaned_raw,
-            }
-            files_data[f_name] = files_data[file_id]
-
-        merged_full = merge_dwg_views_to_single_plan(selected_sheets, files_data)
-        merged_sheets = merged_full.get("sheets", [])
-        target_sheet_id = merged_sheets[0]["id"] if len(merged_sheets) == 1 else "all"
-        cleaned_raw = clean_raw_data_to_sheet(merged_full, target_sheet_id)
-        summary = _build_summary(cleaned_raw)
-
-        return {
-            "name": "Merged CAD Plan",
-            "raw_data": cleaned_raw,
-            "full_raw_data": merged_full,
-            "summary": summary,
-            "sheets": merged_sheets,
-            "active_sheet_id": target_sheet_id,
-            "unit_name": "m",
-            "scale_to_m": 1.0,
-        }
+        return await run_in_threadpool(_merge_preview_sync, file_items, selected_sheets, temp_dir)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        app_logger.exception("Merge guest CAD preview failed")
+        raise HTTPException(status_code=400, detail=f"Failed to merge CAD files: {exc}")
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 

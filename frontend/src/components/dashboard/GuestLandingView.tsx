@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Compass, Upload, RefreshCw, ArrowRight } from 'lucide-react';
 
 interface GuestLandingViewProps {
   uploading: boolean;
-  onSelectFiles: (files: FileList | null) => void;
+  onSelectFiles: (files: FileList | File[] | null) => void;
   onOpenSignUp: () => void;
 }
 
@@ -26,6 +26,8 @@ export const GuestLandingView: React.FC<GuestLandingViewProps> = ({
   onSelectFiles,
   onOpenSignUp,
 }) => {
+  const [isDragging, setIsDragging] = useState(false);
+
   return (
     <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-10 flex items-center">
       <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-10 items-center">
@@ -45,7 +47,25 @@ export const GuestLandingView: React.FC<GuestLandingViewProps> = ({
             </p>
           </div>
 
-          <label className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-dashed border-zinc-700 hover:border-amber-400/60 rounded-xl p-5 sm:p-6 cursor-pointer bg-zinc-900/70 transition group">
+          <label
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (!uploading) setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              if (uploading) return;
+              const dropped = e.dataTransfer?.files ? Array.from(e.dataTransfer.files) : [];
+              if (dropped.length > 0) onSelectFiles(dropped);
+            }}
+            className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 border border-dashed rounded-xl p-5 sm:p-6 cursor-pointer transition group ${
+              isDragging
+                ? 'border-amber-400 bg-zinc-900'
+                : 'border-zinc-700 hover:border-amber-400/60 bg-zinc-900/70'
+            }`}
+          >
             <div className="flex items-start sm:items-center gap-3.5 min-w-0">
               <div className="w-11 h-11 rounded-lg bg-zinc-950 border border-zinc-800 flex items-center justify-center text-amber-400 shrink-0">
                 {uploading ? (
@@ -74,7 +94,11 @@ export const GuestLandingView: React.FC<GuestLandingViewProps> = ({
               multiple
               className="hidden"
               disabled={uploading}
-              onChange={(e) => onSelectFiles(e.target.files)}
+              onChange={(e) => {
+                const picked = e.target.files ? Array.from(e.target.files) : [];
+                e.target.value = '';
+                if (picked.length > 0) onSelectFiles(picked);
+              }}
             />
           </label>
 

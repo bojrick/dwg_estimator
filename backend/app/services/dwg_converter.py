@@ -40,23 +40,29 @@ def ensure_dxf(input_path: Path, output_dir: Path) -> Tuple[Path, str]:
             target_dxf.unlink()
 
         cmd = [dwg2dxf_bin, "-y", "-o", str(target_dxf), str(input_path.resolve())]
-        proc = subprocess.run(
-            cmd,
-            cwd=str(output_dir.resolve()),
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=str(output_dir.resolve()),
+                capture_output=True,
+                text=True,
+                errors="replace",
+                timeout=180,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"DWG conversion timed out for {input_path.name}") from exc
 
         # LibreDWG sometimes writes <stem>.dxf in cwd if -o behaves differently across versions
-        if not target_dxf.exists():
+        if not (target_dxf.exists() and target_dxf.stat().st_size > 0):
             fallback = output_dir / f"{input_path.stem}.dxf"
-            if fallback.exists():
+            if fallback.exists() and fallback.stat().st_size > 0:
                 target_dxf = fallback
 
-        if not target_dxf.exists():
+        if not (target_dxf.exists() and target_dxf.stat().st_size > 0):
+            err_msg = (proc.stderr or proc.stdout or "").strip()
+            snippet = err_msg[-400:] if len(err_msg) > 400 else err_msg
             raise RuntimeError(
-                f"LibreDWG dwg2dxf failed to convert {input_path.name}: {proc.stderr or proc.stdout}"
+                f"LibreDWG dwg2dxf failed to convert {input_path.name} (exit {proc.returncode}): {snippet or 'empty output'}"
             )
 
         # Skip redundant recover+saveas here; load_ezdxf_doc handles recover fallback on read
@@ -78,6 +84,7 @@ def convert_dxf_to_dwg(dxf_path: Path, dwg_path: Path) -> bool:
             cwd=str(dwg_path.parent),
             capture_output=True,
             text=True,
+            errors="replace",
             timeout=30,
         )
         return dwg_path.exists()

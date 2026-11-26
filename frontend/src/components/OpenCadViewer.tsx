@@ -2042,7 +2042,24 @@ export const OpenCadViewer: React.FC<OpenCadViewerProps> = ({
                     onClick={() => setShowDownloadMenu(false)}
                   />
                   <div className="fixed inset-x-3 top-[calc(56px+env(safe-area-inset-top))] sm:absolute sm:inset-x-auto sm:right-0 sm:top-full sm:mt-1.5 sm:w-52 z-50 bg-zinc-900 border border-zinc-700/90 rounded-xl p-1.5 text-xs space-y-1">
-                    {plan.has_dwg ? (
+                    {isGuest ? (
+                      <div className="space-y-1">
+                        <div className="px-3 py-2 text-[11px] text-zinc-400">
+                          Sign up &amp; save to download CAD files
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowDownloadMenu(false);
+                            dwgInputRef.current?.click();
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-2 min-h-[40px] sm:min-h-0 rounded-lg hover:bg-zinc-800 text-zinc-200 text-left"
+                        >
+                          <Upload className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                          <span>Open another .DWG / .DXF</span>
+                        </button>
+                      </div>
+                    ) : plan.has_dwg ? (
                       <>
                         <a
                           href={apiUrl(`/api/plans/${plan.id}/file/dxf?share=${encodeURIComponent(plan.share_token || '')}`)}

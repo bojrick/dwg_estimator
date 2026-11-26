@@ -84,7 +84,7 @@ export function App() {
     fullRaw?: any;
     isGuest?: boolean;
   } | null>(null);
-  const [guestDwgFile, setGuestDwgFile] = useState<File | null>(null);
+  const [guestDwgFiles, setGuestDwgFiles] = useState<File[]>([]);
   const [viewerInitialMeasure, setViewerInitialMeasure] = useState<boolean>(false);
   const [openingPlan, setOpeningPlan] = useState<boolean>(false);
 
@@ -277,7 +277,7 @@ export function App() {
         } else if (activePlanPayload) {
           window.history.replaceState({}, '', window.location.pathname);
           setActivePlanPayload(null);
-          setGuestDwgFile(null);
+          setGuestDwgFiles([]);
           if (authSession) fetchVaultPlans();
         }
       }
@@ -494,10 +494,19 @@ export function App() {
             reject(new Error('Invalid server response'));
           }
         } else {
-          let detail = 'Upload failed';
+          let detail =
+            xhr.status === 413
+              ? 'CAD file is too large for upload'
+              : xhr.status === 502 || xhr.status === 504
+              ? 'Server timed out converting CAD drawing'
+              : `Upload failed (HTTP ${xhr.status})`;
           try {
             const parsed = JSON.parse(xhr.responseText);
-            if (parsed.detail) detail = parsed.detail;
+            if (typeof parsed.detail === 'string' && parsed.detail) {
+              detail = parsed.detail;
+            } else if (Array.isArray(parsed.detail) && parsed.detail.length > 0) {
+              detail = parsed.detail.map((d: any) => d?.msg || String(d)).join('; ');
+            }
           } catch {
             // fallback
           }
@@ -508,6 +517,16 @@ export function App() {
       xhr.onerror = () => {
         window.clearInterval(timer);
         reject(new Error('Network error while uploading plan'));
+      };
+
+      xhr.ontimeout = () => {
+        window.clearInterval(timer);
+        reject(new Error('Upload timed out while parsing CAD file'));
+      };
+
+      xhr.onabort = () => {
+        window.clearInterval(timer);
+        reject(new Error('Upload cancelled'));
       };
 
       xhr.send(form);
@@ -616,13 +635,13 @@ export function App() {
           form.append('sheets_json', JSON.stringify(configuredSheets));
           form.append('active_sheet_id', activeSheetId);
           const merged = await runUploadWithProgress('/api/plans/merge-preview', form, dwgFiles[0]);
-          setGuestDwgFile(dwgFiles[0]);
+          setGuestDwgFiles(dwgFiles);
           setActivePlanPayload({
             plan: {
               id: 0,
               name: confirmedTitle || 'Merged CAD Plan',
               project_name: 'Guest Inspection',
-              discipline: 'architectural',
+              discipline: discipline || 'architectural',
               has_dwg: true,
               active_sheet_id: merged.active_sheet_id || activeSheetId,
               active_sheet_name: configuredSheets.find((s) => s.id === (merged.active_sheet_id || activeSheetId))?.name || 'Selected View',
@@ -645,28 +664,32 @@ export function App() {
         return;
       }
 
-      const targetSheet = configuredSheets[0];
-      const croppedRaw = cropRawDataToSheet(sheetSelectorData.parsed?.raw_data, targetSheet);
-      setGuestDwgFile(dwgFiles[0]);
-      setActivePlanPayload({
-        plan: {
-          id: 0,
-          name: confirmedTitle || targetSheet?.name || 'Guest Plan',
-          project_name: 'Guest Inspection',
-          discipline: 'architectural',
-          has_dwg: true,
-          active_sheet_id: targetSheet?.id || activeSheetId,
-          active_sheet_name: targetSheet?.name || 'Selected View',
-          unit_name: sheetSelectorData.parsed?.unit_name || 'm',
-          scale_to_m: sheetSelectorData.parsed?.scale_to_m || 1.0,
-          sheets: configuredSheets,
-          summary: sheetSelectorData.parsed?.summary,
-        },
-        raw: croppedRaw,
-        fullRaw: sheetSelectorData.parsed?.raw_data || croppedRaw,
-        isGuest: true,
-      });
-      showToast(`Isolated view: ${targetSheet?.name || 'Selected Sheet'}`);
+      try {
+        const targetSheet = configuredSheets[0];
+        const croppedRaw = cropRawDataToSheet(sheetSelectorData.parsed?.raw_data, targetSheet);
+        setGuestDwgFiles(dwgFiles);
+        setActivePlanPayload({
+          plan: {
+            id: 0,
+            name: confirmedTitle || targetSheet?.name || 'Guest Plan',
+            project_name: 'Guest Inspection',
+            discipline: discipline || 'architectural',
+            has_dwg: true,
+            active_sheet_id: targetSheet?.id || activeSheetId,
+            active_sheet_name: targetSheet?.name || 'Selected View',
+            unit_name: sheetSelectorData.parsed?.unit_name || 'm',
+            scale_to_m: sheetSelectorData.parsed?.scale_to_m || 1.0,
+            sheets: configuredSheets,
+            summary: sheetSelectorData.parsed?.summary,
+          },
+          raw: croppedRaw,
+          fullRaw: sheetSelectorData.parsed?.raw_data || croppedRaw,
+          isGuest: true,
+        });
+        showToast(`Isolated view: ${targetSheet?.name || 'Selected Sheet'}`);
+      } catch (err: any) {
+        showToast(err.message || 'Failed to open sheet view');
+      }
       return;
     }
 
@@ -704,15 +727,19 @@ export function App() {
     }
   };
 
-  const handleGuestCadPreview = async (files: FileList | null) => {
+  const handleGuestCadPreview = async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return;
     const fileList = Array.from(files);
     const valid = fileList.filter((f) => {
       const ext = f.name.toLowerCase();
       return ext.endsWith('.dwg') || ext.endsWith('.dxf');
     });
-    if (valid.length === 0) return;
+    if (valid.length === 0) {
+      showToast('Please select a .dwg or .dxf file');
+      return;
+    }
 
+    const detectedDisc = inferDisciplineFromFilename(valid[0].name);
     setUploading(true);
     setUploadError(null);
     try {
@@ -724,7 +751,7 @@ export function App() {
         setSheetSelectorData({
           dwgFiles: valid,
           project: 'Guest Inspection',
-          discipline: 'architectural',
+          discipline: detectedDisc,
           parsed: first,
           filesData: parsed.files,
           isGuest: true,
@@ -736,7 +763,7 @@ export function App() {
         setSheetSelectorData({
           dwgFiles: valid,
           project: 'Guest Inspection',
-          discipline: 'architectural',
+          discipline: detectedDisc,
           parsed: data,
           isGuest: true,
         });
@@ -755,16 +782,18 @@ export function App() {
       setShowAuthModal(true);
       return;
     }
-    if (!guestDwgFile && !activePlanPayload) return;
+    if (guestDwgFiles.length === 0 && !activePlanPayload) return;
     setSavingGuestPlan(true);
     try {
       const form = new FormData();
-      if (guestDwgFile) {
-        form.append('dwg_file', guestDwgFile);
+      if (guestDwgFiles.length > 1) {
+        guestDwgFiles.forEach((f) => form.append('dwg_files', f));
+      } else if (guestDwgFiles.length === 1) {
+        form.append('dwg_file', guestDwgFiles[0]);
       }
       form.append('name', activePlanPayload?.plan?.name || 'My Plan');
       form.append('project_name', 'My Project');
-      form.append('discipline', 'architectural');
+      form.append('discipline', activePlanPayload?.plan?.discipline || 'architectural');
       if (activePlanPayload?.plan?.sheets) {
         form.append('sheets_json', JSON.stringify(activePlanPayload.plan.sheets));
       }
@@ -772,8 +801,8 @@ export function App() {
         form.append('active_sheet_id', activePlanPayload.plan.active_sheet_id);
       }
 
-      const data = await runUploadWithProgress('/api/plans', form, guestDwgFile);
-      setGuestDwgFile(null);
+      const data = await runUploadWithProgress('/api/plans', form, guestDwgFiles[0] || null);
+      setGuestDwgFiles([]);
       await fetchVaultPlans();
       setActivePlanPayload({ ...data, isGuest: false });
       showToast('Plan saved to vault');
@@ -1012,6 +1041,22 @@ export function App() {
     </div>
   ) : null;
 
+  const sheetSelectorModalNode = sheetSelectorData ? (
+    <SheetSelectorModal
+      planTitle={
+        sheetSelectorData.isGuest
+          ? sheetSelectorData.parsed?.name || ''
+          : uploadTitle.trim() || sheetSelectorData.parsed?.name || ''
+      }
+      dwgFilename={sheetSelectorData.dwgFiles.map((f) => f.name).join(', ')}
+      rawData={sheetSelectorData.parsed?.raw_data}
+      initialSheets={sheetSelectorData.parsed?.sheets}
+      filesData={sheetSelectorData.filesData}
+      onConfirm={handleSheetSelectorConfirm}
+      onCancel={() => setSheetSelectorData(null)}
+    />
+  ) : null;
+
   // Render Discipline Estimators
   const estimatorDiscipline = activeEstimatorDiscipline || (isStructuralEstimatorOpen ? 'structural' : null);
 
@@ -1106,7 +1151,7 @@ export function App() {
             setActiveEstimatorDiscipline(null);
             setIsStructuralEstimatorOpen(false);
             setActivePlanPayload(null);
-            setGuestDwgFile(null);
+            setGuestDwgFiles([]);
           }}
         >
           <OpenCadViewer
@@ -1150,7 +1195,7 @@ export function App() {
               setActiveEstimatorDiscipline(null);
               setIsStructuralEstimatorOpen(false);
               setActivePlanPayload(null);
-              setGuestDwgFile(null);
+              setGuestDwgFiles([]);
               if (authSession) fetchVaultPlans();
             }}
             onShare={handleSharePlan}
@@ -1276,6 +1321,7 @@ export function App() {
           authNotice={authNotice}
           onSubmit={handleAuthSubmit}
         />
+        {sheetSelectorModalNode}
       </div>
     );
   }
@@ -1639,17 +1685,7 @@ export function App() {
       {!showUploadModal && <UploadProgressOverlay progress={uploadProgress} />}
 
       {/* Sheet Window Selector & Configuration Modal */}
-      {sheetSelectorData && (
-        <SheetSelectorModal
-          planTitle={uploadTitle.trim() || sheetSelectorData.parsed?.name || ''}
-          dwgFilename={sheetSelectorData.dwgFiles.map((f) => f.name).join(', ')}
-          rawData={sheetSelectorData.parsed?.raw_data}
-          initialSheets={sheetSelectorData.parsed?.sheets}
-          filesData={sheetSelectorData.filesData}
-          onConfirm={handleSheetSelectorConfirm}
-          onCancel={() => setSheetSelectorData(null)}
-        />
-      )}
+      {sheetSelectorModalNode}
 
       {/* Project & Plan Management Modals */}
       <RenameProjectModal

@@ -457,6 +457,9 @@ def extract_dxf_raw_entities(
         else:
             expanded_counts[etype] += 1
 
+        def _finite(*vals: float) -> bool:
+            return all(math.isfinite(v) for v in vals)
+
         def collect_pt(px: float, py: float):
             if math.isfinite(px) and math.isfinite(py):
                 all_x.append(px)
@@ -471,7 +474,7 @@ def extract_dxf_raw_entities(
                 e = entity.dxf.end
                 x1, y1 = round(float(s.x), 4), round(float(s.y), 4)
                 x2, y2 = round(float(e.x), 4), round(float(e.y), 4)
-                if math.hypot(x2 - x1, y2 - y1) > 1e-6:
+                if _finite(x1, y1, x2, y2) and math.hypot(x2 - x1, y2 - y1) > 1e-6:
                     item: Dict[str, Any] = {
                         "layer": lname,
                         "role": role,
@@ -496,9 +499,10 @@ def extract_dxf_raw_entities(
                         loc = v.dxf.location
                         pts.append([round(float(loc.x), 4), round(float(loc.y), 4)])
                     is_closed = bool(entity.is_closed)
-                    if len(pts) >= 3 and math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-3:
+                    if len(pts) >= 3 and _finite(pts[0][0], pts[0][1], pts[-1][0], pts[-1][1]) and math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) < 1e-3:
                         is_closed = True
 
+                pts = [p for p in pts if _finite(p[0], p[1])]
                 if len(pts) >= 2:
                     item = {
                         "layer": lname,
@@ -519,6 +523,7 @@ def extract_dxf_raw_entities(
                 pts = [
                     [round(float(v.x), 4), round(float(v.y), 4)]
                     for v in entity.flattening(0.05, segments=6)
+                    if _finite(float(v.x), float(v.y))
                 ]
                 if len(pts) >= 2:
                     item = {
@@ -539,7 +544,12 @@ def extract_dxf_raw_entities(
                 c = entity.dxf.center
                 r = round(float(entity.dxf.radius), 4)
                 cx, cy = round(float(c.x), 4), round(float(c.y), 4)
-                if r > 1e-5:
+                if _finite(cx, cy, r) and r > 1e-5:
+                    if etype == "ARC":
+                        sa = float(entity.dxf.start_angle)
+                        ea = float(entity.dxf.end_angle)
+                        if not _finite(sa, ea):
+                            sa, ea = 0.0, 360.0
                     item = {
                         "type": etype,
                         "layer": lname,
@@ -549,8 +559,8 @@ def extract_dxf_raw_entities(
                         "radius": r,
                     }
                     if etype == "ARC":
-                        item["start_angle"] = round(float(entity.dxf.start_angle), 2)
-                        item["end_angle"] = round(float(entity.dxf.end_angle), 2)
+                        item["start_angle"] = round(sa, 2)
+                        item["end_angle"] = round(ea, 2)
                     if source_kind != "modelspace":
                         item["source"] = source_kind
                     if block_name:
@@ -570,33 +580,40 @@ def extract_dxf_raw_entities(
                     ht = float(getattr(entity.dxf, "char_height", 0.2) or 0.2)
                     rot = float(getattr(entity.dxf, "rotation", 0.0) or 0.0)
 
+                if not math.isfinite(ht):
+                    ht = 0.2
+                if not math.isfinite(rot):
+                    rot = 0.0
                 if txt:
                     tx, ty = round(float(loc.x), 4), round(float(loc.y), 4)
-                    item = {
-                        "layer": lname,
-                        "role": role,
-                        "color": color_hex,
-                        "text": txt,
-                        "x": tx,
-                        "y": ty,
-                        "height": round(ht, 4),
-                        "rotation": round(rot, 2),
-                    }
-                    if source_kind != "modelspace":
-                        item["source"] = source_kind
-                    if block_name:
-                        item["block"] = block_name
-                    raw_texts.append(item)
-                    collect_pt(tx, ty)
+                    if _finite(tx, ty):
+                        item = {
+                            "layer": lname,
+                            "role": role,
+                            "color": color_hex,
+                            "text": txt,
+                            "x": tx,
+                            "y": ty,
+                            "height": round(ht, 4),
+                            "rotation": round(rot, 2),
+                        }
+                        if source_kind != "modelspace":
+                            item["source"] = source_kind
+                        if block_name:
+                            item["block"] = block_name
+                        raw_texts.append(item)
+                        collect_pt(tx, ty)
 
             elif etype in ("SOLID", "TRACE"):
                 pts = []
                 for vname in ("vtx0", "vtx1", "vtx2", "vtx3"):
                     if hasattr(entity.dxf, vname):
                         v = getattr(entity.dxf, vname)
-                        pt = [round(float(v.x), 4), round(float(v.y), 4)]
-                        if not pts or pt != pts[-1]:
-                            pts.append(pt)
+                        vx, vy = float(v.x), float(v.y)
+                        if _finite(vx, vy):
+                            pt = [round(vx, 4), round(vy, 4)]
+                            if not pts or pt != pts[-1]:
+                                pts.append(pt)
                 if len(pts) >= 3:
                     raw_hatches.append({
                         "layer": lname,
@@ -615,13 +632,16 @@ def extract_dxf_raw_entities(
                     pts = []
                     if hasattr(hpath, "vertices"):
                         for v in hpath.vertices:
-                            pts.append([round(float(v[0]), 4), round(float(v[1]), 4)])
+                            vx, vy = float(v[0]), float(v[1])
+                            if _finite(vx, vy):
+                                pts.append([round(vx, 4), round(vy, 4)])
                     else:
                         try:
                             ep = ezpath.from_hatch_boundary_path(hpath)
                             pts = [
                                 [round(float(v.x), 4), round(float(v.y), 4)]
                                 for v in ep.flattening(0.08, segments=6)
+                                if _finite(float(v.x), float(v.y))
                             ]
                         except Exception:
                             pts = []
@@ -636,8 +656,12 @@ def extract_dxf_raw_entities(
             elif etype == "INSERT" and depth < 3:
                 bname = getattr(entity.dxf, "name", "BLOCK")
                 rot = float(getattr(entity.dxf, "rotation", 0.0) or 0.0)
+                if not math.isfinite(rot):
+                    rot = 0.0
                 ins = entity.dxf.insert
                 ix, iy = round(float(ins.x), 4), round(float(ins.y), 4)
+                if not _finite(ix, iy):
+                    return
 
                 blk_coords: List[List[float]] = [[], []]
                 try:
@@ -1011,8 +1035,10 @@ def clean_raw_data_to_sheet(
         return out
 
     b = target_sheet["bbox"]
-    pad_x = max(0.5, b["width"] * 0.025)
-    pad_y = max(0.5, b["height"] * 0.025)
+    bw = b.get("width", abs(b["max_x"] - b["min_x"]))
+    bh = b.get("height", abs(b["max_y"] - b["min_y"]))
+    pad_x = max(0.5, bw * 0.025)
+    pad_y = max(0.5, bh * 0.025)
     x1, y1 = b["min_x"] - pad_x, b["min_y"] - pad_y
     x2, y2 = b["max_x"] + pad_x, b["max_y"] + pad_y
 

@@ -1266,7 +1266,12 @@ function round3(n: number): number {
 
 export function cropRawDataToSheet(fullRaw: any, targetSheet: SheetConfig) {
   if (!fullRaw || !targetSheet) return fullRaw;
-  const b = targetSheet.bbox;
+  const rawB = targetSheet.bbox || fullRaw.bbox_raw || { min_x: 0, min_y: 0, max_x: 100, max_y: 100 };
+  const b = {
+    ...rawB,
+    width: rawB.width ?? Math.abs(rawB.max_x - rawB.min_x),
+    height: rawB.height ?? Math.abs(rawB.max_y - rawB.min_y),
+  };
   const padX = Math.max(0.5, (b.width || 50) * 0.025);
   const padY = Math.max(0.5, (b.height || 50) * 0.025);
   const minX = Math.min(b.min_x, b.max_x) - padX;
@@ -1276,20 +1281,33 @@ export function cropRawDataToSheet(fullRaw: any, targetSheet: SheetConfig) {
   const inBox = (x: number, y: number) => x >= minX && x <= maxX && y >= minY && y <= maxY;
 
   const lines = (fullRaw.lines || []).filter(
-    (ln: any) => inBox(ln.start[0], ln.start[1]) && inBox(ln.end[0], ln.end[1])
+    (ln: any) =>
+      ln?.start?.length >= 2 &&
+      ln?.end?.length >= 2 &&
+      inBox(ln.start[0], ln.start[1]) &&
+      inBox(ln.end[0], ln.end[1])
   );
   const polylines = (fullRaw.polylines || []).filter(
-    (pl: any) => pl.points && pl.points.every((pt: any) => inBox(pt[0], pt[1]))
+    (pl: any) =>
+      Array.isArray(pl?.points) &&
+      pl.points.length > 0 &&
+      pl.points.every((pt: any) => pt?.length >= 2 && inBox(pt[0], pt[1]))
   );
   const arcs_circles = (fullRaw.arcs_circles || []).filter(
-    (ac: any) => inBox(ac.center[0], ac.center[1])
+    (ac: any) => ac?.center?.length >= 2 && inBox(ac.center[0], ac.center[1])
   );
-  const texts = (fullRaw.texts || []).filter((t: any) => inBox(t.x, t.y));
+  const texts = (fullRaw.texts || []).filter(
+    (t: any) => typeof t?.x === 'number' && typeof t?.y === 'number' && inBox(t.x, t.y)
+  );
   const hatches = (fullRaw.hatches || []).filter(
-    (h: any) => h.points && inBox(h.points[0][0], h.points[0][1])
+    (h: any) =>
+      Array.isArray(h?.points) &&
+      h.points.length > 0 &&
+      h.points[0]?.length >= 2 &&
+      inBox(h.points[0][0], h.points[0][1])
   );
   const inserts = (fullRaw.inserts || []).filter(
-    (ins: any) => ins.pos && inBox(ins.pos[0], ins.pos[1])
+    (ins: any) => ins?.pos?.length >= 2 && inBox(ins.pos[0], ins.pos[1])
   );
 
   const layerCounts: Record<string, number> = {};
